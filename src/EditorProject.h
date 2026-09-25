@@ -4,6 +4,7 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVector>
+#include <QSet>
 
 class EditorProject final : public QObject
 {
@@ -21,6 +22,8 @@ class EditorProject final : public QObject
     Q_PROPERTY(bool canExport READ canExport NOTIFY changed)
     Q_PROPERTY(bool hasMedia READ hasMedia NOTIFY changed)
     Q_PROPERTY(bool dirty READ dirty NOTIFY changed)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY changed)
+    Q_PROPERTY(bool canRedo READ canRedo NOTIFY changed)
     Q_PROPERTY(QString errorText READ errorText NOTIFY errorTextChanged)
 
 public:
@@ -39,6 +42,8 @@ public:
     bool canExport() const;
     bool hasMedia() const;
     bool dirty() const;
+    bool canUndo() const;
+    bool canRedo() const;
     QString errorText() const;
 
     Q_INVOKABLE bool importMedia(const QUrl &url);
@@ -46,6 +51,9 @@ public:
     Q_INVOKABLE bool selectClip(int index);
     Q_INVOKABLE bool splitAt(qint64 positionMs);
     Q_INVOKABLE bool moveClip(int index, int direction);
+    Q_INVOKABLE bool moveClipTo(int from, int to);
+    Q_INVOKABLE bool setClipRange(int index, qint64 inMs, qint64 outMs);
+    Q_INVOKABLE bool duplicateClip(int index);
     Q_INVOKABLE bool removeClip(int index);
     Q_INVOKABLE bool openProject(const QUrl &url);
     Q_INVOKABLE bool saveProject(const QUrl &url = {});
@@ -54,6 +62,8 @@ public:
     Q_INVOKABLE void setOutMs(qint64 value);
     Q_INVOKABLE void moveRange(qint64 deltaMs);
     Q_INVOKABLE void clearError();
+    Q_INVOKABLE bool undo();
+    Q_INVOKABLE bool redo();
 
 signals:
     void changed();
@@ -71,10 +81,26 @@ private:
     bool validMedia(const QUrl &url);
     void setError(const QString &message);
     void markChanged();
+    // History: every edit that goes through markChanged() is one undo step.
+    // Opening or importing starts a fresh history; metadata discovery
+    // (probed durations) updates the baseline without adding a step.
+    struct Snapshot {
+        QVector<Clip> clips;
+        int activeIndex = -1;
+    };
+    Snapshot snapshot() const;
+    void restore(const Snapshot &state);
+    void resetHistory();
+    void probeDurations();
+    void applyProbedDuration(const QUrl &url, qint64 durationMs);
 
     QVector<Clip> m_clips;
     int m_activeClipIndex = -1;
     QUrl m_projectUrl;
     bool m_dirty = false;
     QString m_errorText;
+    QSet<QUrl> m_probing;
+    QVector<Snapshot> m_undo;
+    QVector<Snapshot> m_redo;
+    Snapshot m_baseline;
 };

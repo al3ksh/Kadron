@@ -17,6 +17,7 @@ class LocalMediaTools final : public QObject
 
 public:
     explicit LocalMediaTools(QObject *parent = nullptr);
+    ~LocalMediaTools() override;
     bool available() const;
     bool busy() const;
     QString stage() const;

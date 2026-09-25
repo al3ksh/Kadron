@@ -3,19 +3,26 @@
 #include "ThumbnailStrip.h"
 #include "ToolsClient.h"
 #include "LocalMediaTools.h"
-#include "RemoteJobsClient.h"
+#include "LocalDownload.h"
+#include "LocalPdfTools.h"
+#include "LocalQr.h"
+#include "WindowChrome.h"
 
 #include <QGuiApplication>
+#include <QStyleHints>
 #include <QFileInfo>
 #include <QFile>
 #include <QFont>
 #include <QIcon>
 #include <QQmlApplicationEngine>
+#include <QQmlExtensionPlugin>
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QTimer>
 #include <QTextStream>
+
+Q_IMPORT_QML_PLUGIN(KadronPlugin)
 
 static void fileMessageHandler(QtMsgType, const QMessageLogContext &, const QString &message)
 {
@@ -36,23 +43,30 @@ int main(int argc, char *argv[])
     app.setFont(QFont(QStringLiteral("Segoe UI"), 10));
     app.setWindowIcon(QIcon(QStringLiteral(":/assets/kadron-mark.png")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+    app.styleHints()->setColorScheme(Qt::ColorScheme::Dark);
 
     EditorProject project;
     ExportController exporter;
     ThumbnailStrip thumbnails;
     ToolsClient toolsClient;
     LocalMediaTools localTools;
-    RemoteJobsClient remoteJobs(&toolsClient);
+    LocalDownload localDownload;
+    LocalPdfTools localPdf;
+    LocalQr localQr;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("editorProject", &project);
     engine.rootContext()->setContextProperty("exporter", &exporter);
     engine.rootContext()->setContextProperty("thumbnails", &thumbnails);
     engine.rootContext()->setContextProperty("toolsClient", &toolsClient);
     engine.rootContext()->setContextProperty("localTools", &localTools);
-    engine.rootContext()->setContextProperty("remoteJobs", &remoteJobs);
+    engine.rootContext()->setContextProperty("localDownload", &localDownload);
+    engine.rootContext()->setContextProperty("localPdf", &localPdf);
+    engine.rootContext()->setContextProperty("localQr", &localQr);
+    engine.addImageProvider(QStringLiteral("qr"), new QrImageProvider(&localQr));
     engine.loadFromModule("Kadron", "Main");
     if (engine.rootObjects().isEmpty())
         return 1;
+    applyWindowChrome(qobject_cast<QWindow *>(engine.rootObjects().first()));
 
     const auto arguments = app.arguments();
     if (arguments.size() > 1 && !arguments.at(1).startsWith("--")) {
@@ -79,6 +93,33 @@ int main(int argc, char *argv[])
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_SEQUENCE_PREVIEW")) {
             QTimer::singleShot(500, &app, [&engine] {
                 QMetaObject::invokeMethod(engine.rootObjects().first(), "previewSequence");
+            });
+        }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_SEEK_MS")) {
+            const auto position = qEnvironmentVariableIntValue("KADRON_SCREENSHOT_SEEK_MS");
+            QTimer::singleShot(650, &app, [&engine, position] {
+                if (auto *player = engine.rootObjects().first()->findChild<QObject *>("editorPlayer"))
+                    player->setProperty("position", position);
+            });
+        }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_CLOSE")) {
+            QTimer::singleShot(400, &app, [&engine] {
+                if (auto *dialog = engine.rootObjects().first()->findChild<QObject *>("quitDialog"))
+                    QMetaObject::invokeMethod(dialog, "open");
+            });
+        }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_TEXT")) {
+            const auto text = qEnvironmentVariable("KADRON_SCREENSHOT_TEXT");
+            QTimer::singleShot(300, &app, [&engine, text] {
+                if (auto *tools = engine.rootObjects().first()->findChild<QObject *>("toolsArea"))
+                    QMetaObject::invokeMethod(tools, "fillText", Q_ARG(QVariant, text));
+            });
+        }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_GIF_SOURCE")) {
+            const auto source = QUrl::fromLocalFile(QFileInfo(qEnvironmentVariable("KADRON_SCREENSHOT_GIF_SOURCE")).absoluteFilePath());
+            QTimer::singleShot(300, &app, [&engine, source] {
+                if (auto *tools = engine.rootObjects().first()->findChild<QObject *>("toolsArea"))
+                    tools->setProperty("sourceUrl", source);
             });
         }
         const auto screenshotDelay = qEnvironmentVariableIntValue("KADRON_SCREENSHOT_DELAY_MS");

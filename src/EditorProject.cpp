@@ -8,6 +8,8 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QtGlobal>
+#include <QProcess>
+#include "MediaTools.h"
 
 EditorProject::EditorProject(QObject *parent) : QObject(parent) {}
 
@@ -31,6 +33,45 @@ int EditorProject::clipCount() const { return m_clips.size(); }
 int EditorProject::activeClipIndex() const { return m_activeClipIndex; }
 bool EditorProject::hasMedia() const { return active() != nullptr; }
 bool EditorProject::dirty() const { return m_dirty; }
+bool EditorProject::canUndo() const { return !m_undo.isEmpty(); }
+bool EditorProject::canRedo() const { return !m_redo.isEmpty(); }
+
+EditorProject::Snapshot EditorProject::snapshot() const { return {m_clips, m_activeClipIndex}; }
+
+void EditorProject::restore(const Snapshot &state)
+{
+    m_clips = state.clips;
+    m_activeClipIndex = state.activeIndex;
+    m_baseline = state;
+    m_dirty = true;
+    clearError();
+    emit changed();
+}
+
+void EditorProject::resetHistory()
+{
+    m_undo.clear();
+    m_redo.clear();
+    m_baseline = snapshot();
+}
+
+bool EditorProject::undo()
+{
+    if (m_undo.isEmpty())
+        return false;
+    m_redo.append(snapshot());
+    restore(m_undo.takeLast());
+    return true;
+}
+
+bool EditorProject::redo()
+{
+    if (m_redo.isEmpty())
+        return false;
+    m_undo.append(snapshot());
+    restore(m_redo.takeLast());
+    return true;
+}
 QString EditorProject::errorText() const { return m_errorText; }
 
 QVariantList EditorProject::clips() const
@@ -82,6 +123,11 @@ void EditorProject::clearError() { setError({}); }
 void EditorProject::markChanged()
 {
     m_dirty = true;
+    m_undo.append(m_baseline);
+    if (m_undo.size() > 200)
+        m_undo.removeFirst();
+    m_redo.clear();
+    m_baseline = snapshot();
     emit changed();
 }
 
@@ -102,6 +148,8 @@ bool EditorProject::importMedia(const QUrl &url)
     m_activeClipIndex = 0;
     m_projectUrl = QUrl();
     markChanged();
+    resetHistory();
+    probeDurations();
     return true;
 }
 
@@ -122,6 +170,7 @@ bool EditorProject::appendMedia(const QUrl &url)
     m_activeClipIndex = m_clips.size() - 1;
     clearError();
     markChanged();
+    probeDurations();
     return true;
 }
 
@@ -240,8 +289,10 @@ bool EditorProject::openProject(const QUrl &url)
     m_activeClipIndex = qBound(0, object.value("activeIndex").toInt(), m_clips.size() - 1);
     m_projectUrl = QUrl::fromLocalFile(projectFile.absoluteFilePath());
     m_dirty = false;
+    resetHistory();
     clearError();
     emit changed();
+    probeDurations();
     return true;
 }
 
@@ -286,7 +337,9 @@ void EditorProject::setDurationMs(qint64 value)
     clip->durationMs = value;
     clip->inMs = qBound<qint64>(0, clip->inMs, value);
     clip->outMs = oldDuration == 0 || clip->outMs == oldDuration ? value : qBound(clip->inMs, clip->outMs, value);
-    markChanged();
+    m_dirty = true;
+    m_baseline = snapshot();
+    emit changed();
 }
 
 void EditorProject::setInMs(qint64 value)
@@ -324,4 +377,108 @@ void EditorProject::moveRange(qint64 deltaMs)
     clip->inMs += clamped;
     clip->outMs += clamped;
     markChanged();
+}
+
+bool EditorProject::moveClipTo(int from, int to)
+{
+    if (from < 0 || from >= m_clips.size() || to < 0 || to >= m_clips.size())
+        return false;
+    if (from == to)
+        return true;
+    const auto activeUrlIndex = m_activeClipIndex;
+    m_clips.move(from, to);
+    if (activeUrlIndex == from)
+        m_activeClipIndex = to;
+    else if (from < activeUrlIndex && to >= activeUrlIndex)
+        --m_activeClipIndex;
+    else if (from > activeUrlIndex && to <= activeUrlIndex)
+        ++m_activeClipIndex;
+    clearError();
+    markChanged();
+    return true;
+}
+
+bool EditorProject::setClipRange(int index, qint64 inMs, qint64 outMs)
+{
+    if (index < 0 || index >= m_clips.size())
+        return false;
+    auto &clip = m_clips[index];
+    if (clip.durationMs <= 0)
+        return false;
+    const auto minimum = qMin<qint64>(100, clip.durationMs);
+    inMs = qBound<qint64>(0, inMs, clip.durationMs - minimum);
+    outMs = qBound<qint64>(inMs + minimum, outMs, clip.durationMs);
+    if (clip.inMs == inMs && clip.outMs == outMs)
+        return true;
+    clip.inMs = inMs;
+    clip.outMs = outMs;
+    clearError();
+    markChanged();
+    return true;
+}
+
+bool EditorProject::duplicateClip(int index)
+{
+    if (index < 0 || index >= m_clips.size())
+        return false;
+    m_clips.insert(index + 1, m_clips.at(index));
+    m_activeClipIndex = index + 1;
+    clearError();
+    markChanged();
+    return true;
+}
+
+void EditorProject::probeDurations()
+{
+    const auto ffprobe = ffprobeExecutable();
+    if (ffprobe.isEmpty())
+        return;
+    for (const auto &clip : std::as_const(m_clips)) {
+        if (clip.durationMs > 0 || m_probing.contains(clip.mediaUrl))
+            continue;
+        const auto url = clip.mediaUrl;
+        m_probing.insert(url);
+        auto *process = new QProcess(this);
+        connect(process, &QProcess::finished, this, [this, process, url](int code, QProcess::ExitStatus status) {
+            m_probing.remove(url);
+            const auto text = QString::fromUtf8(process->readAllStandardOutput()).trimmed();
+            process->deleteLater();
+            bool ok = false;
+            const auto seconds = text.section('\n', 0, 0).toDouble(&ok);
+            if (code == 0 && status == QProcess::NormalExit && ok && seconds > 0)
+                applyProbedDuration(url, qRound64(seconds * 1000.0));
+        });
+        connect(process, &QProcess::errorOccurred, this, [this, process, url](QProcess::ProcessError error) {
+            if (error != QProcess::FailedToStart)
+                return;
+            m_probing.remove(url);
+            process->deleteLater();
+        });
+        process->start(ffprobe, {"-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", url.toLocalFile()});
+    }
+}
+
+void EditorProject::applyProbedDuration(const QUrl &url, qint64 durationMs)
+{
+    bool touched = false;
+    for (auto &clip : m_clips) {
+        if (clip.mediaUrl != url || clip.durationMs > 0)
+            continue;
+        clip.durationMs = durationMs;
+        clip.inMs = qBound<qint64>(0, clip.inMs, durationMs);
+        clip.outMs = clip.outMs <= clip.inMs ? durationMs : qBound(clip.inMs, clip.outMs, durationMs);
+        touched = true;
+    }
+    if (touched) {
+        // Durations are facts about the media, not edits: fold them into history.
+        m_baseline = snapshot();
+        for (auto *stack : {&m_undo, &m_redo})
+            for (auto &state : *stack)
+                for (auto &clip : state.clips)
+                    if (clip.mediaUrl == url && clip.durationMs <= 0) {
+                        clip.durationMs = durationMs;
+                        clip.outMs = clip.outMs <= clip.inMs ? durationMs : qMin(clip.outMs, durationMs);
+                    }
+        emit changed();
+    }
 }

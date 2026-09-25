@@ -4,7 +4,7 @@ import QtQuick.Controls
 CheckBox {
     id: control
     implicitHeight: 36
-    font.family: "Segoe UI"
+    font.family: Theme.fontFamily
     font.pixelSize: 12
     indicator: Rectangle {
         width: 18
@@ -12,21 +12,25 @@ CheckBox {
         radius: 5
         x: 0
         y: (control.height - height) / 2
-        color: control.checked ? "#c9f27a" : "#20262b"
-        border.color: control.checked ? "#c9f27a" : "#77818a"
+        color: control.checked ? Theme.accent : Theme.field
+        border.color: control.checked ? Theme.accent : Theme.textFaint
+        Behavior on color { ColorAnimation { duration: Theme.fadeFast } }
         Text {
             anchors.centerIn: parent
+            scale: control.checked ? 1 : 0.4
+            Behavior on scale { SnapSpring {} }
             text: "\u2713"
-            color: "#19220f"
+            color: Theme.accentInk
             font.pixelSize: 14
             font.weight: Font.Bold
-            visible: control.checked
+            opacity: control.checked ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Theme.fadeFast } }
         }
     }
     contentItem: Text {
         leftPadding: 27
         text: control.text
-        color: control.enabled ? "#e3e8e5" : "#8b949b"
+        color: control.enabled ? Theme.textSoft : Theme.textFaint
         font: control.font
         verticalAlignment: Text.AlignVCenter
     }

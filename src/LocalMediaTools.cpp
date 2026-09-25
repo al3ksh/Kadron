@@ -26,6 +26,15 @@ LocalMediaTools::LocalMediaTools(QObject *parent)
     });
 }
 
+LocalMediaTools::~LocalMediaTools()
+{
+    if (m_process.state() != QProcess::NotRunning) {
+        m_process.kill();
+        m_process.waitForFinished(5000);
+    }
+    discardPartial();
+}
+
 bool LocalMediaTools::available() const { return !m_ffmpeg.isEmpty() && !m_ffprobe.isEmpty(); }
 bool LocalMediaTools::busy() const { return m_operation != Operation::None; }
 QString LocalMediaTools::stage() const { return m_stage; }

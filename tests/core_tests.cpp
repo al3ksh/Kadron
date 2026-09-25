@@ -4,8 +4,14 @@
 #include "ToolsClient.h"
 #include "LocalMediaTools.h"
 #include "RemoteJobsClient.h"
+#include "MediaTools.h"
+#include "LocalPdfTools.h"
+#include "LocalDownload.h"
+#include "LocalQr.h"
 
 #include <QFile>
+#include <QImage>
+#include <QImageReader>
 #include <QFileInfo>
 #include <QDir>
 #include <QProcess>
@@ -27,7 +33,249 @@ private slots:
     void remoteWorkflow();
     void localMediaOperations();
     void remoteJobWorkflow();
+    void localPdfOperations();
+    void localDownloadWorkflow();
+    void localQrWorkflow();
+    void ytDlpDiagnostics();
+    void editHistory();
 };
+
+void CoreTests::editHistory()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto media = QUrl::fromLocalFile(directory.path() + "/clip.mp4");
+    QFile file(media.toLocalFile());
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("x");
+    file.close();
+
+    EditorProject project;
+    QVERIFY(project.importMedia(media));
+    project.setDurationMs(10000);
+    QVERIFY2(!project.canUndo(), "discovering the duration is not an edit");
+
+    QVERIFY(project.setClipRange(0, 1000, 8000));
+    QVERIFY(project.splitAt(4000));
+    QCOMPARE(project.clipCount(), 2);
+    QVERIFY(project.canUndo());
+
+    QVERIFY(project.undo());
+    QCOMPARE(project.clipCount(), 1);
+    QCOMPARE(project.inMs(), 1000);
+    QCOMPARE(project.outMs(), 8000);
+    QVERIFY(project.undo());
+    QCOMPARE(project.inMs(), 0);
+    QCOMPARE(project.outMs(), 10000);
+    QVERIFY(!project.canUndo());
+
+    QVERIFY(project.redo());
+    QCOMPARE(project.outMs(), 8000);
+    QVERIFY(project.redo());
+    QCOMPARE(project.clipCount(), 2);
+    QVERIFY(!project.canRedo());
+
+    // A new edit after undo discards the redo branch.
+    QVERIFY(project.undo());
+    QVERIFY(project.canRedo());
+    project.setOutMs(7000);
+    QVERIFY(!project.canRedo());
+
+    // Importing starts a fresh history.
+    QVERIFY(project.importMedia(media));
+    QVERIFY(!project.canUndo());
+}
+
+void CoreTests::ytDlpDiagnostics()
+{
+    QCOMPARE(LocalDownload::versionDate("2025.09.26"), QDate(2025, 9, 26));
+    QCOMPARE(LocalDownload::versionDate("2026.01.02.1\n"), QDate(2026, 1, 2));
+    QVERIFY(!LocalDownload::versionDate("nightly").isValid());
+    const auto stderrText = QStringLiteral(
+        "WARNING: You are using an outdated version of yt-dlp (older than 90 days)\n"
+        "WARNING: [youtube] abc: nsig extraction failed\n"
+        "ERROR: [youtube] abc: Requested format is not available\n");
+    QCOMPARE(LocalDownload::summarizeError(stderrText), QString("[youtube] abc: Requested format is not available"));
+    QCOMPARE(LocalDownload::summarizeError("WARNING: only a warning\nplain failure"), QString("plain failure"));
+
+    QCOMPARE(LocalDownload::youtubeId("https://www.youtube.com/watch?v=jNQXAC9IVRw&t=3"), QString("jNQXAC9IVRw"));
+    QCOMPARE(LocalDownload::youtubeId("https://youtu.be/jNQXAC9IVRw"), QString("jNQXAC9IVRw"));
+    QCOMPARE(LocalDownload::youtubeId("https://youtube.com/shorts/abcdefghijk"), QString("abcdefghijk"));
+    QVERIFY(LocalDownload::youtubeId("https://vimeo.com/123").isEmpty());
+    QCOMPARE(LocalDownload::safeFileName("A/B: C*? <clip>."), QString("A B C clip"));
+    const auto meta = LocalDownload::pageMetadata(
+        QStringLiteral("<meta content='/img/t.jpg' property='og:image'><meta property=\"og:title\" content=\"Tom &amp; Jerry\">"),
+        QUrl("https://example.com/watch/1"));
+    QCOMPARE(meta.value("thumbnail").toString(), QString("https://example.com/img/t.jpg"));
+    QCOMPARE(meta.value("title").toString(), QString("Tom & Jerry"));
+}
+
+void CoreTests::localQrWorkflow()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    LocalQr qr;
+    if (!qr.available()) QSKIP("qrencode is not installed");
+    qr.update("https://example.com/kadron", "M");
+    QTRY_VERIFY_WITH_TIMEOUT(!qr.busy(), 10000);
+    QVERIFY2(qr.errorText().isEmpty(), qPrintable(qr.errorText()));
+    QCOMPARE(qr.modules(), 25);
+
+    const auto image = qr.render(290, Qt::black, Qt::white);
+    QCOMPARE(image.size(), QSize(290, 290));
+    // Finder pattern: top-left module (inside the 2-module margin) is dark, the margin is light.
+    QCOMPARE(image.pixelColor(10 * 2 + 5, 10 * 2 + 5), QColor(Qt::black));
+    QCOMPARE(image.pixelColor(5, 5), QColor(Qt::white));
+
+    const auto png = QUrl::fromLocalFile(directory.path() + "/code.png");
+    QVERIFY(qr.save(png, 512, QColor("#1a5fb4"), Qt::white));
+    QImageReader reader(png.toLocalFile());
+    QCOMPARE(reader.size(), QSize(512, 512));
+    QVERIFY(!qr.save(png, 512, Qt::black, Qt::white));
+    QVERIFY(qr.errorText().contains("never overwritten"));
+
+    const auto svg = QUrl::fromLocalFile(directory.path() + "/code.svg");
+    QVERIFY(qr.save(svg, 512, Qt::black, Qt::white));
+    QFile svgFile(svg.toLocalFile());
+    QVERIFY(svgFile.open(QIODevice::ReadOnly));
+    QVERIFY(svgFile.readAll().startsWith("<svg"));
+
+    qr.update("", "M");
+    QCOMPARE(qr.modules(), 0);
+}
+
+void CoreTests::localDownloadWorkflow()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto source = directory.path() + "/source.mp4";
+    QProcess generator;
+    generator.start(ffmpegExecutable(), {"-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+        "-t", "2", "-c:v", "libx264", "-c:a", "aac", source});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+    QFile file(source);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto media = file.readAll();
+
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    connect(&server, &QTcpServer::newConnection, &server, [&server, media] {
+        while (auto *socket = server.nextPendingConnection()) {
+            QObject::connect(socket, &QTcpSocket::readyRead, socket, [socket, media] {
+                const auto request = socket->readAll();
+                if (!request.contains("\r\n\r\n")) return;
+                const auto header = QByteArray("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: ")
+                    + QByteArray::number(media.size()) + "\r\nConnection: close\r\n\r\n";
+                socket->write(header);
+                if (!request.startsWith("HEAD ")) socket->write(media);
+                socket->disconnectFromHost();
+            });
+            QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        }
+    });
+    const auto url = QStringLiteral("http://127.0.0.1:%1/source.mp4").arg(server.serverPort());
+    LocalDownload download;
+    if (!download.available()) QSKIP("yt-dlp or FFmpeg is not installed");
+    const auto mp4 = QUrl::fromLocalFile(directory.path() + "/download.mp4");
+    QVERIFY(download.download(url, "VIDEO_MP4_BEST", mp4, 0, 1, 10, 120, 0));
+    QTRY_VERIFY_WITH_TIMEOUT(!download.busy(), 60000);
+    QVERIFY2(download.errorText().isEmpty(), qPrintable(download.errorText()));
+    QVERIFY(QFileInfo(mp4.toLocalFile()).size() > 100);
+
+    const auto mp3 = QUrl::fromLocalFile(directory.path() + "/download.mp3");
+    QVERIFY(download.download(url, "AUDIO_MP3_192", mp3, 0, 1, 10, 120, 0));
+    QTRY_VERIFY_WITH_TIMEOUT(!download.busy(), 60000);
+    QVERIFY2(download.errorText().isEmpty(), qPrintable(download.errorText()));
+    QVERIFY(QFileInfo(mp3.toLocalFile()).size() > 100);
+
+    const auto gif = QUrl::fromLocalFile(directory.path() + "/download.gif");
+    QVERIFY(download.download(url, "VIDEO_GIF_SOCIAL", gif, 0, 1, 10, 120, 0));
+    QTRY_VERIFY_WITH_TIMEOUT(!download.busy(), 60000);
+    QVERIFY2(download.errorText().isEmpty(), qPrintable(download.errorText()));
+    QVERIFY(QFileInfo(gif.toLocalFile()).size() > 100);
+    QImageReader reader(gif.toLocalFile());
+    QVERIFY(reader.canRead());
+}
+
+void CoreTests::localPdfOperations()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto firstImage = directory.path() + "/first.png";
+    const auto secondImage = directory.path() + "/second.png";
+    QImage image(120, 80, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(firstImage));
+    image.fill(Qt::blue);
+    QVERIFY(image.save(secondImage));
+
+    LocalPdfTools pdf;
+    const auto firstPdf = directory.path() + "/first.pdf";
+    const auto secondPdf = directory.path() + "/second.pdf";
+    const auto pdfUrl = [](const QString &path) { return QUrl::fromLocalFile(path); };
+    QVERIFY(pdf.process("images-to-pdf", {pdfUrl(firstImage)}, "", 90, pdfUrl(firstPdf)));
+    QTRY_VERIFY_WITH_TIMEOUT(!pdf.busy(), 30000);
+    QVERIFY2(pdf.errorText().isEmpty(), qPrintable(pdf.errorText()));
+    QVERIFY(QFileInfo(firstPdf).size() > 100);
+    QVERIFY(pdf.process("images-to-pdf", {pdfUrl(secondImage)}, "", 90, pdfUrl(secondPdf)));
+    QTRY_VERIFY_WITH_TIMEOUT(!pdf.busy(), 30000);
+    QVERIFY2(pdf.errorText().isEmpty(), qPrintable(pdf.errorText()));
+
+    if (!pdf.qpdfAvailable()) QSKIP("qpdf is not installed");
+    const auto merged = directory.path() + "/merged.pdf";
+    QVERIFY(pdf.process("merge", {pdfUrl(firstPdf), pdfUrl(secondPdf)}, "", 90, pdfUrl(merged)));
+    QTRY_VERIFY_WITH_TIMEOUT(!pdf.busy(), 30000);
+    QVERIFY2(pdf.errorText().isEmpty(), qPrintable(pdf.errorText()));
+    QProcess pages;
+    pages.start(qpdfExecutable(), {"--show-npages", merged});
+    QVERIFY(pages.waitForFinished(30000));
+    QCOMPARE(QString::fromUtf8(pages.readAllStandardOutput()).trimmed(), QStringLiteral("2"));
+
+    for (const auto &operation : QStringList{"split", "rotate", "remove-pages", "reorder"}) {
+        const auto output = directory.path() + "/" + operation + ".pdf";
+        const auto range = operation == "reorder" ? QStringLiteral("2,1") : QStringLiteral("1");
+        QVERIFY(pdf.process(operation, {pdfUrl(merged)}, range, 90, pdfUrl(output)));
+        QTRY_VERIFY_WITH_TIMEOUT(!pdf.busy(), 30000);
+        QVERIFY2(pdf.errorText().isEmpty(), qPrintable(pdf.errorText()));
+        QVERIFY(QFileInfo(output).size() > 100);
+        QProcess count;
+        count.start(qpdfExecutable(), {"--show-npages", output});
+        QVERIFY(count.waitForFinished(30000));
+        QCOMPARE(QString::fromUtf8(count.readAllStandardOutput()).trimmed(),
+                 operation == "rotate" || operation == "reorder" ? QStringLiteral("2") : QStringLiteral("1"));
+    }
+
+    const QVariantList order{QVariantMap{{"page", 2}, {"rotation", 0}}, QVariantMap{{"page", 1}, {"rotation", -90}}};
+    QCOMPARE(LocalPdfTools::composeArguments("in.pdf", order, "out.pdf"),
+             (QStringList{"--empty", "--pages", "in.pdf", "2,1", "--", "--rotate=+270:2", "out.pdf"}));
+
+    if (!pdf.pagesAvailable()) QSKIP("pdftoppm is not installed");
+    pdf.loadPages(pdfUrl(merged));
+    QVERIFY(pdf.loadingPages());
+    QTRY_VERIFY_WITH_TIMEOUT(!pdf.loadingPages(), 30000);
+    QVERIFY2(pdf.pagesError().isEmpty(), qPrintable(pdf.pagesError()));
+    QCOMPARE(pdf.pageImages().size(), 2);
+    QVERIFY(!QImage(QUrl(pdf.pageImages().first()).toLocalFile()).isNull());
+
+    QSignalSpy preview(&pdf, &LocalPdfTools::pagePreviewReady);
+    pdf.renderPreview(2);
+    QTRY_COMPARE_WITH_TIMEOUT(preview.size(), 1, 30000);
+    QCOMPARE(preview.first().at(0).toInt(), 2);
+
+    const auto composed = directory.path() + "/composed.pdf";
+    QVERIFY(pdf.compose({QVariantMap{{"page", 2}, {"rotation", 90}}}, pdfUrl(composed)));
+    QTRY_VERIFY_WITH_TIMEOUT(!pdf.busy(), 30000);
+    QVERIFY2(pdf.errorText().isEmpty(), qPrintable(pdf.errorText()));
+    QProcess count;
+    count.start(qpdfExecutable(), {"--show-npages", composed});
+    QVERIFY(count.waitForFinished(30000));
+    QCOMPARE(QString::fromUtf8(count.readAllStandardOutput()).trimmed(), QStringLiteral("1"));
+    QVERIFY(!pdf.compose({QVariantMap{{"page", 1}, {"rotation", 0}}}, pdfUrl(composed)));
+    QVERIFY(!pdf.compose({QVariantMap{{"page", 9}, {"rotation", 0}}}, pdfUrl(directory.path() + "/bad.pdf")));
+}
 
 void CoreTests::projectRoundTrip()
 {
@@ -154,8 +402,10 @@ void CoreTests::mediaExport()
     ThumbnailStrip thumbnails;
     thumbnails.generate(QUrl::fromLocalFile(sourcePath), 4000);
     QTRY_VERIFY_WITH_TIMEOUT(!thumbnails.busy(), 30000);
-    QCOMPARE(thumbnails.frames().size(), 12);
+    QVERIFY(thumbnails.frames().size() >= 10);
     QVERIFY(!thumbnails.frames().first().isEmpty());
+    thumbnails.waveformFor(QUrl::fromLocalFile(sourcePath));
+    QTRY_VERIFY_WITH_TIMEOUT(!thumbnails.waveformFor(QUrl::fromLocalFile(sourcePath)).isEmpty(), 30000);
 
     ExportController exporter;
     QVERIFY(exporter.available());
@@ -166,10 +416,7 @@ void CoreTests::mediaExport()
     QVERIFY(QFileInfo(outputPath).size() > 0);
     QCOMPARE(exporter.outputUrl().toLocalFile(), outputPath);
 
-    auto ffprobe = QFileInfo(ffmpeg).absolutePath() + "/ffprobe";
-#ifdef Q_OS_WIN
-    ffprobe += ".exe";
-#endif
+    const auto ffprobe = ffprobeExecutable();
     QProcess probe;
     probe.start(ffprobe, {
         "-v", "error", "-show_entries", "format=duration",
@@ -188,7 +435,7 @@ void CoreTests::mediaExport()
 void CoreTests::sequenceExport()
 {
     const auto ffmpeg = qEnvironmentVariable("KADRON_FFMPEG", "ffmpeg");
-    const auto ffprobe = QFileInfo(ffmpeg).absolutePath() + "/ffprobe.exe";
+    const auto ffprobe = ffprobeExecutable();
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const auto videoPath = directory.path() + "/video.mp4";

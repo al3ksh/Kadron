@@ -4,18 +4,18 @@ import QtQuick.Controls
 TextField {
     id: field
     implicitHeight: 39
-    color: "#f1f4ef"
-    placeholderTextColor: "#89939c"
-    selectionColor: "#bde86b"
-    selectedTextColor: "#1a2513"
-    font.family: "Segoe UI"
+    color: Theme.text
+    placeholderTextColor: Theme.textFaint
+    selectionColor: Theme.accent
+    selectedTextColor: Theme.accentInk
+    font.family: Theme.fontFamily
     font.pixelSize: 12
     padding: 9
     background: Rectangle {
         radius: 8
-        color: field.enabled ? "#20262b" : "#252a2e"
+        color: field.enabled ? Theme.field : Theme.disabled
         border.width: field.activeFocus ? 2 : 1
-        border.color: field.activeFocus ? "#c9f27a" : "#404950"
-        Behavior on border.color { ColorAnimation { duration: 140 } }
+        border.color: field.activeFocus ? Theme.accent : Theme.lineStrong
+        Behavior on border.color { ColorAnimation { duration: Theme.fade } }
     }
 }

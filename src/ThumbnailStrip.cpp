@@ -1,95 +1,135 @@
 #include "ThumbnailStrip.h"
 #include "MediaTools.h"
 
+#include <QDir>
 #include <QFileInfo>
+#include <QTimer>
+#include <QtMath>
 
 ThumbnailStrip::ThumbnailStrip(QObject *parent) : QObject(parent) {}
 
 ThumbnailStrip::~ThumbnailStrip()
 {
-    for (auto *process : findChildren<QProcess *>()) {
-        if (process->state() != QProcess::NotRunning) {
-            process->kill();
-            process->waitForFinished(2000);
-        }
+    m_queue.clear();
+    if (m_process && m_process->state() != QProcess::NotRunning) {
+        m_process->kill();
+        m_process->waitForFinished(2000);
     }
 }
 
-QStringList ThumbnailStrip::frames() const { return m_frames; }
-bool ThumbnailStrip::busy() const { return m_busy; }
+int ThumbnailStrip::revision() const { return m_revision; }
+bool ThumbnailStrip::busy() const { return m_process || !m_queue.isEmpty(); }
+
+QStringList ThumbnailStrip::frames() const
+{
+    return m_entries.value(m_lastSource).frames;
+}
 
 void ThumbnailStrip::generate(const QUrl &source, qint64 durationMs)
 {
-    const auto sourcePath = source.toLocalFile();
-    if (!source.isLocalFile() || !QFileInfo(sourcePath).isFile() || durationMs <= 0)
-        return;
-    if (sourcePath == m_sourcePath && durationMs == m_durationMs)
-        return;
-
-    if (m_process && m_process->state() != QProcess::NotRunning)
-        m_process->kill();
-    m_process = nullptr;
-    m_sourcePath = sourcePath;
-    m_durationMs = durationMs;
-    m_frames.clear();
-    for (int i = 0; i < 12; ++i)
-        m_frames.append(QString());
-
-    m_generation = std::make_shared<Generation>();
-    m_generation->directory = std::make_unique<QTemporaryDir>();
-    m_generation->sourcePath = sourcePath;
-    m_generation->durationMs = durationMs;
-    m_busy = !ffmpegExecutable().isEmpty() && m_generation->directory->isValid();
+    m_lastSource = source.toLocalFile();
+    framesFor(source, durationMs);
     emit changed();
-    if (m_busy)
-        startNext();
+}
+
+QStringList ThumbnailStrip::framesFor(const QUrl &source, qint64 durationMs)
+{
+    const auto path = source.toLocalFile();
+    if (!source.isLocalFile() || durationMs <= 0 || !QFileInfo(path).isFile())
+        return {};
+    auto &entry = m_entries[path];
+    if (!entry.framesRequested || entry.durationMs != durationMs) {
+        entry.framesRequested = true;
+        entry.durationMs = durationMs;
+        enqueue(path, Kind::Frames);
+    }
+    return entry.frames;
+}
+
+QString ThumbnailStrip::waveformFor(const QUrl &source)
+{
+    const auto path = source.toLocalFile();
+    if (!source.isLocalFile() || !QFileInfo(path).isFile())
+        return {};
+    auto &entry = m_entries[path];
+    if (!entry.waveformRequested) {
+        entry.waveformRequested = true;
+        enqueue(path, Kind::Waveform);
+    }
+    return entry.waveform;
+}
+
+void ThumbnailStrip::enqueue(const QString &path, Kind kind)
+{
+    for (const auto &job : std::as_const(m_queue))
+        if (job.path == path && job.kind == kind)
+            return;
+    m_queue.append({path, kind});
+    // Never start work (or emit) from inside a QML binding evaluation.
+    QTimer::singleShot(0, this, &ThumbnailStrip::startNext);
 }
 
 void ThumbnailStrip::startNext()
 {
-    const auto generation = m_generation;
-    if (!generation || generation->nextFrame >= m_frames.size()) {
-        m_busy = false;
+    if (m_process || m_queue.isEmpty())
+        return;
+    const auto ffmpeg = ffmpegExecutable();
+    if (ffmpeg.isEmpty() || !m_directory.isValid()) {
+        m_queue.clear();
         emit changed();
         return;
     }
+    const auto job = m_queue.takeFirst();
+    const auto entry = m_entries.value(job.path);
+    const auto prefix = m_directory.path() + QStringLiteral("/s%1").arg(++m_counter, 4, 10, QChar('0'));
+    QStringList arguments{"-hide_banner", "-nostdin", "-loglevel", "error"};
+    int expected = 0;
+    if (job.kind == Kind::Frames) {
+        const auto seconds = qMax(0.1, entry.durationMs / 1000.0);
+        expected = qBound(12, qCeil(seconds * 2.0), 240);
+        if (seconds > 90)
+            arguments << "-skip_frame" << "nokey";
+        arguments << "-i" << job.path
+                  << "-an" << "-sn"
+                  << "-vf" << QStringLiteral("fps=%1,scale=-2:96").arg(expected / seconds, 0, 'f', 6)
+                  << "-frames:v" << QString::number(expected)
+                  << "-q:v" << "6" << "-y" << prefix + "_%04d.jpg";
+    } else {
+        arguments << "-i" << job.path
+                  << "-filter_complex" << "aformat=channel_layouts=mono,showwavespic=s=2400x120:colors=0xffffff:draw=full"
+                  << "-frames:v" << "1" << "-y" << prefix + "_wave.png";
+    }
 
-    const auto index = generation->nextFrame;
-    const auto timeMs = generation->durationMs * index / m_frames.size();
-    const auto output = generation->directory->path() + QString("/frame_%1.jpg").arg(index, 2, 10, QChar('0'));
     auto *process = new QProcess(this);
     m_process = process;
-    process->setProgram(ffmpegExecutable());
-    process->setArguments({
-        "-hide_banner", "-nostdin", "-loglevel", "error",
-        "-ss", QString::number(timeMs / 1000.0, 'f', 3),
-        "-i", generation->sourcePath,
-        "-frames:v", "1", "-vf", "scale=180:-1",
-        "-q:v", "5", "-y", output
-    });
-    connect(process, &QProcess::finished, this, [this, generation, process, index, output](int code, QProcess::ExitStatus status) {
-        if (m_process == process)
-            m_process = nullptr;
+    emit changed();
+    connect(process, &QProcess::finished, this, [this, process, job, prefix](int code, QProcess::ExitStatus status) {
         process->deleteLater();
-        if (generation != m_generation)
-            return;
-        if (code == 0 && status == QProcess::NormalExit && QFileInfo(output).size() > 0) {
-            m_frames[index] = QUrl::fromLocalFile(output).toString();
-            emit changed();
+        m_process = nullptr;
+        auto &entry = m_entries[job.path];
+        const bool ok = code == 0 && status == QProcess::NormalExit;
+        if (job.kind == Kind::Frames) {
+            QStringList frames;
+            const QFileInfo base(prefix);
+            const auto files = QDir(base.absolutePath()).entryInfoList({base.fileName() + "_*.jpg"}, QDir::Files, QDir::Name);
+            for (const auto &file : files)
+                frames.append(QUrl::fromLocalFile(file.absoluteFilePath()).toString());
+            if (ok || !frames.isEmpty())
+                entry.frames = frames;
+        } else if (ok && QFileInfo(prefix + "_wave.png").size() > 0) {
+            entry.waveform = QUrl::fromLocalFile(prefix + "_wave.png").toString();
         }
-        generation->nextFrame++;
+        ++m_revision;
+        emit changed();
         startNext();
     });
-    connect(process, &QProcess::errorOccurred, this, [this, generation, process](QProcess::ProcessError error) {
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart)
             return;
-        if (m_process == process)
-            m_process = nullptr;
         process->deleteLater();
-        if (generation == m_generation) {
-            m_busy = false;
-            emit changed();
-        }
+        m_process = nullptr;
+        emit changed();
+        startNext();
     });
-    process->start();
+    process->start(ffmpeg, arguments);
 }
