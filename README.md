@@ -94,3 +94,7 @@ assets/   Logo and Windows icon
 ```
 
 The interface rules are in [DESIGN.md](DESIGN.md), and scope and constraints are in [PRODUCT.md](PRODUCT.md).
+
+## License
+
+Kadron is free software under the [GNU General Public License v3.0](LICENSE). Copyright © 2026 Aleks Szotek.
