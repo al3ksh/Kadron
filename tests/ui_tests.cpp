@@ -83,6 +83,22 @@ void UiTests::timelineInteractions()
     QTest::keyClick(&window, Qt::Key_Right);
     QVERIFY(seekSpy.count() > 0);
     QVERIFY(qAbs(seekSpy.last().first().toDouble() - 6000.0) < 100);
+
+    timeline->setProperty("playheadMs", 0);
+    seekSpy.clear();
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(20, 15));
+    QTest::mouseMove(&window, QPoint(100, 15));
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(100, 15));
+    QVERIFY(seekSpy.count() > 0);
+    QVERIFY(qAbs(seekSpy.last().first().toDouble() - 1000.0) < 100);
+
+    timeline->setProperty("playheadMs", 10000);
+    seekSpy.clear();
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(780, 15));
+    QTest::mouseMove(&window, QPoint(700, 15));
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(700, 15));
+    QVERIFY(seekSpy.count() > 0);
+    QVERIFY(qAbs(seekSpy.last().first().toDouble() - 9000.0) < 100);
 }
 
 void UiTests::toolControls()

@@ -203,9 +203,10 @@ Item {
 
     Item {
         id: playheadGrip
-        x: Math.max(0, Math.min(timeline.width - width, timeline.fraction(timeline.playheadMs) * timeline.width - width / 2))
+        readonly property real playX: timeline.fraction(timeline.playheadMs) * timeline.width
+        x: Math.max(0, Math.min(timeline.width - width, playX - width / 2))
         y: 0
-        width: 36
+        width: 70
         height: 36
         visible: timeline.durationMs > 0
         activeFocusOnTab: true
@@ -222,32 +223,51 @@ Item {
             }
         }
 
-        Rectangle {
-            x: 13
-            y: 21
-            width: 10
-            height: 10
-            rotation: 45
-            color: "#eebd86"
-        }
-        Rectangle {
-            x: 6
-            y: 2
-            width: 24
-            height: 24
-            radius: 5
-            color: gripMouse.pressed ? "#ffd4a1" : gripMouse.containsMouse ? "#f9c98f" : "#eebd86"
-            border.width: playheadGrip.activeFocus ? 2 : 1
-            border.color: playheadGrip.activeFocus ? "#fff3dd" : "#bc814f"
-            Behavior on color { ColorAnimation { duration: 100 } }
-            Row {
-                anchors.centerIn: parent
-                spacing: 3
-                Repeater {
-                    model: 2
-                    Rectangle { width: 2; height: 10; radius: 1; color: "#65472d" }
-                }
+        Canvas {
+            id: gripShape
+            anchors.fill: parent
+            antialiasing: true
+            property real tipX: playheadGrip.playX - playheadGrip.x
+            property color fillColor: gripMouse.pressed ? "#795436" : gripMouse.containsMouse ? "#66472f" : "#4b392c"
+            property color strokeColor: playheadGrip.activeFocus ? "#fff2d8" : "#eebd86"
+            onTipXChanged: requestPaint()
+            onFillColorChanged: requestPaint()
+            onStrokeColorChanged: requestPaint()
+            onPaint: {
+                var ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                var tip = Math.max(1, Math.min(width - 1, tipX))
+                ctx.beginPath()
+                ctx.moveTo(6, 1)
+                ctx.lineTo(width - 6, 1)
+                ctx.quadraticCurveTo(width - 1, 1, width - 1, 6)
+                ctx.lineTo(width - 1, 23)
+                ctx.lineTo(Math.min(width - 1, tip + 7), 23)
+                ctx.lineTo(tip, 32)
+                ctx.lineTo(Math.max(1, tip - 7), 23)
+                ctx.lineTo(1, 23)
+                ctx.lineTo(1, 6)
+                ctx.quadraticCurveTo(1, 1, 6, 1)
+                ctx.closePath()
+                ctx.fillStyle = fillColor
+                ctx.fill()
+                ctx.lineWidth = playheadGrip.activeFocus ? 2 : 1
+                ctx.strokeStyle = strokeColor
+                ctx.stroke()
             }
+        }
+        Text {
+            x: 5
+            y: 5
+            width: parent.width - 10
+            height: 17
+            text: timeline.timeLabel(timeline.playheadMs)
+            color: "#ffe3bd"
+            font.family: "Segoe UI"
+            font.pixelSize: 12
+            font.weight: Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
         }
         MouseArea {
             id: gripMouse

@@ -17,6 +17,7 @@ A focused post-production desk, not a dashboard. The footage and the current tas
 - Persistent left rail groups the editor, media tasks, utilities, and publishing. The active destination has a filled state; the status at its foot distinguishes local use from server connection.
 - A 68 px command bar names the task, identifies the source/project, and holds the editor's file actions. Export is the sole persistent primary action there.
 - Editor: ordered clip list at left, source monitor and transport in the center, contextual trim/publish inspector at right, timeline across the bottom. Publish remains an explicit destination rather than a second row of editor tabs.
+- The timeline playhead is a draggable timecode flag with a pointer anchored to the exact source position, including the first and last frame. The source playhead may sit outside the selected in/out range while reviewing footage; Play starts from the in point when outside that range.
 - Media tools: a narrower, centered work form with a task-specific heading and concise processing description. Local and server operations are explicitly labeled; results and progress stay with the form.
 - A narrow status strip reports actual work and errors. No permanent animation runs while idle.
 
