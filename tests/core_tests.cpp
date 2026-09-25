@@ -20,6 +20,7 @@ class CoreTests final : public QObject
 
 private slots:
     void projectRoundTrip();
+    void sequenceProject();
     void mediaExport();
     void remoteWorkflow();
     void localMediaOperations();
@@ -70,6 +71,61 @@ void CoreTests::projectRoundTrip()
     reopened.setDurationMs(60);
     reopened.setOutMs(20);
     QCOMPARE(reopened.outMs(), 60);
+}
+
+void CoreTests::sequenceProject()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto firstPath = directory.path() + "/first.mp4";
+    const auto secondPath = directory.path() + "/second.wav";
+    for (const auto &path : {firstPath, secondPath}) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write("fixture") > 0);
+    }
+
+    EditorProject project;
+    QVERIFY(project.importMedia(QUrl::fromLocalFile(firstPath)));
+    project.setDurationMs(5000);
+    project.setInMs(500);
+    project.setOutMs(4000);
+    QVERIFY(project.splitAt(2000));
+    QCOMPARE(project.clipCount(), 2);
+    QCOMPARE(project.activeClipIndex(), 1);
+    QCOMPARE(project.inMs(), 2000);
+    QCOMPARE(project.sequenceDurationMs(), 3500);
+    QVERIFY(project.moveClip(1, -1));
+    QCOMPARE(project.activeClipIndex(), 0);
+    QVERIFY(project.appendMedia(QUrl::fromLocalFile(secondPath)));
+    project.setDurationMs(3000);
+    QCOMPARE(project.clipCount(), 3);
+    QCOMPARE(project.sequenceDurationMs(), 6500);
+    QVERIFY(project.canExport());
+
+    const auto projectPath = directory.path() + "/sequence.kadr";
+    QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
+    EditorProject reopened;
+    QVERIFY(reopened.openProject(QUrl::fromLocalFile(projectPath)));
+    QCOMPARE(reopened.clipCount(), 3);
+    QCOMPARE(reopened.activeClipIndex(), 2);
+    QCOMPARE(reopened.sequenceDurationMs(), 6500);
+    QVERIFY(!reopened.dirty());
+    QVERIFY(reopened.removeClip(1));
+    QCOMPARE(reopened.clipCount(), 2);
+    QVERIFY(reopened.dirty());
+    QVERIFY(!reopened.splitAt(0));
+    QCOMPARE(reopened.clipCount(), 2);
+
+    const auto legacyPath = directory.path() + "/legacy.kadr";
+    QFile legacy(legacyPath);
+    QVERIFY(legacy.open(QIODevice::WriteOnly));
+    QVERIFY(legacy.write(R"({"version":1,"media":"first.mp4","durationMs":5000,"inMs":1000,"outMs":4000})") > 0);
+    legacy.close();
+    QVERIFY(reopened.openProject(QUrl::fromLocalFile(legacyPath)));
+    QCOMPARE(reopened.clipCount(), 1);
+    QCOMPARE(reopened.inMs(), 1000);
+    QCOMPARE(reopened.outMs(), 4000);
 }
 
 void CoreTests::mediaExport()
