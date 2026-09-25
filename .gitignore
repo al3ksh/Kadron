@@ -1,0 +1,10 @@
+build/
+cmake-build-*/
+.vs/
+.vscode/
+*.user
+*.autosave
+*.kadr
+*.part.mp4
+*.part.m4a
+
