@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QPointer>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -23,10 +24,16 @@ signals:
     void changed();
 
 private:
-    void complete(int exitCode, QProcess::ExitStatus status);
+    struct Generation {
+        std::unique_ptr<QTemporaryDir> directory;
+        QString sourcePath;
+        qint64 durationMs = 0;
+        int nextFrame = 0;
+    };
+    void startNext();
 
-    QProcess m_process;
-    std::unique_ptr<QTemporaryDir> m_directory;
+    QPointer<QProcess> m_process;
+    std::shared_ptr<Generation> m_generation;
     QStringList m_frames;
     QString m_sourcePath;
     qint64 m_durationMs = 0;

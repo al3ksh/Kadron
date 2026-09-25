@@ -95,6 +95,17 @@ void ExportController::cancel()
     m_process.kill();
 }
 
+void ExportController::resetResult()
+{
+    if (m_busy)
+        return;
+    m_outputUrl = QUrl();
+    m_errorText.clear();
+    m_stage.clear();
+    m_progress = 0;
+    emit changed();
+}
+
 void ExportController::readProgress()
 {
     m_progressBuffer += m_process.readAllStandardOutput();

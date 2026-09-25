@@ -1,6 +1,7 @@
 #include "EditorProject.h"
 #include "ExportController.h"
 #include "ThumbnailStrip.h"
+#include "ToolsClient.h"
 
 #include <QGuiApplication>
 #include <QFileInfo>
@@ -22,10 +23,12 @@ int main(int argc, char *argv[])
     EditorProject project;
     ExportController exporter;
     ThumbnailStrip thumbnails;
+    ToolsClient toolsClient;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("editorProject", &project);
     engine.rootContext()->setContextProperty("exporter", &exporter);
     engine.rootContext()->setContextProperty("thumbnails", &thumbnails);
+    engine.rootContext()->setContextProperty("toolsClient", &toolsClient);
     engine.loadFromModule("Kadron", "Main");
     if (engine.rootObjects().isEmpty())
         return 1;
@@ -41,6 +44,15 @@ int main(int argc, char *argv[])
 
     const auto screenshotPath = qEnvironmentVariable("KADRON_SCREENSHOT");
     if (!screenshotPath.isEmpty()) {
+        const auto dimensions = qEnvironmentVariable("KADRON_SCREENSHOT_SIZE").split('x');
+        if (dimensions.size() == 2) {
+            if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first())) {
+                window->setWidth(dimensions.at(0).toInt());
+                window->setHeight(dimensions.at(1).toInt());
+            }
+        }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_PUBLISH"))
+            engine.rootObjects().first()->setProperty("inspectorMode", 1);
         QTimer::singleShot(1500, &app, [&app, &engine, screenshotPath] {
             if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first())) {
                 window->grabWindow().save(screenshotPath);

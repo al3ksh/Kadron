@@ -1,10 +1,14 @@
 #include "EditorProject.h"
 #include "ExportController.h"
 #include "ThumbnailStrip.h"
+#include "ToolsClient.h"
 
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTimer>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -15,6 +19,7 @@ class CoreTests final : public QObject
 private slots:
     void projectRoundTrip();
     void mediaExport();
+    void remoteWorkflow();
 };
 
 void CoreTests::projectRoundTrip()
@@ -86,7 +91,8 @@ void CoreTests::mediaExport()
     ThumbnailStrip thumbnails;
     thumbnails.generate(QUrl::fromLocalFile(sourcePath), 4000);
     QTRY_VERIFY_WITH_TIMEOUT(!thumbnails.busy(), 30000);
-    QVERIFY(!thumbnails.frames().isEmpty());
+    QCOMPARE(thumbnails.frames().size(), 12);
+    QVERIFY(!thumbnails.frames().first().isEmpty());
 
     ExportController exporter;
     QVERIFY(exporter.available());
@@ -114,6 +120,112 @@ void CoreTests::mediaExport()
     QVERIFY2(duration > 1.7 && duration < 2.3, qPrintable(QString("Unexpected duration: %1").arg(duration)));
     QVERIFY(!exporter.start(QUrl::fromLocalFile(sourcePath), QUrl::fromLocalFile(outputPath), 1000, 3000));
     QVERIFY(exporter.errorText().contains("already exists"));
+}
+
+void CoreTests::remoteWorkflow()
+{
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    const auto origin = QString("http://127.0.0.1:%1").arg(server.serverPort());
+    QStringList requests;
+    QStringList errors;
+
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+        auto *socket = server.nextPendingConnection();
+        connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+            auto pending = socket->property("pending").toByteArray() + socket->readAll();
+            const auto headerEnd = pending.indexOf("\r\n\r\n");
+            if (headerEnd < 0) {
+                socket->setProperty("pending", pending);
+                return;
+            }
+            const auto header = pending.left(headerEnd);
+            qint64 length = 0;
+            for (const auto &line : header.split('\n')) {
+                if (line.trimmed().toLower().startsWith("content-length:"))
+                    length = line.trimmed().mid(15).trimmed().toLongLong();
+            }
+            const auto body = pending.mid(headerEnd + 4);
+            if (body.size() < length) {
+                socket->setProperty("pending", pending);
+                return;
+            }
+            const auto path = header.split(' ').value(1);
+            requests.append(QString::fromUtf8(path));
+            QJsonObject response;
+            if (path == "/api/health") {
+                response = {{"status", "ok"}};
+            } else if (path == "/api/shorten") {
+                const auto slug = QJsonDocument::fromJson(body).object().value("slug").toString();
+                response = {{"shortUrl", origin + "/s/" + slug}};
+            } else if (path == "/api/drop/upload-chunk" || path == "/api/clip/upload-chunk") {
+                if (!header.contains("Content-Range: bytes ") && !header.contains("content-range: bytes "))
+                    errors.append("Missing Content-Range");
+                if (path == "/api/drop/upload-chunk" && !header.toLower().contains("x-session-id:"))
+                    errors.append("Missing Drop session id");
+                response = {{"received", body.size()}};
+            } else if (path == "/api/drop/finalize") {
+                response = {{"url", origin + "/d/demo"}};
+            } else if (path == "/api/clip/finalize") {
+                response = {{"jobId", "job-demo"}};
+            } else if (path.startsWith("/api/jobs/job-demo?")) {
+                response = {{"status", "done"}, {"outputJson", QJsonObject{{"clip", QJsonObject{{"url", "/c/demo"}}}}}};
+            } else {
+                errors.append(QStringLiteral("Unexpected request: %1").arg(QString::fromUtf8(path)));
+                response = {{"error", "Unexpected request"}};
+            }
+            const auto payload = QJsonDocument(response).toJson(QJsonDocument::Compact);
+            const auto respond = [socket, payload] {
+                if (socket->state() == QAbstractSocket::UnconnectedState)
+                    return;
+                socket->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                              + QByteArray::number(payload.size()) + "\r\nConnection: close\r\n\r\n" + payload);
+                socket->disconnectFromHost();
+            };
+            if (path == "/api/shorten" && body.contains("\"slow\""))
+                QTimer::singleShot(200, socket, respond);
+            else
+                respond();
+        });
+    });
+
+    ToolsClient client;
+    client.setServerUrl(origin);
+    client.testConnection();
+    QTRY_VERIFY_WITH_TIMEOUT(!client.busy(), 10000);
+    QVERIFY(client.connected());
+
+    client.shorten("https://example.org/video", "demo");
+    QTRY_VERIFY_WITH_TIMEOUT(!client.busy(), 10000);
+    QCOMPARE(client.resultUrl().toString(), origin + "/s/demo");
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto filePath = directory.path() + "/source.mp4";
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(QByteArray(1024 * 1024, 'x')), 1024 * 1024);
+    file.close();
+
+    client.publishDrop(QUrl::fromLocalFile(filePath));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.busy(), 10000);
+    QCOMPARE(client.resultUrl().toString(), origin + "/d/demo");
+
+    client.publishClip(QUrl::fromLocalFile(filePath));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.busy(), 10000);
+    QCOMPARE(client.resultUrl().toString(), origin + "/c/demo");
+
+    client.shorten("https://example.org/video", "slow");
+    QTRY_COMPARE_WITH_TIMEOUT(requests.count("/api/shorten"), 2, 5000);
+    client.cancel();
+    client.shorten("https://example.org/video", "fast");
+    QTRY_VERIFY_WITH_TIMEOUT(!client.busy(), 10000);
+    QCOMPARE(client.resultUrl().toString(), origin + "/s/fast");
+    QTest::qWait(250);
+    QCOMPARE(client.resultUrl().toString(), origin + "/s/fast");
+    QVERIFY2(errors.isEmpty(), qPrintable(errors.join("; ")));
+    QCOMPARE(requests.size(), 9);
 }
 
 QTEST_GUILESS_MAIN(CoreTests)

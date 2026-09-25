@@ -25,6 +25,7 @@ public:
 
     Q_INVOKABLE bool start(const QUrl &source, const QUrl &destination, qint64 inMs, qint64 outMs);
     Q_INVOKABLE void cancel();
+    Q_INVOKABLE void resetResult();
 
 signals:
     void changed();

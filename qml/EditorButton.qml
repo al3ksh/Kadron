@@ -5,9 +5,10 @@ Button {
     id: control
     property bool primary: false
     property bool subtle: false
+    property bool danger: false
 
-    implicitHeight: 36
-    implicitWidth: Math.max(82, label.implicitWidth + 30)
+    implicitHeight: 34
+    implicitWidth: Math.max(72, label.implicitWidth + 28)
     padding: 0
     activeFocusOnTab: true
 
@@ -15,20 +16,21 @@ Button {
         id: label
         text: control.text
         font.family: "Segoe UI"
-        font.pixelSize: 13
+        font.pixelSize: 12
         font.weight: control.primary ? Font.DemiBold : Font.Medium
-        color: !control.enabled ? "#707781" : control.primary ? "#101d18" : "#e5e9ed"
+        color: !control.enabled ? "#71787a" : control.primary ? "#142629" : control.danger ? "#e6a9a3" : "#e5e8e7"
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
+        elide: Text.ElideRight
     }
 
     background: Rectangle {
-        radius: 6
-        color: !control.enabled ? "#242a2e"
-             : control.primary ? (control.down ? "#7cc4a7" : control.hovered ? "#a9dfc9" : "#94d2b7")
-             : control.subtle ? (control.hovered || control.down ? "#263034" : "transparent")
-             : control.down ? "#303a40" : control.hovered ? "#354047" : "#283137"
+        radius: 4
+        color: !control.enabled ? "#282b2c"
+             : control.primary ? (control.down ? "#88b5b8" : control.hovered ? "#c0dddd" : "#a9cfd0")
+             : control.subtle ? (control.hovered || control.down ? "#303537" : "transparent")
+             : control.down ? "#303b3d" : control.hovered ? "#383f41" : "#2c3234"
         border.width: control.activeFocus ? 2 : control.primary || control.subtle ? 0 : 1
-        border.color: control.activeFocus ? "#b7e7d1" : "#3d474c"
+        border.color: control.activeFocus ? "#c4e7e8" : "#444c4e"
     }
 }
