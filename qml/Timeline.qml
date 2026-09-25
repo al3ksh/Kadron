@@ -33,10 +33,10 @@ Item {
         y: 0
         width: parent.width
         height: 36
-        radius: 4
-        color: "#292e30"
+        radius: 7
+        color: "#272e34"
         border.width: 1
-        border.color: "#434c4e"
+        border.color: "#3b454b"
 
         Repeater {
             model: 11
@@ -45,7 +45,7 @@ Item {
                 y: 23
                 width: 1
                 height: index % 5 === 0 ? 9 : 5
-                color: "#899596"
+                color: "#77858c"
             }
         }
         MouseArea {
@@ -63,8 +63,8 @@ Item {
             width: 13
             height: 18
             radius: 3
-            color: "#e8b57e"
-            border.color: "#ad7548"
+            color: "#eebd86"
+            border.color: "#bc814f"
             Text {
                 anchors.centerIn: parent
                 text: "|"
@@ -80,7 +80,7 @@ Item {
             x: index / 5 * (timeline.width - implicitWidth)
             y: 41
             text: timeline.timeLabel(timeline.durationMs * index / 5)
-            color: "#a6b0b0"
+            color: "#aab5bc"
             font.family: "Segoe UI"
             font.pixelSize: 11
         }
@@ -92,9 +92,9 @@ Item {
         y: 65
         width: parent.width
         height: 56
-        radius: 4
-        color: "#292d2e"
-        border.color: "#454d4e"
+        radius: 7
+        color: "#282f34"
+        border.color: "#3b454b"
         border.width: 1
         Repeater {
             model: timeline.frames.length
@@ -121,9 +121,9 @@ Item {
             width: Math.max(0, timeline.fraction(timeline.outMs - timeline.inMs) * trimLane.width)
             height: parent.height
             radius: 3
-            color: "#663a7a80"
+            color: "#5d768941"
             border.width: 1
-            border.color: "#9bcdd0"
+            border.color: "#c9f27a"
             opacity: timeline.durationMs > 0 ? 1 : 0
 
             MouseArea {
@@ -138,14 +138,14 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.min(64, Math.max(0, selection.width - 34))
                 height: 20
-                radius: 4
+                radius: 6
                 visible: width >= 30 && (timeline.inMs > 0 || timeline.outMs < timeline.durationMs)
-                color: "#25474b"
-                border.color: "#82b8bb"
+                color: "#303b30"
+                border.color: "#a6cd68"
                 Text {
                     anchors.centerIn: parent
                     text: "MOVE"
-                    color: "#e4f1f1"
+                    color: "#e6f8c8"
                     font.pixelSize: 10
                     font.weight: Font.Bold
                 }
@@ -174,10 +174,10 @@ Item {
             x: Math.max(0, Math.min(trimLane.width - width, timeline.fraction(timeline.inMs) * trimLane.width - width / 2))
             width: 16
             height: parent.height
-            radius: 3
-            color: "#e4ebea"
+            radius: 4
+            color: "#eaf2e2"
             visible: timeline.durationMs > 0
-            Text { anchors.centerIn: parent; text: "I"; color: "#2f5559"; font.pixelSize: 11; font.weight: Font.Bold }
+            Text { anchors.centerIn: parent; text: "I"; color: "#2d3c21"; font.pixelSize: 11; font.weight: Font.Bold }
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.SizeHorCursor
@@ -191,10 +191,10 @@ Item {
             x: Math.max(0, Math.min(trimLane.width - width, timeline.fraction(timeline.outMs) * trimLane.width - width / 2))
             width: 16
             height: parent.height
-            radius: 3
-            color: "#e4ebea"
+            radius: 4
+            color: "#eaf2e2"
             visible: timeline.durationMs > 0
-            Text { anchors.centerIn: parent; text: "O"; color: "#2f5559"; font.pixelSize: 11; font.weight: Font.Bold }
+            Text { anchors.centerIn: parent; text: "O"; color: "#2d3c21"; font.pixelSize: 11; font.weight: Font.Bold }
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.SizeHorCursor
@@ -209,7 +209,7 @@ Item {
         x: 0
         y: 126
         text: "IN  " + timeLabel(inMs)
-        color: "#b8d8d9"
+        color: "#c8dbba"
         font.pixelSize: 11
         font.family: "Segoe UI"
     }
@@ -217,7 +217,7 @@ Item {
         anchors.right: parent.right
         y: 126
         text: "OUT  " + timeLabel(outMs)
-        color: "#b8d8d9"
+        color: "#c8dbba"
         font.pixelSize: 11
         font.family: "Segoe UI"
     }

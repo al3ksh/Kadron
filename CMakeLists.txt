@@ -26,6 +26,11 @@ qt_add_executable(kadron
     src/RemoteJobsClient.h
 )
 
+qt_add_resources(kadron "kadron_assets" PREFIX "/" FILES assets/kadron-mark.png)
+if(WIN32)
+    target_sources(kadron PRIVATE assets/kadron.rc)
+endif()
+
 qt_add_qml_module(kadron
     URI Kadron
     VERSION 1.0
@@ -37,6 +42,10 @@ qt_add_qml_module(kadron
         qml/ToolsWorkspace.qml
         qml/ToolCombo.qml
         qml/ToolCheck.qml
+        qml/BrandMark.qml
+        qml/ToolIcon.qml
+        qml/NavItem.qml
+        qml/StudioProgress.qml
 )
 
 target_link_libraries(kadron PRIVATE

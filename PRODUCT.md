@@ -4,7 +4,7 @@
 
 ## Platform
 
-Adaptive native desktop interface for Windows, macOS, and Linux. Windows is the only platform built and tested so far. Mobile is an open future decision.
+adaptive
 
 ## Stack
 
@@ -20,6 +20,7 @@ Assemble, preview, trim, and process media locally with visible progress. Downlo
 
 ## Capabilities and Constraints
 
+- The native desktop interface targets Windows, macOS, and Linux. Only Windows is built and tested so far; mobile remains a future decision.
 - Local files remain local until the user starts a share operation.
 - The editor assembles an ordered sequence of local video or audio clips. Each clip has its own trim range; a clip can be split and reordered. Preview advances across the entire sequence. Project format v2 preserves the sequence and can open legacy v1 projects.
 - MP4 sequence export normalizes canvas, frame rate, video and audio codecs before joining clips. Audio-only clips render over black, and silent video gets a silent audio track. This is a single-track sequence, not multitrack editing; effects, transitions, audio mixing, and GIF editing remain future work.

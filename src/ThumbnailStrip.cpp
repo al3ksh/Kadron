@@ -5,6 +5,16 @@
 
 ThumbnailStrip::ThumbnailStrip(QObject *parent) : QObject(parent) {}
 
+ThumbnailStrip::~ThumbnailStrip()
+{
+    for (auto *process : findChildren<QProcess *>()) {
+        if (process->state() != QProcess::NotRunning) {
+            process->kill();
+            process->waitForFinished(2000);
+        }
+    }
+}
+
 QStringList ThumbnailStrip::frames() const { return m_frames; }
 bool ThumbnailStrip::busy() const { return m_busy; }
 

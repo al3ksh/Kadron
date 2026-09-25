@@ -91,7 +91,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: "#181a1b"
+        color: "#101317"
     }
     ScrollView {
         id: scroll
@@ -103,29 +103,59 @@ Item {
             policy: ScrollBar.AsNeeded
             contentItem: Rectangle { implicitWidth: 6; radius: 3; color: "#677477" }
         }
-        ColumnLayout {
-            width: Math.min(scroll.availableWidth - 54, 1080)
-            x: Math.max(27, (scroll.availableWidth - width) / 2)
-            spacing: 14
+        Item {
+            width: scroll.availableWidth
+            implicitHeight: formColumn.implicitHeight + 100
 
-            Item { Layout.preferredHeight: 14 }
+            Rectangle {
+                x: formColumn.x - 23
+                y: formColumn.y + 105
+                width: formColumn.width + 46
+                height: Math.max(220, formColumn.implicitHeight - 105 + 16)
+                radius: 14
+                color: "#1d2227"
+                border.color: "#303941"
+            }
+        ColumnLayout {
+            id: formColumn
+            width: Math.min(scroll.availableWidth - 90, 760)
+            x: Math.max(45, (scroll.availableWidth - width) / 2)
+            y: 35
+            spacing: 15
+
             RowLayout {
                 Layout.fillWidth: true
                 Text {
-                    text: ["", "Download", "Audio conversion", "Compress", "GIF maker", "PDF tools", "QR code"][toolsPage.section]
-                    color: "#eef1f0"
-                    font.pixelSize: 23
+                    text: ["", "Download a source", "Convert audio", "Reduce file size", "Make a GIF", "Work with PDFs", "Create a QR code"][toolsPage.section]
+                    color: "#f5f7f2"
+                    font.pixelSize: 28
                     font.weight: Font.DemiBold
                     Layout.fillWidth: true
                 }
-                Text {
-                    text: toolsPage.section === 1 || toolsPage.section >= 5 ? "TOOLS SERVER" : "LOCAL PROCESSING"
-                    color: "#9eb4b4"
-                    font.pixelSize: 10
-                    font.weight: Font.DemiBold
+                Rectangle {
+                    Layout.preferredWidth: scopeLabel.implicitWidth + 22
+                    Layout.preferredHeight: 28
+                    radius: 14
+                    color: "#2c382b"
+                    Text {
+                        id: scopeLabel
+                        anchors.centerIn: parent
+                        text: toolsPage.section === 1 || toolsPage.section >= 5 ? "SERVER" : "ON DEVICE"
+                        color: "#d2f59b"
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.8
+                    }
                 }
             }
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#3b4345" }
+            Text {
+                Layout.fillWidth: true
+                Layout.bottomMargin: 32
+                text: ["", "Paste a media URL, choose the format, then save the result locally.", "Change format, trim a section, or normalize the sound.", "Set a size limit or quality target before processing.", "Trim a moment and control frame rate, width, and file size.", "Merge, split, rotate, or arrange your documents.", "Turn text or a link into a downloadable image."][toolsPage.section]
+                color: "#aab5bd"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
 
             RowLayout {
                 visible: toolsPage.section === 1 || toolsPage.section >= 5
@@ -379,7 +409,13 @@ Item {
                 EditorButton { text: "Save PNG"; visible: toolsClient.qrPreviewUrl.toString().length > 0; onClicked: qrSave.open() }
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#3b4345"; Layout.topMargin: 8 }
+            Rectangle {
+                visible: localTools.busy || localTools.errorText.length > 0 || localTools.outputUrl.toString().length > 0 || remoteJobs.busy || remoteJobs.errorText.length > 0 || remoteJobs.resultAvailable
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: "#3b4345"
+                Layout.topMargin: 8
+            }
             RowLayout {
                 visible: toolsPage.section >= 2 && toolsPage.section <= 4 && (localTools.busy || localTools.errorText || localTools.outputUrl.toString())
                 Layout.fillWidth: true
@@ -388,7 +424,7 @@ Item {
                 Text { text: localTools.busy ? localTools.progress + "%" : localTools.outputUrl.toString() ? toolsPage.sizeLabel(localTools.outputBytes) : ""; color: "#b5c4c1"; font.pixelSize: 12 }
                 EditorButton { text: "Cancel"; visible: localTools.busy; danger: true; onClicked: localTools.cancel() }
             }
-            ProgressBar { visible: toolsPage.section >= 2 && toolsPage.section <= 4 && localTools.busy; value: localTools.progress / 100; Layout.fillWidth: true }
+            StudioProgress { visible: toolsPage.section >= 2 && toolsPage.section <= 4 && localTools.busy; value: localTools.progress / 100; Layout.fillWidth: true }
             RowLayout {
                 visible: toolsPage.section >= 2 && toolsPage.section <= 4 && toolsPage.resultSection === (toolsPage.section === 2 ? "audio" : toolsPage.section === 3 ? "compress" : "gif") && localTools.outputUrl.toString().length > 0 && !localTools.busy
                 Layout.fillWidth: true
@@ -404,7 +440,7 @@ Item {
                 Text { text: remoteJobs.busy ? remoteJobs.progress + "%" : remoteJobs.resultAvailable ? toolsPage.sizeLabel(remoteJobs.outputBytes) : ""; color: "#b5c4c1"; font.pixelSize: 12 }
                 EditorButton { text: "Cancel"; visible: remoteJobs.busy; danger: true; onClicked: remoteJobs.cancel() }
             }
-            ProgressBar { visible: (toolsPage.section === 1 || toolsPage.section === 5) && remoteJobs.busy; value: remoteJobs.progress / 100; Layout.fillWidth: true }
+            StudioProgress { visible: (toolsPage.section === 1 || toolsPage.section === 5) && remoteJobs.busy; value: remoteJobs.progress / 100; Layout.fillWidth: true }
             RowLayout {
                 visible: toolsPage.resultSection === (toolsPage.section === 1 ? "download" : "pdf") && remoteJobs.resultAvailable && !remoteJobs.busy && (toolsPage.section === 1 || toolsPage.section === 5)
                 Layout.fillWidth: true
@@ -424,7 +460,8 @@ Item {
                 EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(remoteJobs.savedUrl) }
                 EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(remoteJobs.savedUrl) }
             }
-            Item { Layout.preferredHeight: 24 }
+            Item { Layout.preferredHeight: 8 }
+        }
         }
     }
 }

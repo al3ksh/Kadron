@@ -7,19 +7,34 @@
 
 #include <QGuiApplication>
 #include <QFileInfo>
+#include <QFile>
 #include <QFont>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QTimer>
+#include <QTextStream>
+
+static void fileMessageHandler(QtMsgType, const QMessageLogContext &, const QString &message)
+{
+    QFile file(qEnvironmentVariable("KADRON_LOG_FILE"));
+    if (file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        QTextStream stream(&file);
+        stream << message << '\n';
+    }
+}
 
 int main(int argc, char *argv[])
 {
+    if (qEnvironmentVariableIsSet("KADRON_LOG_FILE"))
+        qInstallMessageHandler(fileMessageHandler);
     QGuiApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("Kadron"));
     app.setApplicationName(QStringLiteral("Kadron"));
     app.setFont(QFont(QStringLiteral("Segoe UI"), 10));
+    app.setWindowIcon(QIcon(QStringLiteral(":/assets/kadron-mark.png")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     EditorProject project;

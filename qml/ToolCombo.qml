@@ -3,7 +3,7 @@ import QtQuick.Controls
 
 ComboBox {
     id: control
-    implicitHeight: 38
+    implicitHeight: 39
     font.family: "Segoe UI"
     font.pixelSize: 12
 
@@ -12,22 +12,23 @@ ComboBox {
         rightPadding: 30
         text: control.displayText
         font: control.font
-        color: "#e9eeee"
+        color: "#f1f4ef"
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
     indicator: Text {
         text: "\u2304"
         font.pixelSize: 18
-        color: "#b7c6c5"
+        color: "#b9c2c8"
         x: control.width - width - 13
         y: (control.height - height) / 2 - 3
     }
     background: Rectangle {
-        radius: 4
-        color: control.down ? "#2e393a" : "#222829"
+        radius: 8
+        color: control.down ? "#30383e" : "#20262b"
         border.width: control.activeFocus ? 2 : 1
-        border.color: control.activeFocus ? "#8bc9cb" : "#41494b"
+        border.color: control.activeFocus ? "#c9f27a" : "#404950"
+        Behavior on border.color { ColorAnimation { duration: 140 } }
     }
     delegate: ItemDelegate {
         width: control.width
@@ -37,12 +38,12 @@ ComboBox {
         highlighted: control.highlightedIndex === index
         contentItem: Text {
             text: parent.text
-            color: "#e9eeee"
+            color: "#f1f4ef"
             font: control.font
             verticalAlignment: Text.AlignVCenter
             leftPadding: 12
         }
-        background: Rectangle { color: parent.highlighted ? "#365154" : "#242a2b" }
+        background: Rectangle { color: parent.highlighted ? "#354033" : "#242a30" }
     }
     popup: Popup {
         y: control.height - 1
@@ -56,6 +57,6 @@ ComboBox {
             currentIndex: control.highlightedIndex
             ScrollIndicator.vertical: ScrollIndicator {}
         }
-        background: Rectangle { radius: 4; color: "#242a2b"; border.color: "#586366" }
+        background: Rectangle { radius: 8; color: "#242a30"; border.color: "#505961" }
     }
 }

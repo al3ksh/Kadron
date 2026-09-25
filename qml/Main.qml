@@ -11,7 +11,7 @@ ApplicationWindow {
     minimumWidth: 1020
     minimumHeight: 680
     visible: true
-    color: "#181a1b"
+    color: "#101317"
     title: "Kadron" + (editorProject.projectUrl.toString() ? " - " + editorProject.projectUrl.toString().split("/").pop() : "")
 
     property bool forceClose: false
@@ -29,6 +29,13 @@ ApplicationWindow {
     property url uploadFile: ""
     property url pendingOpenUrl: ""
     property bool pendingIsProject: false
+    readonly property string sectionTitle: ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code"][workspace]
+    readonly property bool anyBusy: exporter.busy || toolsClient.busy || localTools.busy || remoteJobs.busy
+    onWorkspaceChanged: {
+        if (workspace === 0) editorEnter.restart()
+        else toolsEnter.restart()
+    }
+    onInspectorModeChanged: inspectorEnter.restart()
 
     function timecode(milliseconds) {
         var total = Math.max(0, Math.floor(milliseconds / 1000))
@@ -300,7 +307,7 @@ ApplicationWindow {
         source: editorProject.mediaUrl
         audioOutput: AudioOutput { volume: volumeSlider.value }
         videoOutput: videoOutput
-        onDurationChanged: if (source.toString() === editorProject.mediaUrl.toString()) editorProject.setDurationMs(duration)
+        onDurationChanged: function(duration) { if (source.toString() === editorProject.mediaUrl.toString()) editorProject.setDurationMs(duration) }
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) root.finishCue()
         onPlaybackStateChanged: if (playbackState === MediaPlayer.PlayingState) root.hasPlayed = true
         onPositionChanged: {
@@ -317,77 +324,101 @@ ApplicationWindow {
         }
     }
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
         spacing: 0
 
         Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 54
-            color: "#222527"
-            RowLayout {
+            Layout.preferredWidth: 188
+            Layout.fillHeight: true
+            color: "#181c21"
+            ColumnLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 18
-                anchors.rightMargin: 18
-                spacing: 10
-                Text { text: "KADRON"; color: "#ecf0ef"; font.pixelSize: 17; font.weight: Font.Bold; Layout.preferredWidth: 110 }
-                Rectangle { width: 1; height: 22; color: "#464c4e" }
-                Text {
-                    text: root.workspace === 0 ? editorProject.hasMedia ? editorProject.mediaName : "Untitled project" : "Media tools"
-                    color: "#c5cdcc"
-                    font.pixelSize: 12
-                    elide: Text.ElideMiddle
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                anchors.topMargin: 15
+                anchors.bottomMargin: 16
+                spacing: 0
+                RowLayout {
                     Layout.fillWidth: true
+                    Layout.leftMargin: 8
+                    Layout.preferredHeight: 48
+                    spacing: 8
+                    BrandMark { Layout.preferredWidth: 34; Layout.preferredHeight: 34 }
+                    Column {
+                        spacing: 0
+                        Text { text: "KADRON"; color: "#f8faf4"; font.family: "Segoe UI"; font.pixelSize: 16; font.weight: Font.Bold; font.letterSpacing: 1.2 }
+                        Text { text: "MEDIA STUDIO"; color: "#9ca9a8"; font.family: "Segoe UI"; font.pixelSize: 8; font.weight: Font.DemiBold; font.letterSpacing: 1.5 }
+                    }
                 }
-                Text {
-                    visible: root.workspace === 0 && editorProject.dirty
-                    text: "Unsaved changes"
-                    color: "#dcb287"
-                    font.pixelSize: 11
-                }
-                EditorButton { text: "Open project"; visible: root.workspace === 0; subtle: true; onClicked: openDialog.open() }
-                EditorButton { text: "Import"; visible: root.workspace === 0; onClicked: mediaDialog.open() }
-                EditorButton { text: "Save"; visible: root.workspace === 0; enabled: editorProject.hasMedia; onClicked: root.saveProject() }
-                EditorButton {
-                    text: "Export MP4"
-                    visible: root.workspace === 0
-                    primary: true
-                    enabled: editorProject.canExport && !exporter.busy && exporter.available
-                    onClicked: exportDialog.open()
+                Item { Layout.preferredHeight: 23 }
+                Text { text: "WORKSPACE"; color: "#849197"; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
+                NavItem { Layout.fillWidth: true; title: "Editor"; iconName: "edit"; active: root.workspace === 0 && root.inspectorMode === 0; onClicked: { root.workspace = 0; root.inspectorMode = 0 } }
+                NavItem { Layout.fillWidth: true; title: "Download"; iconName: "download"; active: root.workspace === 1; onClicked: root.workspace = 1 }
+                NavItem { Layout.fillWidth: true; title: "Audio"; iconName: "audio"; active: root.workspace === 2; onClicked: root.workspace = 2 }
+                NavItem { Layout.fillWidth: true; title: "Compress"; iconName: "compress"; active: root.workspace === 3; onClicked: root.workspace = 3 }
+                NavItem { Layout.fillWidth: true; title: "GIF Studio"; iconName: "gif"; active: root.workspace === 4; onClicked: root.workspace = 4 }
+                Item { Layout.preferredHeight: 20 }
+                Text { text: "UTILITIES"; color: "#849197"; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
+                NavItem { Layout.fillWidth: true; title: "PDF Tools"; iconName: "pdf"; active: root.workspace === 5; onClicked: root.workspace = 5 }
+                NavItem { Layout.fillWidth: true; title: "QR Code"; iconName: "qr"; active: root.workspace === 6; onClicked: root.workspace = 6 }
+                NavItem { Layout.fillWidth: true; title: "Publish"; iconName: "publish"; active: root.workspace === 0 && root.inspectorMode === 1; onClicked: { root.workspace = 0; root.inspectorMode = 1 } }
+                Item { Layout.fillHeight: true }
+                Rectangle { Layout.fillWidth: true; height: 1; color: "#30363c" }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 13
+                    Layout.leftMargin: 9
+                    spacing: 8
+                    Rectangle { width: 7; height: 7; radius: 4; color: toolsClient.connected ? "#c9f27a" : "#838c94" }
+                    Text { text: toolsClient.connected ? "Server connected" : "Local workspace"; color: "#b4bdc3"; font.pixelSize: 11; Layout.fillWidth: true }
                 }
             }
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#3b4142" }
+            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: "#30363c" }
         }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 0
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 45
-            color: "#202425"
+            Layout.preferredHeight: 68
+            color: "#1d2227"
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 16
-                anchors.rightMargin: 16
-                spacing: 4
-                Repeater {
-                    model: ["Edit", "Download", "Audio", "Compress", "GIF", "PDF", "QR", "Publish"]
-                    EditorButton {
-                        required property int index
-                        required property string modelData
-                        text: modelData
-                        primary: index === 7 ? root.workspace === 0 && root.inspectorMode === 1 : root.workspace === index && (index !== 0 || root.inspectorMode === 0)
-                        subtle: !primary
-                        onClicked: {
-                            if (index === 7) { root.workspace = 0; root.inspectorMode = 1 }
-                            else { root.workspace = index; if (index === 0) root.inspectorMode = 0 }
-                        }
+                anchors.leftMargin: 24
+                anchors.rightMargin: 24
+                spacing: 9
+                Column {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Text { text: root.workspace === 0 && root.inspectorMode === 1 ? "Publish" : root.sectionTitle; color: "#f7f8f3"; font.pixelSize: 18; font.weight: Font.DemiBold }
+                    Text {
+                        text: root.workspace === 0 ? (editorProject.hasMedia ? editorProject.mediaName : "Create a project or import media") : (root.workspace === 1 || root.workspace >= 5 ? "Connected tools · your server" : "Private processing · on this device")
+                        color: "#aab4bc"
+                        font.pixelSize: 11
+                        elide: Text.ElideMiddle
+                        width: parent.width
                     }
                 }
-                Item { Layout.fillWidth: true }
+                Rectangle { visible: root.workspace === 0 && editorProject.dirty; width: 7; height: 7; radius: 4; color: "#e6b67a" }
+                Text { visible: root.workspace === 0 && editorProject.dirty; text: "Unsaved"; color: "#c8b49b"; font.pixelSize: 11 }
+                EditorButton { text: "Open"; visible: root.workspace === 0; subtle: true; onClicked: openDialog.open() }
+                EditorButton { text: "Import"; visible: root.workspace === 0; onClicked: mediaDialog.open() }
+                EditorButton { text: "Save"; visible: root.workspace === 0; enabled: editorProject.hasMedia; onClicked: root.saveProject() }
+                EditorButton { text: "Export MP4"; visible: root.workspace === 0; primary: true; enabled: editorProject.canExport && !exporter.busy && exporter.available; onClicked: exportDialog.open() }
             }
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#3b4142" }
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#343b42" }
         }
 
+        NumberAnimation { id: editorEnter; target: editorArea; property: "opacity"; from: 0.7; to: 1; duration: 180; easing.type: Easing.OutCubic }
+        NumberAnimation { id: toolsEnter; target: toolsArea; property: "opacity"; from: 0.7; to: 1; duration: 180; easing.type: Easing.OutCubic }
+        NumberAnimation { id: inspectorEnter; target: inspectorScroll; property: "opacity"; from: 0.65; to: 1; duration: 160; easing.type: Easing.OutCubic }
+
         RowLayout {
+            id: editorArea
             visible: root.workspace === 0
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -396,7 +427,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.preferredWidth: 210
                 Layout.fillHeight: true
-                color: "#202324"
+                color: "#1d2227"
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 16
@@ -406,10 +437,11 @@ ApplicationWindow {
                     spacing: 7
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { text: "Sequence"; color: "#e6eae9"; font.pixelSize: 13; font.weight: Font.DemiBold; Layout.fillWidth: true }
-                        Text { text: editorProject.clipCount + " · " + root.timecode(editorProject.sequenceDurationMs); color: "#aab7b5"; font.pixelSize: 10 }
+                        Text { text: "Sequence"; color: "#f4f6f2"; font.pixelSize: 14; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                        Text { text: editorProject.clipCount + " clips"; color: "#b1bbc2"; font.pixelSize: 11 }
                     }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: "#3a4042" }
+                    Text { text: root.timecode(editorProject.sequenceDurationMs) + " total"; color: "#b0bbc2"; font.pixelSize: 11 }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#343d44"; Layout.topMargin: 6; Layout.bottomMargin: 4 }
                     ScrollView {
                         id: clipScroll
                         Layout.fillWidth: true
@@ -420,7 +452,7 @@ ApplicationWindow {
                         ScrollBar.vertical: ScrollBar {
                             width: 7
                             policy: ScrollBar.AsNeeded
-                            contentItem: Rectangle { implicitWidth: 5; radius: 2; color: "#697576" }
+                            contentItem: Rectangle { implicitWidth: 5; radius: 2; color: "#58636a" }
                         }
                         Column {
                             width: clipScroll.availableWidth - 4
@@ -432,10 +464,11 @@ ApplicationWindow {
                                     required property var modelData
                                     width: parent.width
                                     height: 58
-                                    radius: 4
-                                    color: editorProject.activeClipIndex === index ? "#344447" : clipMouse.containsMouse ? "#2d3638" : "#282d2f"
-                                    border.color: editorProject.activeClipIndex === index ? "#8bbec1" : "#3e4749"
+                                    radius: 8
+                                    color: editorProject.activeClipIndex === index ? "#303b30" : clipMouse.containsMouse ? "#2b3339" : "#252b30"
+                                    border.color: editorProject.activeClipIndex === index ? "#718d58" : "#343d44"
                                     border.width: 1
+                                    Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
                                     MouseArea {
                                         id: clipMouse
                                         anchors.fill: parent
@@ -447,8 +480,8 @@ ApplicationWindow {
                                         anchors.fill: parent
                                         anchors.margins: 8
                                         spacing: 3
-                                        Text { text: "CLIP " + (index + 1).toString().padStart(2, "0") + "   " + root.timecode(modelData.lengthMs); color: editorProject.activeClipIndex === index ? "#bfe3e4" : "#aab9b7"; font.pixelSize: 10; font.weight: Font.DemiBold }
-                                        Text { width: parent.width; text: modelData.name; color: "#e9eeed"; font.pixelSize: 11; elide: Text.ElideMiddle }
+                                        Text { text: "CLIP " + (index + 1).toString().padStart(2, "0") + "   " + root.timecode(modelData.lengthMs); color: editorProject.activeClipIndex === index ? "#d2f59b" : "#adb9bf"; font.pixelSize: 10; font.weight: Font.DemiBold }
+                                        Text { width: parent.width; text: modelData.name; color: "#f0f3ef"; font.pixelSize: 11; elide: Text.ElideMiddle }
                                     }
                                 }
                             }
@@ -457,20 +490,20 @@ ApplicationWindow {
                     Text {
                         visible: !editorProject.hasMedia
                         text: "No clips in this project"
-                        color: "#a7b1b0"
+                        color: "#b4bec4"
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
-                    EditorButton { text: "Add clip"; Layout.fillWidth: true; onClicked: addClipDialog.open() }
+                    EditorButton { text: "+  Add clip"; Layout.fillWidth: true; onClicked: addClipDialog.open() }
                     RowLayout {
                         Layout.fillWidth: true
-                        EditorButton { text: "Up"; subtle: true; Layout.fillWidth: true; enabled: editorProject.activeClipIndex > 0 && !exporter.busy; onClicked: editorProject.moveClip(editorProject.activeClipIndex, -1) }
-                        EditorButton { text: "Down"; subtle: true; Layout.fillWidth: true; enabled: editorProject.activeClipIndex < editorProject.clipCount - 1 && !exporter.busy; onClicked: editorProject.moveClip(editorProject.activeClipIndex, 1) }
+                        EditorButton { text: "Move up"; subtle: true; Layout.fillWidth: true; enabled: editorProject.activeClipIndex > 0 && !exporter.busy; onClicked: editorProject.moveClip(editorProject.activeClipIndex, -1) }
+                        EditorButton { text: "Move down"; subtle: true; Layout.fillWidth: true; enabled: editorProject.activeClipIndex < editorProject.clipCount - 1 && !exporter.busy; onClicked: editorProject.moveClip(editorProject.activeClipIndex, 1) }
                     }
                     EditorButton { text: "Remove selected"; subtle: true; danger: true; Layout.fillWidth: true; enabled: editorProject.clipCount > 1 && !exporter.busy; onClicked: editorProject.removeClip(editorProject.activeClipIndex) }
                 }
-                Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: "#3a4042" }
+                Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: "#343d44" }
             }
 
             ColumnLayout {
@@ -480,7 +513,7 @@ ApplicationWindow {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: "#0e1011"
+                    color: "#0b0d10"
                     DropArea {
                         id: previewDropArea
                         anchors.fill: parent
@@ -544,35 +577,60 @@ ApplicationWindow {
                         z: 1
                         visible: previewDropArea.containsDrag
                         color: "transparent"
-                        border.color: "#9bcdd0"
+                        border.color: "#c9f27a"
                         border.width: 2
                     }
                 }
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 56
-                    color: "#222627"
+                    color: "#1d2227"
                     RowLayout {
+                        id: transportRow
                         anchors.fill: parent
                         anchors.leftMargin: 18
                         anchors.rightMargin: 18
                         spacing: 10
                         EditorButton { text: player.playbackState === MediaPlayer.PlayingState ? "Pause" : "Play"; enabled: editorProject.hasMedia; onClicked: root.togglePlayback() }
-                        Text { text: root.timecode(player.position); color: "#f0f3f2"; font.pixelSize: 12; font.weight: Font.DemiBold }
-                        Text { text: "/ " + root.timecode(editorProject.durationMs); color: "#aab5b5"; font.pixelSize: 12 }
+                        Text { text: root.timecode(player.position); color: "#f3f6ef"; font.pixelSize: 12; font.weight: Font.DemiBold }
+                        Text { text: "/ " + root.timecode(editorProject.durationMs); color: "#abb5bc"; font.pixelSize: 12 }
                         Item { Layout.fillWidth: true }
-                        Text { text: "Volume"; color: "#aab5b5"; font.pixelSize: 11 }
-                        Slider { id: volumeSlider; from: 0; to: 1; value: 0.8; Layout.preferredWidth: 90 }
+                        Text { text: "Volume"; visible: transportRow.width > 460; color: "#abb5bc"; font.pixelSize: 11 }
+                        Slider {
+                            id: volumeSlider
+                            from: 0
+                            to: 1
+                            value: 0.8
+                            Layout.preferredWidth: transportRow.width > 460 ? 90 : 56
+                            background: Rectangle {
+                                x: volumeSlider.leftPadding
+                                y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
+                                width: volumeSlider.availableWidth
+                                height: 3
+                                radius: 2
+                                color: "#48545a"
+                                Rectangle { width: volumeSlider.visualPosition * parent.width; height: parent.height; radius: 2; color: "#c9f27a" }
+                            }
+                            handle: Rectangle {
+                                x: volumeSlider.leftPadding + volumeSlider.visualPosition * (volumeSlider.availableWidth - width)
+                                y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
+                                width: 14
+                                height: 14
+                                radius: 7
+                                color: "#e7f9ca"
+                                border.color: "#859d68"
+                            }
+                        }
                     }
-                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#393f41" }
+                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#343d44" }
                 }
             }
 
             Rectangle {
-                Layout.preferredWidth: 316
+                Layout.preferredWidth: 294
                 Layout.fillHeight: true
-                color: "#202324"
-                Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: "#3a4042" }
+                color: "#1d2227"
+                Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: "#343d44" }
                 ScrollView {
                     id: inspectorScroll
                     anchors.fill: parent
@@ -585,45 +643,51 @@ ApplicationWindow {
                     ScrollBar.vertical: ScrollBar {
                         width: 7
                         policy: ScrollBar.AsNeeded
-                        contentItem: Rectangle { implicitWidth: 5; radius: 2; color: "#697576" }
+                            contentItem: Rectangle { implicitWidth: 5; radius: 2; color: "#58636a" }
                     }
                     ColumnLayout {
                     width: inspectorScroll.availableWidth - 7
                     spacing: 11
-                    RowLayout {
-                        Layout.fillWidth: true
-                        EditorButton { text: "Edit"; primary: root.inspectorMode === 0; Layout.fillWidth: true; onClicked: root.inspectorMode = 0 }
-                        EditorButton { text: "Publish"; primary: root.inspectorMode === 1; Layout.fillWidth: true; onClicked: root.inspectorMode = 1 }
-                    }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: "#3a4042" }
+                    Text { text: root.inspectorMode === 0 ? "Clip settings" : "Publish & share"; color: "#f5f7f2"; font.pixelSize: 16; font.weight: Font.DemiBold }
+                    Text { text: root.inspectorMode === 0 ? "Adjust the active clip" : "Send only when you choose to"; color: "#aeb9c1"; font.pixelSize: 11 }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#363e45"; Layout.topMargin: 5; Layout.bottomMargin: 5 }
 
                     ColumnLayout {
                         visible: root.inspectorMode === 0
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         spacing: 10
-                        Text { text: "Selection"; color: "#e7ebea"; font.pixelSize: 14; font.weight: Font.DemiBold }
-                        Text { text: "In point (seconds)"; color: "#b0bab9"; font.pixelSize: 11 }
-                        EditorField {
-                            id: inField
-                            Layout.fillWidth: true
-                            enabled: editorProject.durationMs > 0 && !exporter.busy
-                            validator: DoubleValidator { bottom: 0; decimals: 3 }
-                            onEditingFinished: editorProject.setInMs(Math.round(Number(text) * 1000))
-                        }
-                        Text { text: "Out point (seconds)"; color: "#b0bab9"; font.pixelSize: 11 }
-                        EditorField {
-                            id: outField
-                            Layout.fillWidth: true
-                            enabled: editorProject.durationMs > 0 && !exporter.busy
-                            validator: DoubleValidator { bottom: 0; decimals: 3 }
-                            onEditingFinished: editorProject.setOutMs(Math.round(Number(text) * 1000))
-                        }
-                        Rectangle { Layout.fillWidth: true; height: 1; color: "#3a4042"; Layout.topMargin: 5 }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { text: "Selected duration"; color: "#b0bab9"; font.pixelSize: 12; Layout.fillWidth: true }
-                            Text { text: root.timecode(editorProject.outMs - editorProject.inMs); color: "#e8ecea"; font.pixelSize: 12; font.weight: Font.DemiBold }
+                            spacing: 9
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Text { text: "In point · s"; color: "#b9c3c8"; font.pixelSize: 11 }
+                                EditorField {
+                                    id: inField
+                                    Layout.fillWidth: true
+                                    enabled: editorProject.durationMs > 0 && !exporter.busy
+                                    validator: DoubleValidator { bottom: 0; decimals: 3 }
+                                    onEditingFinished: editorProject.setInMs(Math.round(Number(text) * 1000))
+                                }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Text { text: "Out point · s"; color: "#b9c3c8"; font.pixelSize: 11 }
+                                EditorField {
+                                    id: outField
+                                    Layout.fillWidth: true
+                                    enabled: editorProject.durationMs > 0 && !exporter.busy
+                                    validator: DoubleValidator { bottom: 0; decimals: 3 }
+                                    onEditingFinished: editorProject.setOutMs(Math.round(Number(text) * 1000))
+                                }
+                            }
+                        }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#363e45"; Layout.topMargin: 5 }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { text: "Selected duration"; color: "#b9c3c8"; font.pixelSize: 12; Layout.fillWidth: true }
+                            Text { text: root.timecode(editorProject.outMs - editorProject.inMs); color: "#d2f59b"; font.pixelSize: 17; font.weight: Font.DemiBold }
                         }
                         EditorButton {
                             Layout.fillWidth: true
@@ -633,8 +697,8 @@ ApplicationWindow {
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { text: "Sequence duration"; color: "#b0bab9"; font.pixelSize: 12; Layout.fillWidth: true }
-                            Text { text: root.timecode(editorProject.sequenceDurationMs); color: "#e8ecea"; font.pixelSize: 12; font.weight: Font.DemiBold }
+                            Text { text: "Sequence duration"; color: "#b9c3c8"; font.pixelSize: 12; Layout.fillWidth: true }
+                            Text { text: root.timecode(editorProject.sequenceDurationMs); color: "#eef2ed"; font.pixelSize: 12; font.weight: Font.DemiBold }
                         }
                         Text {
                             Layout.fillWidth: true
@@ -656,15 +720,20 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             visible: exporter.busy
                             text: exporter.stage + "  " + exporter.progress + "%"
-                            color: "#c9d5d3"
+                            color: "#d9e3dc"
                             font.pixelSize: 11
+                        }
+                        StudioProgress {
+                            visible: exporter.busy
+                            Layout.fillWidth: true
+                            value: exporter.progress / 100
                         }
                         EditorButton {
                             Layout.fillWidth: true
-                            text: exporter.busy ? "Cancel export" : "Export sequence"
-                            enabled: exporter.busy || editorProject.canExport && exporter.available
-                            primary: !exporter.busy
-                            onClicked: exporter.busy ? exporter.cancel() : exportDialog.open()
+                            visible: exporter.busy
+                            text: "Cancel export"
+                            danger: true
+                            onClicked: exporter.cancel()
                         }
                         EditorButton {
                             Layout.fillWidth: true
@@ -722,7 +791,7 @@ ApplicationWindow {
                             color: "#d5e1df"
                             font.pixelSize: 11
                         }
-                        ProgressBar { visible: toolsClient.busy; value: toolsClient.progress / 100; Layout.fillWidth: true }
+                        StudioProgress { visible: toolsClient.busy; value: toolsClient.progress / 100; Layout.fillWidth: true }
                         Text {
                             Layout.fillWidth: true
                             visible: toolsClient.errorText.length > 0
@@ -757,8 +826,8 @@ ApplicationWindow {
             visible: root.workspace === 0
             Layout.fillWidth: true
             Layout.preferredHeight: 248
-            color: "#202324"
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: "#3a4042" }
+            color: "#1d2227"
+            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: "#343d44" }
             ColumnLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 20
@@ -768,9 +837,9 @@ ApplicationWindow {
                 spacing: 12
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "Clip timeline"; color: "#e8eceb"; font.pixelSize: 13; font.weight: Font.DemiBold }
-                    Text { text: editorProject.hasMedia ? (editorProject.activeClipIndex + 1) + "/" + editorProject.clipCount : ""; color: "#b9d7d7"; font.pixelSize: 11 }
-                    Text { text: editorProject.hasMedia ? editorProject.mediaName : "No clip loaded"; color: "#aab4b3"; font.pixelSize: 11; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                    Text { text: "Timeline"; color: "#f1f4ef"; font.pixelSize: 15; font.weight: Font.DemiBold }
+                    Text { text: editorProject.hasMedia ? "Clip " + (editorProject.activeClipIndex + 1) + " of " + editorProject.clipCount : ""; color: "#c9f27a"; font.pixelSize: 11 }
+                    Text { text: editorProject.hasMedia ? editorProject.mediaName : "No clip loaded"; color: "#b2bdc3"; font.pixelSize: 11; elide: Text.ElideMiddle; Layout.fillWidth: true }
                     EditorButton {
                         text: root.sequencePlaying ? "Stop preview" : "Preview sequence"
                         enabled: editorProject.canExport && !exporter.busy
@@ -798,6 +867,7 @@ ApplicationWindow {
         }
 
         ToolsWorkspace {
+            id: toolsArea
             section: root.workspace
             visible: root.workspace !== 0
             Layout.fillWidth: true
@@ -812,22 +882,23 @@ ApplicationWindow {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 30
-            color: "#2a2e30"
+            color: "#1b2025"
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 14
                 anchors.rightMargin: 14
                 spacing: 8
-                Rectangle { width: 6; height: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || remoteJobs.errorText ? "#e8a29e" : exporter.busy || toolsClient.busy || localTools.busy || remoteJobs.busy ? "#e6b980" : "#9dcab6" }
+                Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || remoteJobs.errorText ? "#e8a29e" : root.anyBusy ? "#e6b980" : "#c9f27a" }
                 Text {
                     text: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || remoteJobs.errorText || (exporter.busy ? exporter.stage + " " + exporter.progress + "%" : localTools.busy ? localTools.stage + " " + localTools.progress + "%" : remoteJobs.busy ? remoteJobs.stage + " " + remoteJobs.progress + "%" : toolsClient.busy ? toolsClient.stage + " " + toolsClient.progress + "%" : root.notice || "Ready")
-                    color: "#d6dedd"
+                    color: "#cad3d8"
                     font.pixelSize: 11
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
-                Text { text: root.workspace === 0 ? "LOCAL EDIT" : root.workspace === 1 || root.workspace >= 5 ? "TOOLS SERVER" : "LOCAL PROCESSING"; color: "#a5b0af"; font.pixelSize: 10; font.weight: Font.DemiBold }
+                Text { text: root.workspace === 0 ? "LOCAL EDIT" : root.workspace === 1 || root.workspace >= 5 ? "TOOLS SERVER" : "LOCAL PROCESSING"; color: "#9eabb2"; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.5 }
             }
         }
+    }
     }
 }

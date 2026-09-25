@@ -16,6 +16,7 @@ class ThumbnailStrip final : public QObject
 
 public:
     explicit ThumbnailStrip(QObject *parent = nullptr);
+    ~ThumbnailStrip() override;
     QStringList frames() const;
     bool busy() const;
     Q_INVOKABLE void generate(const QUrl &source, qint64 durationMs);

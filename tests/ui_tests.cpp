@@ -13,6 +13,7 @@ class UiTests final : public QObject
 private slots:
     void timelineInteractions();
     void toolControls();
+    void studioNavigation();
 };
 
 void UiTests::timelineInteractions()
@@ -112,6 +113,43 @@ void UiTests::toolControls()
     comboItem->setProperty("currentIndex", 1);
     QCOMPARE(comboItem->property("currentText").toString(), QString("Rotate pages"));
     QCOMPARE(comboItem->property("currentValue").toString(), QString("rotate"));
+}
+
+void UiTests::studioNavigation()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, QUrl::fromLocalFile(QStringLiteral(KADRON_SOURCE_DIR) + "/qml/NavItem.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> object(component.create());
+    auto *item = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY(item);
+    item->setWidth(172);
+    item->setHeight(43);
+    item->setProperty("title", "GIF Studio");
+    item->setProperty("iconName", "gif");
+    item->setProperty("active", true);
+
+    QQuickWindow window;
+    window.setGeometry(50, 50, 172, 43);
+    item->setParentItem(window.contentItem());
+    window.show();
+    QTest::qWait(100);
+
+    const auto method = item->metaObject()->method(item->metaObject()->indexOfSignal("clicked()"));
+    QVERIFY(method.isValid());
+    QSignalSpy clicked(item, method);
+    QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(80, 20));
+    QCOMPARE(clicked.count(), 1);
+    item->forceActiveFocus();
+    QTest::keyClick(&window, Qt::Key_Return);
+    QCOMPARE(clicked.count(), 2);
+
+    QQmlComponent progressComponent(&engine, QUrl::fromLocalFile(QStringLiteral(KADRON_SOURCE_DIR) + "/qml/StudioProgress.qml"));
+    QVERIFY2(progressComponent.isReady(), qPrintable(progressComponent.errorString()));
+    std::unique_ptr<QObject> progress(progressComponent.create());
+    QVERIFY(progress);
+    progress->setProperty("value", 0.5);
+    QCOMPARE(progress->property("value").toDouble(), 0.5);
 }
 
 QTEST_MAIN(UiTests)
