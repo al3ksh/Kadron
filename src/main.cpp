@@ -2,6 +2,8 @@
 #include "ExportController.h"
 #include "ThumbnailStrip.h"
 #include "ToolsClient.h"
+#include "LocalMediaTools.h"
+#include "RemoteJobsClient.h"
 
 #include <QGuiApplication>
 #include <QFileInfo>
@@ -24,11 +26,15 @@ int main(int argc, char *argv[])
     ExportController exporter;
     ThumbnailStrip thumbnails;
     ToolsClient toolsClient;
+    LocalMediaTools localTools;
+    RemoteJobsClient remoteJobs(&toolsClient);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("editorProject", &project);
     engine.rootContext()->setContextProperty("exporter", &exporter);
     engine.rootContext()->setContextProperty("thumbnails", &thumbnails);
     engine.rootContext()->setContextProperty("toolsClient", &toolsClient);
+    engine.rootContext()->setContextProperty("localTools", &localTools);
+    engine.rootContext()->setContextProperty("remoteJobs", &remoteJobs);
     engine.loadFromModule("Kadron", "Main");
     if (engine.rootObjects().isEmpty())
         return 1;
@@ -53,6 +59,8 @@ int main(int argc, char *argv[])
         }
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_PUBLISH"))
             engine.rootObjects().first()->setProperty("inspectorMode", 1);
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_WORKSPACE"))
+            engine.rootObjects().first()->setProperty("workspace", qEnvironmentVariableIntValue("KADRON_SCREENSHOT_WORKSPACE"));
         QTimer::singleShot(1500, &app, [&app, &engine, screenshotPath] {
             if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first())) {
                 window->grabWindow().save(screenshotPath);

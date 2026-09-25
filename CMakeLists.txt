@@ -20,6 +20,10 @@ qt_add_executable(kadron
     src/MediaTools.h
     src/ToolsClient.cpp
     src/ToolsClient.h
+    src/LocalMediaTools.cpp
+    src/LocalMediaTools.h
+    src/RemoteJobsClient.cpp
+    src/RemoteJobsClient.h
 )
 
 qt_add_qml_module(kadron
@@ -30,6 +34,9 @@ qt_add_qml_module(kadron
         qml/EditorButton.qml
         qml/EditorField.qml
         qml/Timeline.qml
+        qml/ToolsWorkspace.qml
+        qml/ToolCombo.qml
+        qml/ToolCheck.qml
 )
 
 target_link_libraries(kadron PRIVATE
@@ -58,6 +65,10 @@ if(BUILD_TESTING)
         src/MediaTools.h
         src/ToolsClient.cpp
         src/ToolsClient.h
+        src/LocalMediaTools.cpp
+        src/LocalMediaTools.h
+        src/RemoteJobsClient.cpp
+        src/RemoteJobsClient.h
     )
     target_include_directories(kadron_core_tests PRIVATE src)
     target_link_libraries(kadron_core_tests PRIVATE Qt6::Core Qt6::Test Qt6::Network)

@@ -12,6 +12,7 @@ class UiTests final : public QObject
 
 private slots:
     void timelineInteractions();
+    void toolControls();
 };
 
 void UiTests::timelineInteractions()
@@ -66,6 +67,51 @@ void UiTests::timelineInteractions()
     QTest::mouseMove(&window, QPoint(450, 92));
     QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(450, 92));
     QVERIFY(moveSpy.count() > 0);
+}
+
+void UiTests::toolControls()
+{
+    QQmlEngine engine;
+    QQmlComponent comboComponent(&engine, QUrl::fromLocalFile(QStringLiteral(KADRON_SOURCE_DIR) + "/qml/ToolCombo.qml"));
+    QVERIFY2(comboComponent.isReady(), qPrintable(comboComponent.errorString()));
+    std::unique_ptr<QObject> combo(comboComponent.create());
+    auto *comboItem = qobject_cast<QQuickItem *>(combo.get());
+    QVERIFY(comboItem);
+    comboItem->setWidth(240);
+    comboItem->setProperty("model", QStringList{"MP4", "WebM", "GIF"});
+    QCOMPARE(comboItem->property("currentText").toString(), QString("MP4"));
+
+    QQmlComponent checkComponent(&engine, QUrl::fromLocalFile(QStringLiteral(KADRON_SOURCE_DIR) + "/qml/ToolCheck.qml"));
+    QVERIFY2(checkComponent.isReady(), qPrintable(checkComponent.errorString()));
+    std::unique_ptr<QObject> check(checkComponent.create());
+    auto *checkItem = qobject_cast<QQuickItem *>(check.get());
+    QVERIFY(checkItem);
+    checkItem->setY(70);
+    checkItem->setWidth(240);
+    checkItem->setProperty("text", "Remove audio");
+
+    QQuickWindow window;
+    window.setGeometry(50, 50, 260, 200);
+    comboItem->setParentItem(window.contentItem());
+    checkItem->setParentItem(window.contentItem());
+    window.show();
+    QTest::qWait(100);
+
+    QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(20, 18));
+    QVERIFY(comboItem->property("popup").value<QObject *>()->property("visible").toBool());
+    QTest::keyClick(&window, Qt::Key_Escape);
+    QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(20, 92));
+    QVERIFY(checkItem->property("checked").toBool());
+
+    comboItem->setProperty("textRole", "label");
+    comboItem->setProperty("valueRole", "value");
+    comboItem->setProperty("model", QVariantList{
+        QVariantMap{{"label", "Merge PDFs"}, {"value", "merge"}},
+        QVariantMap{{"label", "Rotate pages"}, {"value", "rotate"}}
+    });
+    comboItem->setProperty("currentIndex", 1);
+    QCOMPARE(comboItem->property("currentText").toString(), QString("Rotate pages"));
+    QCOMPARE(comboItem->property("currentValue").toString(), QString("rotate"));
 }
 
 QTEST_MAIN(UiTests)

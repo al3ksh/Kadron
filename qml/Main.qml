@@ -20,6 +20,7 @@ ApplicationWindow {
     property string playerError: ""
     property string notice: ""
     property int inspectorMode: 0
+    property int workspace: 0
     property url uploadFile: ""
     property url pendingOpenUrl: ""
     property bool pendingIsProject: false
@@ -58,7 +59,7 @@ ApplicationWindow {
         }
     }
     function requestOpen(url, isProject) {
-        if (exporter.busy || toolsClient.busy) {
+        if (exporter.busy || toolsClient.busy || localTools.busy || remoteJobs.busy) {
             root.notice = "Finish or cancel the current operation before opening another file"
             return
         }
@@ -71,7 +72,7 @@ ApplicationWindow {
 
     Component.onCompleted: syncRangeFields()
     onClosing: function(event) {
-        if (!forceClose && (editorProject.dirty || exporter.busy || toolsClient.busy)) {
+        if (!forceClose && (editorProject.dirty || exporter.busy || toolsClient.busy || localTools.busy || remoteJobs.busy)) {
             event.accepted = false
             quitDialog.open()
         }
@@ -172,7 +173,7 @@ ApplicationWindow {
             spacing: 17
             Text {
                 Layout.fillWidth: true
-                text: exporter.busy || toolsClient.busy ? "Current local work will stop. A clip already submitted to the server may continue processing. Unsaved changes will be lost." : "Unsaved project changes will be lost."
+                text: exporter.busy || toolsClient.busy || localTools.busy || remoteJobs.busy ? "Current work will stop. A job already submitted to the server may continue processing. Unsaved changes will be lost." : "Unsaved project changes will be lost."
                 wrapMode: Text.WordWrap
                 color: "#e8eceb"
                 font.pixelSize: 13
@@ -186,6 +187,8 @@ ApplicationWindow {
                     onClicked: {
                         exporter.cancel()
                         toolsClient.cancel()
+                        localTools.cancel()
+                        remoteJobs.cancel()
                         root.forceClose = true
                         quitDialog.close()
                         root.close()
@@ -225,23 +228,24 @@ ApplicationWindow {
                 Text { text: "KADRON"; color: "#ecf0ef"; font.pixelSize: 17; font.weight: Font.Bold; Layout.preferredWidth: 110 }
                 Rectangle { width: 1; height: 22; color: "#464c4e" }
                 Text {
-                    text: editorProject.hasMedia ? editorProject.mediaName : "Untitled project"
+                    text: root.workspace === 0 ? editorProject.hasMedia ? editorProject.mediaName : "Untitled project" : "Media tools"
                     color: "#c5cdcc"
                     font.pixelSize: 12
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
                 }
                 Text {
-                    visible: editorProject.dirty
+                    visible: root.workspace === 0 && editorProject.dirty
                     text: "Unsaved changes"
                     color: "#dcb287"
                     font.pixelSize: 11
                 }
-                EditorButton { text: "Open project"; subtle: true; onClicked: openDialog.open() }
-                EditorButton { text: "Import"; onClicked: mediaDialog.open() }
-                EditorButton { text: "Save"; enabled: editorProject.hasMedia; onClicked: root.saveProject() }
+                EditorButton { text: "Open project"; visible: root.workspace === 0; subtle: true; onClicked: openDialog.open() }
+                EditorButton { text: "Import"; visible: root.workspace === 0; onClicked: mediaDialog.open() }
+                EditorButton { text: "Save"; visible: root.workspace === 0; enabled: editorProject.hasMedia; onClicked: root.saveProject() }
                 EditorButton {
                     text: "Export MP4"
+                    visible: root.workspace === 0
                     primary: true
                     enabled: editorProject.hasMedia && editorProject.outMs > editorProject.inMs && !exporter.busy && exporter.available
                     onClicked: exportDialog.open()
@@ -250,7 +254,36 @@ ApplicationWindow {
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#3b4142" }
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 45
+            color: "#202425"
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
+                spacing: 4
+                Repeater {
+                    model: ["Edit", "Download", "Audio", "Compress", "GIF", "PDF", "QR", "Publish"]
+                    EditorButton {
+                        required property int index
+                        required property string modelData
+                        text: modelData
+                        primary: index === 7 ? root.workspace === 0 && root.inspectorMode === 1 : root.workspace === index && (index !== 0 || root.inspectorMode === 0)
+                        subtle: !primary
+                        onClicked: {
+                            if (index === 7) { root.workspace = 0; root.inspectorMode = 1 }
+                            else { root.workspace = index; if (index === 0) root.inspectorMode = 0 }
+                        }
+                    }
+                }
+                Item { Layout.fillWidth: true }
+            }
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#3b4142" }
+        }
+
         RowLayout {
+            visible: root.workspace === 0
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 0
@@ -581,6 +614,7 @@ ApplicationWindow {
         }
 
         Rectangle {
+            visible: root.workspace === 0
             Layout.fillWidth: true
             Layout.preferredHeight: 248
             color: "#202324"
@@ -615,6 +649,18 @@ ApplicationWindow {
             }
         }
 
+        ToolsWorkspace {
+            section: root.workspace
+            visible: root.workspace !== 0
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            onPublishFile: function(fileUrl) {
+                root.uploadFile = fileUrl
+                root.workspace = 0
+                root.inspectorMode = 1
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 30
@@ -624,15 +670,15 @@ ApplicationWindow {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 14
                 spacing: 8
-                Rectangle { width: 6; height: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText ? "#e8a29e" : exporter.busy || toolsClient.busy ? "#e6b980" : "#9dcab6" }
+                Rectangle { width: 6; height: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || remoteJobs.errorText ? "#e8a29e" : exporter.busy || toolsClient.busy || localTools.busy || remoteJobs.busy ? "#e6b980" : "#9dcab6" }
                 Text {
-                    text: editorProject.errorText || exporter.errorText || toolsClient.errorText || (exporter.busy ? exporter.stage + " " + exporter.progress + "%" : toolsClient.busy ? toolsClient.stage + " " + toolsClient.progress + "%" : exporter.stage === "Ready" ? "Export ready" : root.notice || "Ready")
+                    text: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || remoteJobs.errorText || (exporter.busy ? exporter.stage + " " + exporter.progress + "%" : localTools.busy ? localTools.stage + " " + localTools.progress + "%" : remoteJobs.busy ? remoteJobs.stage + " " + remoteJobs.progress + "%" : toolsClient.busy ? toolsClient.stage + " " + toolsClient.progress + "%" : root.notice || "Ready")
                     color: "#d6dedd"
                     font.pixelSize: 11
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
-                Text { text: "LOCAL EDIT"; color: "#a5b0af"; font.pixelSize: 10; font.weight: Font.DemiBold }
+                Text { text: root.workspace === 0 ? "LOCAL EDIT" : root.workspace === 1 || root.workspace >= 5 ? "TOOLS SERVER" : "LOCAL PROCESSING"; color: "#a5b0af"; font.pixelSize: 10; font.weight: Font.DemiBold }
             }
         }
     }

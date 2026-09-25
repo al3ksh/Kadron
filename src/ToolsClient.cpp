@@ -1,6 +1,7 @@
 #include "ToolsClient.h"
 
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
@@ -28,12 +29,14 @@ ToolsClient::ToolsClient(QObject *parent) : QObject(parent)
 }
 
 QString ToolsClient::serverUrl() const { return m_serverUrl; }
+QString ToolsClient::sessionId() const { return m_sessionId; }
 bool ToolsClient::busy() const { return m_operation != Operation::None; }
 bool ToolsClient::connected() const { return m_connected; }
 QString ToolsClient::stage() const { return m_stage; }
 QString ToolsClient::errorText() const { return m_errorText; }
 int ToolsClient::progress() const { return m_progress; }
 QUrl ToolsClient::resultUrl() const { return m_resultUrl; }
+QUrl ToolsClient::qrPreviewUrl() const { return m_qrPreviewUrl; }
 
 void ToolsClient::setServerUrl(const QString &value)
 {
@@ -189,6 +192,76 @@ void ToolsClient::shorten(const QString &url, const QString &slug)
 
 void ToolsClient::publishDrop(const QUrl &fileUrl) { beginUpload(fileUrl, Operation::Drop); }
 void ToolsClient::publishClip(const QUrl &fileUrl) { beginUpload(fileUrl, Operation::Clip); }
+
+void ToolsClient::generateQr(const QString &content, int size)
+{
+    if (content.trimmed().isEmpty() || content.size() > 4296 || size < 100 || size > 2000) {
+        m_errorText = QStringLiteral("Enter text up to 4296 characters and a size from 100 to 2000 px.");
+        emit changed();
+        return;
+    }
+    if (!begin(Operation::Qr))
+        return;
+    m_qrBytes.clear();
+    const auto previousPath = m_qrPreviewUrl.toLocalFile();
+    m_qrPreviewUrl = QUrl();
+    if (!previousPath.isEmpty())
+        QFile::remove(previousPath);
+    m_stage = QStringLiteral("Generating QR");
+    auto *reply = postJson("/api/qr/generate", {{"text", content}, {"size", size}});
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        const bool current = m_reply == reply;
+        if (current) m_reply = nullptr;
+        reply->deleteLater();
+        if (!current || m_operation != Operation::Qr)
+            return;
+        if (reply->error() != QNetworkReply::NoError) {
+            fail(responseError(reply));
+            return;
+        }
+        const auto url = QJsonDocument::fromJson(reply->readAll()).object().value("dataUrl").toString();
+        const auto separator = url.indexOf(',');
+        if (!url.startsWith("data:image/png;base64,") || separator < 0) {
+            fail(QStringLiteral("The server did not return a PNG QR code."));
+            return;
+        }
+        m_qrBytes = QByteArray::fromBase64(url.mid(separator + 1).toLatin1());
+        if (!m_qrBytes.startsWith("\x89PNG\r\n\x1a\n") || !m_qrDirectory.isValid()) {
+            fail(QStringLiteral("The server returned an invalid QR image."));
+            return;
+        }
+        const auto path = m_qrDirectory.path() + "/qr-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".png";
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly) || file.write(m_qrBytes) != m_qrBytes.size() || !file.commit()) {
+            fail(QStringLiteral("Could not prepare the QR image."));
+            return;
+        }
+        m_qrPreviewUrl = QUrl::fromLocalFile(path);
+        finish(QUrl());
+    });
+    emit changed();
+}
+
+bool ToolsClient::saveQr(const QUrl &destination)
+{
+    if (busy() || m_qrBytes.isEmpty() || !destination.isLocalFile())
+        return false;
+    if (QFileInfo(destination.toLocalFile()).exists()) {
+        m_errorText = QStringLiteral("Output already exists. Choose a new name.");
+        emit changed();
+        return false;
+    }
+    QSaveFile file(destination.toLocalFile());
+    if (!file.open(QIODevice::WriteOnly) || file.write(m_qrBytes) != m_qrBytes.size() || !file.commit()) {
+        m_errorText = QStringLiteral("Could not save the QR image.");
+        emit changed();
+        return false;
+    }
+    m_errorText.clear();
+    m_stage = QStringLiteral("Saved");
+    emit changed();
+    return true;
+}
 
 void ToolsClient::beginUpload(const QUrl &fileUrl, Operation operation)
 {
