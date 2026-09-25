@@ -61,7 +61,13 @@ int main(int argc, char *argv[])
             engine.rootObjects().first()->setProperty("inspectorMode", 1);
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_WORKSPACE"))
             engine.rootObjects().first()->setProperty("workspace", qEnvironmentVariableIntValue("KADRON_SCREENSHOT_WORKSPACE"));
-        QTimer::singleShot(1500, &app, [&app, &engine, screenshotPath] {
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_SEQUENCE_PREVIEW")) {
+            QTimer::singleShot(500, &app, [&engine] {
+                QMetaObject::invokeMethod(engine.rootObjects().first(), "previewSequence");
+            });
+        }
+        const auto screenshotDelay = qEnvironmentVariableIntValue("KADRON_SCREENSHOT_DELAY_MS");
+        QTimer::singleShot(screenshotDelay > 0 ? screenshotDelay : 1500, &app, [&app, &engine, screenshotPath] {
             if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first())) {
                 window->grabWindow().save(screenshotPath);
                 window->setProperty("forceClose", true);

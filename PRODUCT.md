@@ -16,12 +16,13 @@ Someone editing and sharing short video, GIF, and audio on their own computer, s
 
 ## Product Purpose
 
-Trim and process media locally with responsive preview and visible progress. Download and publish through a configured self-hosted Tools server.
+Assemble, preview, trim, and process media locally with visible progress. Download and publish through a configured self-hosted Tools server.
 
 ## Capabilities and Constraints
 
 - Local files remain local until the user starts a share operation.
-- The current editor imports one media file, trims a range, saves a project, and exports it locally. It does not yet support multitrack editing, effects, audio mixing, or GIF editing.
+- The editor assembles an ordered sequence of local video or audio clips. Each clip has its own trim range; a clip can be split and reordered. Preview advances across the entire sequence. Project format v2 preserves the sequence and can open legacy v1 projects.
+- MP4 sequence export normalizes canvas, frame rate, video and audio codecs before joining clips. Audio-only clips render over black, and silent video gets a silent audio track. This is a single-track sequence, not multitrack editing; effects, transitions, audio mixing, and GIF editing remain future work.
 - Audio conversion supports MP3, WAV, FLAC, and Opus. Image/video compression and GIF generation run locally. Target-size mode retries encoding and fails if the limit cannot be reached without truncation.
 - Downloader, PDF operations, QR generation, and guest Clips/Shortener/Drop use the existing Tools API. The server address and desktop guest session are stored locally. Live-server compatibility has not yet been verified; tests use a local API fixture.
 - PDF documents are uploaded to the server. Local media is only uploaded after an explicit publish or PDF action; URL downloads are handled by the server.

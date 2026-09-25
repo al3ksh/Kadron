@@ -2,7 +2,11 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QTemporaryDir>
 #include <QUrl>
+#include <QVariantList>
+#include <QVector>
+#include <memory>
 
 class ExportController final : public QObject
 {
@@ -24,6 +28,7 @@ public:
     QUrl outputUrl() const;
 
     Q_INVOKABLE bool start(const QUrl &source, const QUrl &destination, qint64 inMs, qint64 outMs);
+    Q_INVOKABLE bool startSequence(const QVariantList &clips, const QUrl &destination);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void resetResult();
 
@@ -31,17 +36,37 @@ signals:
     void changed();
 
 private:
+    struct Segment {
+        QString path;
+        qint64 inMs = 0;
+        qint64 outMs = 0;
+        bool hasVideo = false;
+        bool hasAudio = false;
+    };
+    enum class Phase { Idle, Single, Probe, Encode, Concat };
+    void probeNext();
+    void encodeNext();
+    void concatSegments();
+    void clearSequence();
     void readProgress();
     void finish(int exitCode, QProcess::ExitStatus exitStatus);
     void fail(const QString &message);
     void discardPartial();
 
     QString m_ffmpeg;
+    QString m_ffprobe;
     QProcess m_process;
     QString m_partialPath;
     QString m_destinationPath;
     QByteArray m_progressBuffer;
     QByteArray m_errorBuffer;
+    QVector<Segment> m_segments;
+    std::unique_ptr<QTemporaryDir> m_sequenceDir;
+    Phase m_phase = Phase::Idle;
+    int m_segmentIndex = 0;
+    int m_canvasWidth = 0;
+    int m_canvasHeight = 0;
+    qint64 m_completedMs = 0;
     qint64 m_rangeMs = 0;
     bool m_busy = false;
     bool m_cancelled = false;

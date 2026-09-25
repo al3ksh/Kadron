@@ -7,6 +7,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QDir>
 #include <QProcess>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -22,6 +23,7 @@ private slots:
     void projectRoundTrip();
     void sequenceProject();
     void mediaExport();
+    void sequenceExport();
     void remoteWorkflow();
     void localMediaOperations();
     void remoteJobWorkflow();
@@ -107,6 +109,7 @@ void CoreTests::sequenceProject()
     QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
     EditorProject reopened;
     QVERIFY(reopened.openProject(QUrl::fromLocalFile(projectPath)));
+    QCOMPARE(reopened.projectUrl().toLocalFile(), projectPath);
     QCOMPARE(reopened.clipCount(), 3);
     QCOMPARE(reopened.activeClipIndex(), 2);
     QCOMPARE(reopened.sequenceDurationMs(), 6500);
@@ -180,6 +183,86 @@ void CoreTests::mediaExport()
     QVERIFY2(duration > 1.7 && duration < 2.3, qPrintable(QString("Unexpected duration: %1").arg(duration)));
     QVERIFY(!exporter.start(QUrl::fromLocalFile(sourcePath), QUrl::fromLocalFile(outputPath), 1000, 3000));
     QVERIFY(exporter.errorText().contains("already exists"));
+}
+
+void CoreTests::sequenceExport()
+{
+    const auto ffmpeg = qEnvironmentVariable("KADRON_FFMPEG", "ffmpeg");
+    const auto ffprobe = QFileInfo(ffmpeg).absolutePath() + "/ffprobe.exe";
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto videoPath = directory.path() + "/video.mp4";
+    const auto audioPath = directory.path() + "/audio.wav";
+    const auto silentPath = directory.path() + "/silent.mp4";
+    QProcess generator;
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                             "testsrc2=size=320x180:rate=15", "-f", "lavfi", "-i",
+                             "sine=frequency=440:sample_rate=48000", "-t", "2", "-c:v", "libx264",
+                             "-c:a", "aac", videoPath});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                             "sine=frequency=660:sample_rate=48000", "-t", "2", audioPath});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                             "testsrc2=size=480x270:rate=24", "-t", "2", "-c:v", "libx264", silentPath});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+
+    EditorProject project;
+    QVERIFY(project.importMedia(QUrl::fromLocalFile(videoPath)));
+    project.setDurationMs(2000);
+    project.setOutMs(1200);
+    QVERIFY(project.appendMedia(QUrl::fromLocalFile(audioPath)));
+    project.setDurationMs(2000);
+    project.setOutMs(1300);
+    QVERIFY(project.appendMedia(QUrl::fromLocalFile(silentPath)));
+    project.setDurationMs(2000);
+    project.setOutMs(1400);
+    QVERIFY(project.canExport());
+
+    ExportController exporter;
+    const auto outputPath = directory.path() + "/sequence.mp4";
+    QVERIFY(exporter.startSequence(project.clips(), QUrl::fromLocalFile(outputPath)));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    QCOMPARE(exporter.progress(), 100);
+    QVERIFY(QFileInfo(outputPath).size() > 0);
+
+    QProcess probe;
+    probe.start(ffprobe, {"-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
+                          "-of", "json", outputPath});
+    QVERIFY(probe.waitForFinished(30000));
+    QCOMPARE(probe.exitCode(), 0);
+    const auto metadata = QJsonDocument::fromJson(probe.readAllStandardOutput()).object();
+    const auto duration = metadata.value("format").toObject().value("duration").toString().toDouble();
+    QVERIFY2(duration > 3.4 && duration < 4.3, qPrintable(QString("Unexpected sequence duration: %1").arg(duration)));
+    const auto streams = metadata.value("streams").toArray();
+    bool hasVideo = false;
+    bool hasAudio = false;
+    for (const auto &entry : streams) {
+        const auto stream = entry.toObject();
+        if (stream.value("codec_type") == "video") {
+            hasVideo = true;
+            QCOMPARE(stream.value("width").toInt(), 320);
+            QCOMPARE(stream.value("height").toInt(), 180);
+        }
+        if (stream.value("codec_type") == "audio") hasAudio = true;
+    }
+    QVERIFY(hasVideo);
+    QVERIFY(hasAudio);
+    QDir outputDirectory(directory.path());
+    QVERIFY(outputDirectory.entryList({".kadron-sequence-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+    QVERIFY(outputDirectory.entryList({"*.part.mp4"}, QDir::Files | QDir::Hidden).isEmpty());
+
+    const auto cancelledPath = directory.path() + "/cancelled.mp4";
+    QVERIFY(exporter.startSequence(project.clips(), QUrl::fromLocalFile(cancelledPath)));
+    exporter.cancel();
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 10000);
+    QCOMPARE(exporter.stage(), QString("Cancelled"));
+    QVERIFY(!QFileInfo(cancelledPath).exists());
+    QVERIFY(outputDirectory.entryList({".kadron-sequence-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
 }
 
 void CoreTests::remoteWorkflow()

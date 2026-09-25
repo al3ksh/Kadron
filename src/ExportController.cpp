@@ -2,11 +2,18 @@
 #include "MediaTools.h"
 
 #include <QFile>
+#include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 #include <QUuid>
+#include <QtMath>
 #include <QtGlobal>
 
-ExportController::ExportController(QObject *parent) : QObject(parent), m_ffmpeg(ffmpegExecutable())
+ExportController::ExportController(QObject *parent)
+    : QObject(parent), m_ffmpeg(ffmpegExecutable()), m_ffprobe(ffprobeExecutable())
 {
     connect(&m_process, &QProcess::readyReadStandardOutput, this, &ExportController::readProgress);
     connect(&m_process, &QProcess::readyReadStandardError, this, [this] {
@@ -66,6 +73,7 @@ bool ExportController::start(const QUrl &source, const QUrl &destination, qint64
     m_progressBuffer.clear();
     m_errorBuffer.clear();
     m_busy = true;
+    m_phase = Phase::Single;
 
     const auto seconds = [](qint64 milliseconds) {
         return QString::number(milliseconds / 1000.0, 'f', 3);
@@ -83,6 +91,173 @@ bool ExportController::start(const QUrl &source, const QUrl &destination, qint64
     emit changed();
     m_process.start();
     return true;
+}
+
+bool ExportController::startSequence(const QVariantList &clips, const QUrl &destination)
+{
+    if (m_busy)
+        return false;
+    m_errorText.clear();
+    m_outputUrl = QUrl();
+    if (m_ffmpeg.isEmpty() || m_ffprobe.isEmpty()) {
+        fail(QStringLiteral("FFmpeg and FFprobe are required for sequence export."));
+        return false;
+    }
+    if (clips.size() < 2 || clips.size() > 1000 || !destination.isLocalFile()
+        || QFileInfo(destination.toLocalFile()).suffix().toLower() != "mp4") {
+        fail(QStringLiteral("Choose at least two clips and an MP4 output file."));
+        return false;
+    }
+    const QFileInfo outputInfo(destination.toLocalFile());
+    if (outputInfo.exists() || !outputInfo.dir().exists()) {
+        fail(QStringLiteral("Choose a new output file in an existing folder."));
+        return false;
+    }
+
+    QVector<Segment> segments;
+    qint64 totalMs = 0;
+    for (const auto &entry : clips) {
+        const auto clip = entry.toMap();
+        const auto source = clip.value("url").toUrl();
+        const QFileInfo sourceInfo(source.toLocalFile());
+        const auto in = clip.value("inMs").toLongLong();
+        const auto out = clip.value("outMs").toLongLong();
+        const auto duration = clip.value("durationMs").toLongLong();
+        if (!source.isLocalFile() || !sourceInfo.isFile() || in < 0 || out - in < 100
+            || out > duration || sourceInfo.absoluteFilePath() == outputInfo.absoluteFilePath()) {
+            fail(QStringLiteral("A sequence clip is missing or has an invalid time range."));
+            return false;
+        }
+        segments.append({sourceInfo.absoluteFilePath(), in, out});
+        totalMs += out - in;
+    }
+    auto directory = std::make_unique<QTemporaryDir>(outputInfo.absolutePath() + "/.kadron-sequence-XXXXXX");
+    if (!directory->isValid()) {
+        fail(QStringLiteral("Could not create temporary export files beside the output."));
+        return false;
+    }
+
+    m_segments = segments;
+    m_sequenceDir = std::move(directory);
+    m_destinationPath = outputInfo.absoluteFilePath();
+    m_partialPath = outputInfo.absolutePath() + "/." + outputInfo.completeBaseName()
+        + "." + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".part.mp4";
+    m_rangeMs = totalMs;
+    m_completedMs = 0;
+    m_segmentIndex = 0;
+    m_canvasWidth = 0;
+    m_canvasHeight = 0;
+    m_progress = 0;
+    m_cancelled = false;
+    m_busy = true;
+    m_phase = Phase::Probe;
+    emit changed();
+    probeNext();
+    return true;
+}
+
+void ExportController::probeNext()
+{
+    if (m_segmentIndex >= m_segments.size()) {
+        if (m_canvasWidth == 0) {
+            m_canvasWidth = 1280;
+            m_canvasHeight = 720;
+        }
+        m_segmentIndex = 0;
+        encodeNext();
+        return;
+    }
+    m_phase = Phase::Probe;
+    m_stage = QStringLiteral("Inspecting clip %1/%2").arg(m_segmentIndex + 1).arg(m_segments.size());
+    m_errorBuffer.clear();
+    m_progressBuffer.clear();
+    m_process.start(m_ffprobe, {
+        "-v", "error", "-show_entries", "stream=codec_type,width,height",
+        "-of", "json", m_segments[m_segmentIndex].path
+    });
+    emit changed();
+}
+
+void ExportController::encodeNext()
+{
+    if (m_segmentIndex >= m_segments.size()) {
+        concatSegments();
+        return;
+    }
+    m_phase = Phase::Encode;
+    m_stage = QStringLiteral("Encoding clip %1/%2").arg(m_segmentIndex + 1).arg(m_segments.size());
+    m_errorBuffer.clear();
+    m_progressBuffer.clear();
+    const auto &segment = m_segments[m_segmentIndex];
+    const auto seconds = [](qint64 milliseconds) { return QString::number(milliseconds / 1000.0, 'f', 3); };
+    QStringList args{
+        "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1",
+        "-ss", seconds(segment.inMs), "-i", segment.path
+    };
+    if (!segment.hasVideo)
+        args << "-f" << "lavfi" << "-i" << QString("color=c=black:s=%1x%2:r=30").arg(m_canvasWidth).arg(m_canvasHeight);
+    else if (!segment.hasAudio)
+        args << "-f" << "lavfi" << "-i" << "anullsrc=channel_layout=stereo:sample_rate=48000";
+    args << "-t" << seconds(segment.outMs - segment.inMs)
+         << "-map" << (segment.hasVideo ? "0:v:0" : "1:v:0")
+         << "-map" << (segment.hasAudio ? "0:a:0" : "1:a:0");
+    if (segment.hasVideo) {
+        args << "-vf" << QString("scale=%1:%2:force_original_aspect_ratio=decrease,"
+                                 "pad=%1:%2:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p,setsar=1")
+                                 .arg(m_canvasWidth).arg(m_canvasHeight);
+    } else {
+        args << "-vf" << "format=yuv420p";
+    }
+    args << "-c:v" << "libx264" << "-preset" << "fast" << "-crf" << "20"
+         << "-r" << "30" << "-c:a" << "aac" << "-b:a" << "160k"
+         << "-ar" << "48000" << "-ac" << "2" << "-shortest" << "-movflags" << "+faststart"
+         << "-y" << (m_sequenceDir->path() + QString("/clip_%1.mp4").arg(m_segmentIndex, 4, 10, QChar('0')));
+    m_process.start(m_ffmpeg, args);
+    emit changed();
+}
+
+void ExportController::concatSegments()
+{
+    m_phase = Phase::Concat;
+    m_stage = QStringLiteral("Finalizing sequence");
+    m_errorBuffer.clear();
+    m_progressBuffer.clear();
+    const auto listPath = m_sequenceDir->path() + "/clips.ffconcat";
+    QSaveFile list(listPath);
+    if (!list.open(QIODevice::WriteOnly)) {
+        fail(QStringLiteral("Could not prepare the sequence for final export."));
+        return;
+    }
+    for (int index = 0; index < m_segments.size(); ++index) {
+        auto path = m_sequenceDir->path() + QString("/clip_%1.mp4").arg(index, 4, 10, QChar('0'));
+        path = QDir::fromNativeSeparators(path).replace("'", "'\\''");
+        const auto line = QString("file '%1'\n").arg(path).toUtf8();
+        if (list.write(line) != line.size()) {
+            list.cancelWriting();
+            fail(QStringLiteral("Could not prepare the sequence for final export."));
+            return;
+        }
+    }
+    if (!list.commit()) {
+        fail(QStringLiteral("Could not prepare the sequence for final export."));
+        return;
+    }
+    m_progress = qMax(m_progress, 90);
+    emit changed();
+    m_process.start(m_ffmpeg, {
+        "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1",
+        "-safe", "0", "-f", "concat", "-i", listPath,
+        "-c", "copy", "-movflags", "+faststart", "-y", m_partialPath
+    });
+}
+
+void ExportController::clearSequence()
+{
+    m_sequenceDir.reset();
+    m_segments.clear();
+    m_segmentIndex = 0;
+    m_completedMs = 0;
+    m_phase = Phase::Idle;
 }
 
 void ExportController::cancel()
@@ -108,6 +283,8 @@ void ExportController::resetResult()
 
 void ExportController::readProgress()
 {
+    if (m_phase == Phase::Probe)
+        return;
     m_progressBuffer += m_process.readAllStandardOutput();
     while (true) {
         const auto end = m_progressBuffer.indexOf('\n');
@@ -120,7 +297,16 @@ void ExportController::readProgress()
         bool valid = false;
         const auto microseconds = line.mid(line.indexOf('=') + 1).toLongLong(&valid);
         if (valid && m_rangeMs > 0) {
-            const auto next = qBound(0, static_cast<int>(microseconds / (m_rangeMs * 10)), 99);
+            int next = 0;
+            if (m_phase == Phase::Encode) {
+                const auto segmentMs = m_segments[m_segmentIndex].outMs - m_segments[m_segmentIndex].inMs;
+                next = qBound(0, static_cast<int>((m_completedMs + qMin(segmentMs, microseconds / 1000))
+                                                  * 90 / m_rangeMs), 90);
+            } else if (m_phase == Phase::Concat) {
+                next = qBound(90, 90 + static_cast<int>(microseconds / (m_rangeMs * 100)), 99);
+            } else {
+                next = qBound(0, static_cast<int>(microseconds / (m_rangeMs * 10)), 99);
+            }
             if (next > m_progress) {
                 m_progress = next;
                 emit changed();
@@ -139,6 +325,7 @@ void ExportController::discardPartial()
 void ExportController::fail(const QString &message)
 {
     discardPartial();
+    clearSequence();
     m_busy = false;
     m_stage = QStringLiteral("Failed");
     m_errorText = message;
@@ -152,16 +339,58 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
     readProgress();
     if (m_cancelled) {
         discardPartial();
+        clearSequence();
         m_busy = false;
         m_stage = QStringLiteral("Cancelled");
         emit changed();
         return;
     }
+    if (m_phase == Phase::Probe) {
+        if (exitStatus != QProcess::NormalExit || exitCode != 0) {
+            fail(QStringLiteral("Could not inspect clip %1: %2")
+                 .arg(m_segmentIndex + 1).arg(QString::fromUtf8(m_errorBuffer).trimmed().right(300)));
+            return;
+        }
+        const auto streams = QJsonDocument::fromJson(m_process.readAllStandardOutput()).object().value("streams").toArray();
+        auto &segment = m_segments[m_segmentIndex];
+        for (const auto &entry : streams) {
+            const auto stream = entry.toObject();
+            const auto codecType = stream.value("codec_type").toString();
+            if (codecType == "audio") segment.hasAudio = true;
+            if (codecType == "video") {
+                segment.hasVideo = true;
+                const auto width = stream.value("width").toInt();
+                const auto height = stream.value("height").toInt();
+                if (m_canvasWidth == 0 && width > 0 && height > 0) {
+                    const auto ratio = qMin(1.0, qMin(1920.0 / width, 1080.0 / height));
+                    m_canvasWidth = qMax(2, qRound(width * ratio / 2) * 2);
+                    m_canvasHeight = qMax(2, qRound(height * ratio / 2) * 2);
+                }
+            }
+        }
+        if (!segment.hasVideo && !segment.hasAudio) {
+            fail(QStringLiteral("Clip %1 has no playable video or audio stream.").arg(m_segmentIndex + 1));
+            return;
+        }
+        ++m_segmentIndex;
+        probeNext();
+        return;
+    }
     if (exitStatus != QProcess::NormalExit || exitCode != 0
-        || !QFileInfo(m_partialPath).isFile() || QFileInfo(m_partialPath).size() == 0) {
+        || !(m_phase == Phase::Encode
+             ? QFileInfo(m_sequenceDir->path() + QString("/clip_%1.mp4").arg(m_segmentIndex, 4, 10, QChar('0'))).size() > 0
+             : QFileInfo(m_partialPath).isFile() && QFileInfo(m_partialPath).size() > 0)) {
         const auto details = QString::fromUtf8(m_errorBuffer).trimmed();
         fail(details.isEmpty() ? QStringLiteral("Export failed. Check the source file and codec support.")
                                : details.right(500));
+        return;
+    }
+    if (m_phase == Phase::Encode) {
+        m_completedMs += m_segments[m_segmentIndex].outMs - m_segments[m_segmentIndex].inMs;
+        m_progress = qMax(m_progress, static_cast<int>(m_completedMs * 90 / m_rangeMs));
+        ++m_segmentIndex;
+        emit changed();
+        encodeNext();
         return;
     }
     if (!QFile::rename(m_partialPath, m_destinationPath)) {
@@ -169,6 +398,7 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
         return;
     }
     m_partialPath.clear();
+    clearSequence();
     m_outputUrl = QUrl::fromLocalFile(m_destinationPath);
     m_progress = 100;
     m_busy = false;
