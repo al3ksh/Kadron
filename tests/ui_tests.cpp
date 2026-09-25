@@ -307,6 +307,16 @@ void UiTests::toolInputs()
     QSignalSpy browse(zone, signalOf(zone, "browseRequested()"));
     QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(250, 200));
     QCOMPARE(browse.count(), 1);
+
+    // Waveform mode (the audio trimmer): frames give way to the waveform, and
+    // long files label handles in minutes.
+    QVERIFY(!strip->property("waveMode").toBool());
+    strip->setProperty("waveLoading", true);
+    QVERIFY(strip->property("waveMode").toBool());
+    strip->setProperty("durationMs", 125000);
+    QVariant label;
+    QVERIFY(QMetaObject::invokeMethod(strip, "label", Q_RETURN_ARG(QVariant, label), Q_ARG(QVariant, 83500)));
+    QCOMPARE(label.toString(), QStringLiteral("1:23.5"));
 }
 
 QTEST_MAIN(UiTests)

@@ -86,6 +86,28 @@ Item {
     readonly property real gifStartMs: Math.max(0, Number(gifStart.text) * 1000)
     readonly property real gifEndMs: Math.min(gifPreview.duration > 0 ? gifPreview.duration : Infinity, gifStartMs + Math.max(0.1, Number(gifDuration.text)) * 1000)
     property bool gifLooping: true
+    // Audio trim range in milliseconds; an end of 0 means the whole file.
+    readonly property real audioStartMs: Math.max(0, Number(audioStart.text) * 1000)
+    readonly property real audioEndMs: Number(audioEnd.text) > 0 ? Math.min(audioPreview.duration > 0 ? audioPreview.duration : Infinity, Number(audioEnd.text) * 1000)
+                                                               : audioPreview.duration
+    property bool audioLooping: false
+
+    function setAudioRange(startMs, endMs) {
+        audioStart.text = (Math.max(0, startMs) / 1000).toFixed(2)
+        audioEnd.text = (Math.max(startMs + 100, endMs) / 1000).toFixed(2)
+    }
+    function toggleAudioPreview() {
+        if (audioPreview.playbackState === MediaPlayer.PlayingState) {
+            audioPreview.pause()
+            return
+        }
+        if (audioPreview.position < audioStartMs || audioPreview.position >= audioEndMs - 50) audioPreview.position = audioStartMs
+        audioPreview.play()
+    }
+    function clockLabel(ms) {
+        var seconds = Math.max(0, ms) / 1000
+        return Math.floor(seconds / 60) + ":" + (seconds % 60).toFixed(2).padStart(5, "0")
+    }
 
     function setGifRange(startMs, endMs) {
         gifStart.text = (Math.max(0, startMs) / 1000).toFixed(2)
@@ -103,6 +125,31 @@ Item {
         } else {
             sourceUrl = urls[0]
             compressFormat.currentIndex = 0
+        }
+    }
+
+    MediaPlayer {
+        id: audioPreview
+        source: toolsPage.section === 2 ? toolsPage.sourceUrl : ""
+        audioOutput: AudioOutput {}
+        property string loadedSource: ""
+        onMediaStatusChanged: {
+            // A new file starts with the whole file selected.
+            if ((mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia)
+                && source.toString() && source.toString() !== loadedSource) {
+                loadedSource = source.toString()
+                audioStart.text = "0"
+                audioEnd.text = "0"
+            }
+            if (mediaStatus === MediaPlayer.EndOfMedia) {
+                position = toolsPage.audioStartMs
+                if (toolsPage.audioLooping) play()
+            }
+        }
+        onPositionChanged: {
+            if (playbackState !== MediaPlayer.PlayingState || position < toolsPage.audioEndMs) return
+            position = toolsPage.audioStartMs
+            if (!toolsPage.audioLooping) pause()
         }
     }
 
@@ -600,6 +647,53 @@ Item {
                 visible: toolsPage.section === 2 && toolsPage.hasSource
                 Layout.fillWidth: true
                 spacing: 12
+                // Visual trimmer: the waveform with a draggable selection.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+                    EditorButton {
+                        objectName: "audioPlayButton"
+                        iconName: audioPreview.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
+                        enabled: audioPreview.duration > 0
+                        Layout.alignment: Qt.AlignBottom
+                        Layout.bottomMargin: 26
+                        onClicked: toolsPage.toggleAudioPreview()
+                    }
+                    RangeStrip {
+                        id: audioStrip
+                        objectName: "audioStrip"
+                        Layout.fillWidth: true
+                        implicitHeight: 110
+                        waveLoading: audioPreview.duration > 0 && waveform.length === 0
+                        waveform: audioPreview.duration > 0 && thumbnails.revision >= 0 ? thumbnails.waveformFor(toolsPage.sourceUrl) : ""
+                        durationMs: audioPreview.duration
+                        startMs: toolsPage.audioStartMs
+                        endMs: toolsPage.audioEndMs
+                        positionMs: audioPreview.position
+                        onRangeRequested: function(startMs, endMs) { toolsPage.setAudioRange(startMs, endMs) }
+                        onSeekRequested: function(ms) { audioPreview.position = ms }
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 14
+                    Text {
+                        text: audioPreview.duration > 0
+                              ? "Selection " + toolsPage.clockLabel(toolsPage.audioEndMs - toolsPage.audioStartMs) + " of " + toolsPage.clockLabel(audioPreview.duration)
+                              : audioPreview.mediaStatus === MediaPlayer.InvalidMedia ? "This file cannot be previewed; the range fields still apply." : "Reading the file…"
+                        color: Theme.textSoft
+                        font.pixelSize: 12
+                        font.features: { "tnum": 1 }
+                    }
+                    Item { Layout.fillWidth: true }
+                    ToolCheck { text: "Loop"; checked: toolsPage.audioLooping; onToggled: toolsPage.audioLooping = checked }
+                    EditorButton {
+                        text: "Whole file"
+                        subtle: true
+                        enabled: audioPreview.duration > 0 && (toolsPage.audioStartMs > 0 || toolsPage.audioEndMs < audioPreview.duration)
+                        onClicked: { audioStart.text = "0"; audioEnd.text = "0" }
+                    }
+                }
                 Text { text: "Output format"; color: Theme.textMuted; font.pixelSize: 12 }
                 ToolCombo { id: audioFormat; model: ["MP3", "WAV", "FLAC", "Opus"]; Layout.preferredWidth: 250 }
                 GridLayout {

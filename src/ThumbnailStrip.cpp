@@ -96,7 +96,7 @@ void ThumbnailStrip::startNext()
                   << "-q:v" << "6" << "-y" << prefix + "_%04d.jpg";
     } else {
         arguments << "-i" << job.path
-                  << "-filter_complex" << "aformat=channel_layouts=mono,showwavespic=s=2400x120:colors=0xffffff:draw=full"
+                  << "-filter_complex" << "aformat=channel_layouts=mono,showwavespic=s=2400x120:colors=0xffffff:draw=full:filter=peak"
                   << "-frames:v" << "1" << "-y" << prefix + "_wave.png";
     }
 

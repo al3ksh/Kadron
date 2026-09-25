@@ -1,10 +1,16 @@
 import QtQuick
+import QtQuick.Effects
 
-// Filmstrip with a selectable range: drag the handles to set start and end,
-// drag inside the range to move it, click elsewhere to seek.
+// Filmstrip or waveform with a selectable range: drag the handles to set start
+// and end, drag inside the range to move it, click elsewhere to seek.
 Item {
     id: strip
     property var frames: []
+    // When set, the lane shows this waveform image instead of frames; the
+    // selected part is drawn in the accent color.
+    property string waveform: ""
+    readonly property bool waveMode: waveform.length > 0 || waveLoading
+    property bool waveLoading: false
     property real durationMs: 0
     property real startMs: 0
     property real endMs: 0
@@ -17,7 +23,11 @@ Item {
 
     function xAt(ms) { return durationMs > 0 ? Math.max(0, Math.min(1, ms / durationMs)) * width : 0 }
     function msAt(x) { return width > 0 ? Math.max(0, Math.min(durationMs, x / width * durationMs)) : 0 }
-    function label(ms) { return (ms / 1000).toFixed(2) + " s" }
+    function label(ms) {
+        if (durationMs < 60000) return (ms / 1000).toFixed(2) + " s"
+        var seconds = ms / 1000
+        return Math.floor(seconds / 60) + ":" + (seconds % 60).toFixed(1).padStart(4, "0")
+    }
 
     Rectangle {
         id: lane
@@ -29,6 +39,7 @@ Item {
         clip: true
         Row {
             anchors.fill: parent
+            visible: !strip.waveMode
             Repeater {
                 model: strip.frames.length
                 delegate: Image {
@@ -40,6 +51,36 @@ Item {
                     asynchronous: true
                     opacity: 0.85
                 }
+            }
+        }
+        SkeletonBlock { anchors.fill: parent; radius: 0; visible: strip.waveLoading && strip.waveform.length === 0 }
+        Image {
+            id: waveImage
+            anchors.fill: parent
+            anchors.topMargin: 6
+            anchors.bottomMargin: 6
+            visible: strip.waveform.length > 0
+            source: strip.waveform
+            fillMode: Image.Stretch
+            smooth: true
+            opacity: 0.4
+        }
+        Item {
+            visible: strip.waveform.length > 0
+            x: strip.xAt(strip.startMs)
+            width: strip.xAt(strip.endMs) - x
+            height: parent.height
+            clip: true
+            Image {
+                x: -parent.x
+                y: waveImage.y
+                width: waveImage.width
+                height: waveImage.height
+                source: strip.waveform
+                fillMode: Image.Stretch
+                smooth: true
+                layer.enabled: true
+                layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.accent }
             }
         }
         // Dim what falls outside the range.
