@@ -308,6 +308,19 @@ void UiTests::toolInputs()
     QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(250, 200));
     QCOMPARE(browse.count(), 1);
 
+    // The playhead pin under the lane can be grabbed and dragged (y 48–72).
+    strip->setProperty("positionMs", 5000);
+    seek.clear();
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(254, 62));
+    QVERIFY(strip->property("scrubbing").toBool());
+    QTest::mouseMove(&window, QPoint(280, 62));
+    QTest::mouseMove(&window, QPoint(304, 62));
+    QVERIFY(qAbs(strip->property("shownMs").toDouble() - 6000.0) < 50);
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(304, 62));
+    QVERIFY(seek.count() > 0);
+    QVERIFY(qAbs(seek.last().first().toDouble() - 6000.0) < 50);
+    QVERIFY(!strip->property("scrubbing").toBool());
+
     // Waveform mode (the audio trimmer): frames give way to the waveform, and
     // long files label handles in minutes.
     QVERIFY(!strip->property("waveMode").toBool());

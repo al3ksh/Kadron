@@ -656,14 +656,14 @@ Item {
                         iconName: audioPreview.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
                         enabled: audioPreview.duration > 0
                         Layout.alignment: Qt.AlignBottom
-                        Layout.bottomMargin: 26
+                        Layout.bottomMargin: 50
                         onClicked: toolsPage.toggleAudioPreview()
                     }
                     RangeStrip {
                         id: audioStrip
                         objectName: "audioStrip"
                         Layout.fillWidth: true
-                        implicitHeight: 110
+                        implicitHeight: 134
                         waveLoading: audioPreview.duration > 0 && waveform.length === 0
                         waveform: audioPreview.duration > 0 && thumbnails.revision >= 0 ? thumbnails.waveformFor(toolsPage.sourceUrl) : ""
                         durationMs: audioPreview.duration
@@ -788,6 +788,7 @@ Item {
                         iconName: gifPreview.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
                         enabled: gifPreview.hasVideo
                         Layout.alignment: Qt.AlignBottom
+                        Layout.bottomMargin: 29
                         onClicked: {
                             if (gifPreview.playbackState === MediaPlayer.PlayingState) {
                                 toolsPage.gifLooping = false
