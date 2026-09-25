@@ -26,7 +26,7 @@ Item {
         return Math.floor(total / 60) + ":" + (total % 60).toString().padStart(2, "0")
     }
 
-    // Seeking has its own lane, so the playhead never sits below a trim handle.
+    // Seeking has its own lane; the playhead grip has a separate, larger hit area.
     Rectangle {
         id: seekLane
         x: 0
@@ -55,21 +55,6 @@ Item {
             onPressed: function(mouse) { timeline.seekRequested(timeline.atX(mouse.x)) }
             onPositionChanged: function(mouse) {
                 if (pressed) timeline.seekRequested(timeline.atX(mouse.x))
-            }
-        }
-        Rectangle {
-            x: Math.max(0, Math.min(seekLane.width - width, timeline.fraction(timeline.playheadMs) * seekLane.width - width / 2))
-            y: 2
-            width: 13
-            height: 18
-            radius: 3
-            color: "#eebd86"
-            border.color: "#bc814f"
-            Text {
-                anchors.centerIn: parent
-                text: "|"
-                font.pixelSize: 12
-                color: "#493625"
             }
         }
     }
@@ -201,6 +186,86 @@ Item {
                 onPositionChanged: function(mouse) {
                     if (pressed) timeline.outRequested(timeline.atX(outHandle.mapToItem(timeline, mouse.x, 0).x))
                 }
+            }
+        }
+    }
+
+    Rectangle {
+        x: Math.round(timeline.fraction(timeline.playheadMs) * timeline.width) - width / 2
+        y: 30
+        width: 2
+        height: trimLane.y + trimLane.height - y
+        color: "#eebd86"
+        opacity: 0.9
+        visible: timeline.durationMs > 0
+        z: 2
+    }
+
+    Item {
+        id: playheadGrip
+        x: Math.max(0, Math.min(timeline.width - width, timeline.fraction(timeline.playheadMs) * timeline.width - width / 2))
+        y: 0
+        width: 36
+        height: 36
+        visible: timeline.durationMs > 0
+        activeFocusOnTab: true
+        z: 3
+
+        Keys.onPressed: function(event) {
+            var step = event.modifiers & Qt.ShiftModifier ? 100 : 1000
+            if (event.key === Qt.Key_Left) {
+                timeline.seekRequested(Math.max(0, timeline.playheadMs - step))
+                event.accepted = true
+            } else if (event.key === Qt.Key_Right) {
+                timeline.seekRequested(Math.min(timeline.durationMs, timeline.playheadMs + step))
+                event.accepted = true
+            }
+        }
+
+        Rectangle {
+            x: 13
+            y: 21
+            width: 10
+            height: 10
+            rotation: 45
+            color: "#eebd86"
+        }
+        Rectangle {
+            x: 6
+            y: 2
+            width: 24
+            height: 24
+            radius: 5
+            color: gripMouse.pressed ? "#ffd4a1" : gripMouse.containsMouse ? "#f9c98f" : "#eebd86"
+            border.width: playheadGrip.activeFocus ? 2 : 1
+            border.color: playheadGrip.activeFocus ? "#fff3dd" : "#bc814f"
+            Behavior on color { ColorAnimation { duration: 100 } }
+            Row {
+                anchors.centerIn: parent
+                spacing: 3
+                Repeater {
+                    model: 2
+                    Rectangle { width: 2; height: 10; radius: 1; color: "#65472d" }
+                }
+            }
+        }
+        MouseArea {
+            id: gripMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.SizeHorCursor
+            property real startX: 0
+            property real startMs: 0
+            onPressed: function(mouse) {
+                playheadGrip.forceActiveFocus()
+                startX = playheadGrip.mapToItem(timeline, mouse.x, 0).x
+                startMs = timeline.playheadMs
+            }
+            onPositionChanged: function(mouse) {
+                if (!pressed) return
+                var currentX = playheadGrip.mapToItem(timeline, mouse.x, 0).x
+                var nextMs = startMs + (currentX - startX) / timeline.width * timeline.durationMs
+                timeline.seekRequested(Math.max(0, Math.min(timeline.durationMs, nextMs)))
             }
         }
     }
