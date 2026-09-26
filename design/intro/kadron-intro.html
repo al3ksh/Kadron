@@ -1,0 +1,385 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Kadron intro</title>
+<style>
+  html, body { margin: 0; background: #101317; }
+  canvas { display: block; width: 100vw; height: auto; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// Kadron startup intro: a trim in Kadron's own range strip becomes the mark.
+// The waveform lane plays, the lime trim handles close in on a range, the
+// rest is cut away, and the two handles fold into the logo (left handle ->
+// frame bracket, right handle -> chevron). The playhead then scrubs the
+// wordmark into view.
+//
+// Every frame is a pure function of time, so render.js can step through it;
+// opening this file in a browser plays it live (click to replay).
+const W = 1920, H = 1080, CX = W / 2, CY = H / 2;
+const FPS = 60;
+const DURATION = 3.1;
+
+// Kadron's dark theme (qml/Theme.qml).
+const C = {
+  bg: '#101317',
+  lane: '#171b20',
+  laneEdge: '#262c33',
+  ink: '#f1f4ef',
+  muted: '#6b7480',
+  lime: '#c9f27a',
+  limeInk: '#171b20',
+  playhead: '#eebd86',
+  playheadInk: '#ffe3bd',
+  playheadWash: '#4b392c',
+};
+
+const canvas = document.getElementById('c');
+const out = canvas.getContext('2d');
+const buffer = document.createElement('canvas');
+buffer.width = W; buffer.height = H;
+const ctx = buffer.getContext('2d');
+
+// ---- timing ----------------------------------------------------------------
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const span = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, p) => a + (b - a) * p;
+const expoOut = p => p >= 1 ? 1 : 1 - Math.pow(2, -10 * p);
+const expoInOut = p => p <= 0 ? 0 : p >= 1 ? 1 : p < 0.5 ? Math.pow(2, 20 * p - 10) / 2 : (2 - Math.pow(2, -20 * p + 10)) / 2;
+const cubicInOut = p => p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+const cubicOut = p => 1 - Math.pow(1 - p, 3);
+// Spring with one soft overshoot, like the app's SnapSpring.
+const spring = p => p <= 0 ? 0 : p >= 1 ? 1 : 1 - Math.exp(-6.5 * p) * Math.cos(9 * p);
+
+function rand(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+function mix(a, b, p) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ch = s => Math.round(lerp((pa >> s) & 255, (pb >> s) & 255, p));
+  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+}
+
+// ---- layout ----------------------------------------------------------------
+const LANE_W = 1320, LANE_H = 200;
+const LANE_L = CX - LANE_W / 2, LANE_R = CX + LANE_W / 2;
+const RANGE = [CX - 250, CX + 250];            // where the trim handles settle
+
+// The mark, centred where the handles fold (logo units from kadron-mark.svg).
+const MARK = 214;                              // px per 256 logo units
+const S = MARK / 256;
+const STROKE = 24 * S;
+const lx = u => CX + (u - 128) * S;
+const ly = v => CY + (v - 128) * S;
+
+// Final lockup: mark on the left, wordmark to its right.
+const WORD = 'Kadron';
+const WORD_FONT = '600 176px "Segoe UI", sans-serif';
+let wordWidth = 0;
+function lockupShift() {
+  // The visible mark spans logo x 54..214; centre mark + gap + word.
+  const markW = 160 * S, gap = 54;
+  const total = markW + gap + wordWidth;
+  const markLeft = CX - total / 2;
+  return { dx: markLeft - lx(54), wordX: markLeft + markW + gap };
+}
+
+// Waveform bars: a music-like envelope, deterministic.
+const BARS = (() => {
+  const r = rand(11);
+  const list = [];
+  for (let x = LANE_L + 24; x <= LANE_R - 24; x += 11) {
+    const u = (x - LANE_L) / LANE_W;
+    const phrase = 0.55 + 0.45 * Math.sin(u * 9.5 + 0.6) * Math.sin(u * 3.1 + 1.2);
+    const hit = Math.pow(r(), 2.2);
+    list.push({ x, amp: clamp(0.12 + 0.6 * Math.abs(phrase) + 0.35 * hit, 0.08, 1) });
+  }
+  return list;
+})();
+
+// ---- drawing helpers ----------------------------------------------------------
+function roundRect(x, y, w, h, r) {
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.roundRect(x, y, Math.max(0, w), Math.max(0, h), rr);
+}
+
+function timeLabel(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds - m * 60;
+  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
+}
+
+// Playhead line with the pin under it (qml/RangeStrip.qml).
+function playhead(x, top, bottom, label, alpha) {
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.fillStyle = C.playhead;
+  ctx.fillRect(x - 1.5, top, 3, bottom - top);
+  ctx.font = '600 19px "Segoe UI", sans-serif';
+  const pw = ctx.measureText(label).width + 26;
+  const ph = 36, py = bottom + 4;
+  const l = x - pw / 2, r = x + pw / 2;
+  ctx.beginPath();
+  ctx.moveTo(x - 8, py + 9); ctx.lineTo(x, py); ctx.lineTo(x + 8, py + 9);
+  ctx.lineTo(r - 6, py + 9); ctx.quadraticCurveTo(r, py + 9, r, py + 15);
+  ctx.lineTo(r, py + ph - 6); ctx.quadraticCurveTo(r, py + ph, r - 6, py + ph);
+  ctx.lineTo(l + 6, py + ph); ctx.quadraticCurveTo(l, py + ph, l, py + ph - 6);
+  ctx.lineTo(l, py + 15); ctx.quadraticCurveTo(l, py + 9, l + 6, py + 9);
+  ctx.closePath();
+  ctx.fillStyle = C.playheadWash;
+  ctx.fill();
+  ctx.strokeStyle = C.playhead;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = C.playheadInk;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, x, py + 9 + (ph - 9) / 2 + 1);
+  ctx.restore();
+}
+
+// A range handle as in the editor: a lime rounded bar with a dark grip.
+function handleBar(x, top, bottom, width, grip) {
+  ctx.save();
+  ctx.fillStyle = C.lime;
+  roundRect(x - width / 2, top, width, bottom - top, width / 2.4);
+  ctx.fill();
+  if (grip > 0) {
+    ctx.globalAlpha *= grip;
+    ctx.fillStyle = C.limeInk;
+    roundRect(x - 1.5, (top + bottom) / 2 - 16, 3, 32, 1.5);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---- the piece -----------------------------------------------------------------
+function drawScene(t) {
+  ctx.save();
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const handlesIn = spring(span(t, 0.62, 1.08));      // handles slide to RANGE
+  const cut = expoInOut(span(t, 1.04, 1.42));         // outside cut away, range squeezes
+  const fold = expoInOut(span(t, 1.38, 1.78));        // handles become the mark
+  const slide = expoInOut(span(t, 1.78, 2.14));       // mark moves left for the word
+  const exit = cubicInOut(span(t, 2.74, 3.08));       // hand-off to the app
+
+  // Lane geometry through the cut: full lane -> just the range -> the mark box.
+  const laneOpen = expoOut(span(t, 0.0, 0.5));
+  const laneHalfW = (LANE_W / 2) * laneOpen;
+  const halfH = lerp(LANE_H / 2, 78 * S, cut);
+  const top = CY - halfH, bottom = CY + halfH;
+
+  // Handle positions: lane ends -> the range -> the mark's edges.
+  const hl0 = lerp(LANE_L + 8, RANGE[0], handlesIn);
+  const hr0 = lerp(LANE_R - 8, RANGE[1], handlesIn);
+  const hl = lerp(hl0, lx(66), cut);
+  const hr = lerp(hr0, lx(202), cut);
+
+  if (exit > 0) {
+    ctx.globalAlpha = 1 - exit;
+    ctx.translate(CX, CY);
+    ctx.scale(1 - 0.03 * exit, 1 - 0.03 * exit);
+    ctx.translate(-CX, -CY);
+  }
+
+  if (fold < 1) {
+    const keepL = lerp(CX - laneHalfW, hl0, cut);
+    const keepR = lerp(CX + laneHalfW, hr0, cut);
+    const mapX = x => lerp(x, lerp(hl, hr, (x - hl0) / Math.max(1, hr0 - hl0)), cut);
+    const bodyL = mapX(keepL), bodyR = mapX(keepR);
+
+    // Lane body.
+    ctx.save();
+    ctx.globalAlpha *= 1 - fold;
+    ctx.fillStyle = C.lane;
+    roundRect(bodyL, top, bodyR - bodyL, bottom - top, 14);
+    ctx.fill();
+    ctx.strokeStyle = C.laneEdge;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+
+    const phX = lerp(LANE_L + 60, CX + 90, cubicInOut(span(t, 0.18, 1.02)));
+
+    // Waveform bars, rippling out from the centre.
+    ctx.save();
+    roundRect(bodyL, top, bodyR - bodyL, bottom - top, 14);
+    ctx.clip();
+    const base = ctx.globalAlpha;
+    for (const b of BARS) {
+      const delay = 0.06 + (Math.abs(b.x - CX) / (LANE_W / 2)) * 0.34;
+      const grow = expoOut(span(t, delay, delay + 0.28));
+      if (grow <= 0) continue;
+      const inside = b.x >= hl0 && b.x <= hr0;
+      if (!inside && cut >= 1) continue;
+      const x = mapX(b.x);
+      // Inside the range bars squash into the handles; outside they drop away.
+      const hRatio = inside ? 1 - cut : clamp(1 - cut * 1.6);
+      const bh = (LANE_H - 40) * b.amp * grow * hRatio;
+      if (bh <= 0.5) continue;
+      const played = b.x <= phX;
+      let a = played ? 0.92 : 0.42;
+      if (!inside) a *= lerp(1, 0.28, handlesIn);
+      ctx.globalAlpha = base * a * (1 - fold) * (inside ? 1 - cut : 1);
+      ctx.fillStyle = played && inside ? C.ink : played ? '#aab3bd' : C.muted;
+      roundRect(x - 2.75, CY - bh / 2, 5.5, bh, 2.75);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Selected range: faint wash and lime edges between the handles.
+    if (handlesIn > 0) {
+      ctx.save();
+      ctx.globalAlpha *= (1 - fold) * clamp(handlesIn * 1.4) * (1 - cut * 0.6);
+      ctx.fillStyle = 'rgba(201, 242, 122, 0.07)';
+      ctx.fillRect(hl, top, hr - hl, bottom - top);
+      ctx.fillStyle = C.lime;
+      ctx.fillRect(hl, top, hr - hl, 3);
+      ctx.fillRect(hl, bottom - 3, hr - hl, 3);
+      ctx.restore();
+    }
+
+    // Playhead playing through, leaving as the cut starts.
+    const phAlpha = span(t, 0.12, 0.3) * (1 - span(t, 1.0, 1.18));
+    playhead(phX, top - 8, bottom + 8, timeLabel(lerp(0, 14.2, (phX - LANE_L) / LANE_W)), phAlpha);
+
+    // In/out timecodes above the handles.
+    const labels = clamp(handlesIn * 1.3) * (1 - span(t, 1.02, 1.2));
+    if (labels > 0) {
+      ctx.save();
+      ctx.globalAlpha *= labels;
+      ctx.font = '600 20px "Segoe UI", sans-serif';
+      ctx.fillStyle = C.lime;
+      ctx.textAlign = 'center';
+      ctx.fillText(timeLabel(lerp(0, 14.2, (hl - LANE_L) / LANE_W)), hl, top - 22);
+      ctx.fillText(timeLabel(lerp(0, 14.2, (hr - LANE_L) / LANE_W)), hr, top - 22);
+      ctx.restore();
+    }
+  }
+
+  // Handles, folding into the mark, then moving with the lockup.
+  const shift = lockupShift();
+  const handlesAlpha = span(t, 0.5, 0.66);
+  if (handlesAlpha > 0) {
+    ctx.save();
+    ctx.globalAlpha *= handlesAlpha;
+    ctx.translate(shift.dx * slide, 0);
+    const width = lerp(14, STROKE, cut);
+    if (fold <= 0) {
+      handleBar(hl, top - 4, bottom + 4, width, 1 - cut);
+      handleBar(hr, top - 4, bottom + 4, width, 1 - cut);
+    } else {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = STROKE;
+      // Left handle grows its arms into the frame bracket and turns white.
+      const y1 = lerp(top - 4 + width / 2, ly(50), fold);
+      const y2 = lerp(bottom + 4 - width / 2, ly(206), fold);
+      const arm = (170 - 66) * S * fold;
+      ctx.strokeStyle = mix(C.lime, C.ink, clamp(fold * 1.4));
+      ctx.beginPath();
+      ctx.moveTo(lx(66) + arm, y1); ctx.lineTo(lx(66), y1);
+      ctx.lineTo(lx(66), y2); ctx.lineTo(lx(66) + arm, y2);
+      ctx.stroke();
+      // Right handle folds at its middle into the chevron.
+      const jx = lerp(lx(202), lx(126), fold);
+      const ey1 = lerp(top - 4 + width / 2, ly(58), fold);
+      const ey2 = lerp(bottom + 4 - width / 2, ly(198), fold);
+      ctx.strokeStyle = C.lime;
+      ctx.beginPath();
+      ctx.moveTo(lx(202), ey1); ctx.lineTo(jx, CY); ctx.lineTo(lx(202), ey2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Wordmark, scrubbed into view by the playhead.
+  if (t >= 2.04) {
+    const wx = shift.wordX;
+    const reveal = cubicOut(span(t, 2.12, 2.6));
+    const edge = lerp(wx - 20, wx + wordWidth + 22, reveal);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, edge, H);
+    ctx.clip();
+    ctx.font = WORD_FONT;
+    ctx.fillStyle = C.ink;
+    ctx.textBaseline = 'alphabetic';
+    ctx.letterSpacing = '-3px';
+    ctx.fillText(WORD, wx, CY + 62);
+    ctx.restore();
+    const phAlpha = span(t, 2.04, 2.14) * (1 - span(t, 2.6, 2.74));
+    playhead(edge, CY - 104, CY + 96, timeLabel(lerp(0, 0.8, reveal)), phAlpha);
+  }
+
+  ctx.restore();
+}
+
+// Film grain, re-seeded per frame, gone by the last frame.
+const grain = (() => {
+  const g = document.createElement('canvas');
+  g.width = 256; g.height = 256;
+  const gc = g.getContext('2d');
+  const img = gc.createImageData(256, 256);
+  const r = rand(42);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = r() * 255;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+    img.data[i + 3] = 255;
+  }
+  gc.putImageData(img, 0, 0);
+  return g;
+})();
+
+// Sub-frames are averaged for motion blur.
+const SUBFRAMES = 6;
+const SHUTTER = 0.5 / FPS;
+function renderFrame(t) {
+  if (!wordWidth) {
+    ctx.font = WORD_FONT;
+    ctx.letterSpacing = '-3px';
+    wordWidth = ctx.measureText(WORD).width;
+    ctx.letterSpacing = '0px';
+  }
+  for (let k = 0; k < SUBFRAMES; k++) {
+    drawScene(Math.max(0, t - SHUTTER * (k / SUBFRAMES)));
+    out.globalAlpha = 1 / (k + 1);
+    out.drawImage(buffer, 0, 0);
+  }
+  out.globalAlpha = 1;
+  const grainAlpha = 0.03 * (1 - span(t, 2.74, 3.05));
+  if (grainAlpha > 0) {
+    const r = rand(Math.floor(t * FPS) + 1);
+    out.save();
+    out.globalAlpha = grainAlpha;
+    out.globalCompositeOperation = 'overlay';
+    const ox = -r() * 256, oy = -r() * 256;
+    for (let y = oy; y < H; y += 256) for (let x = ox; x < W; x += 256) out.drawImage(grain, x, y);
+    out.restore();
+  }
+}
+
+window.KADRON_INTRO = { FPS, DURATION, renderFrame };
+
+// Live preview when opened directly.
+if (!navigator.webdriver) {
+  let start = performance.now();
+  canvas.addEventListener('click', () => { start = performance.now(); });
+  const tick = now => {
+    renderFrame(Math.min(DURATION, (now - start) / 1000));
+    requestAnimationFrame(tick);
+  };
+  document.fonts.ready.then(() => requestAnimationFrame(tick));
+}
+</script>
+</body>
+</html>

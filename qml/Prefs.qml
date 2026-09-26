@@ -12,4 +12,7 @@ Settings {
     // One level for every preview, so nothing starts at full volume.
     property real previewVolume: 0.7
     property bool previewMuted: false
+
+    // The animated intro while the app starts (read by main.cpp at launch).
+    property bool startupIntro: true
 }

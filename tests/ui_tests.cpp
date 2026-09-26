@@ -25,6 +25,7 @@ private slots:
     void toolInputs();
     void updateCard();
     void appearance();
+    void intro();
 };
 
 // Components come from the same Kadron module the app ships; any QML warning
@@ -455,6 +456,21 @@ void UiTests::appearance()
 
     prefs->setProperty("previewMuted", false);
     prefs->setProperty("accent", "#c9f27a");
+}
+
+void UiTests::intro()
+{
+    QQmlEngine engine;
+    auto intro = createFromModule(engine, "Intro");
+    QVERIFY(intro);
+    QVERIFY(engine.singletonInstance<QObject *>("Kadron", "Prefs")->property("startupIntro").toBool());
+
+    // A skip before the app has loaded waits for it; then the intro leaves.
+    QMetaObject::invokeMethod(intro.get(), "skip");
+    QVERIFY(intro->property("skipped").toBool());
+    QVERIFY(!intro->property("leaving").toBool());
+    intro->setProperty("appReady", true);
+    QVERIFY(intro->property("leaving").toBool());
 }
 
 QTEST_MAIN(UiTests)

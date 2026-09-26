@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Multimedia Network Concurrent)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Multimedia Network Concurrent ShaderTools)
 qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(kadron
@@ -78,8 +78,13 @@ qt_add_qml_module(kadron_ui
         qml/AppearancePopup.qml
         qml/FileBoard.qml
         qml/PagePicker.qml
+        qml/Intro.qml
 )
 target_link_libraries(kadron_ui PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
+qt_add_shaders(kadron_ui "kadron_shaders"
+    PREFIX "/"
+    FILES shaders/intro.frag
+)
 
 target_link_libraries(kadron PRIVATE
     kadron_uiplugin

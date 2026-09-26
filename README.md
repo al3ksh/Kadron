@@ -23,7 +23,7 @@
 - Export the sequence as MP4 on the GPU (NVIDIA NVENC, Intel Quick Sync or AMD AMF, whichever works on your machine) or on the CPU. If the GPU encoder fails mid-export, Kadron finishes on the CPU. Projects are saved as `.kadr` files.
 - Preview volume is shared by the editor and the tools, and remembered.
 
-**Appearance.** Dark, light, or follow Windows, with an accent color of your choice. Open it from the palette button at the bottom of the sidebar.
+**Appearance.** Dark, light, or follow Windows, with an accent color of your choice. Open it from the palette button at the bottom of the sidebar. The same panel turns the startup intro on or off.
 
 **Tools that run on your device:**
 

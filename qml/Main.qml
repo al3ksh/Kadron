@@ -11,7 +11,8 @@ ApplicationWindow {
     height: 900
     minimumWidth: 1020
     minimumHeight: 680
-    visible: true
+    // With the startup intro, main.cpp shows the window when the intro hands off.
+    visible: !startupIntroActive
     color: Theme.window
     // Read by WindowChrome to paint the native Windows caption in the app's colors.
     readonly property color captionColor: Theme.rail
@@ -50,6 +51,11 @@ ApplicationWindow {
         else toolsEnter.restart()
     }
     onInspectorModeChanged: inspectorEnter.restart()
+    function revealAfterIntro() {
+        if (workspace === 0) editorEnter.restart()
+        else if (workspace >= 7) shareEnter.restart()
+        else toolsEnter.restart()
+    }
 
     function timecode(milliseconds) {
         var total = Math.max(0, Math.floor(milliseconds / 1000))

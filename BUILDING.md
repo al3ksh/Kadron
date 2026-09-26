@@ -32,6 +32,12 @@ The version comes from `project(Kadron VERSION ...)` in `CMakeLists.txt`.
 
 Shortly after startup Kadron tries a tiny test encode with `h264_nvenc`, `h264_qsv` and `h264_amf`; the ones that succeed appear in the editor's **Encoder** list. **Auto** uses the first of them, else the CPU (`libx264`). The choice is remembered. A GPU encode that fails is retried on the CPU. `KADRON_NO_GPU` skips detection. The core test `hardwareEncoders` exports a clip with every encoder found on the machine.
 
+## Startup intro
+
+While the main window loads, Kadron plays a short intro (`qml/Intro.qml`): the trim handles of a range strip fold into the mark. It is a single fragment shader (`shaders/intro.frag`, compiled by `qt_add_shaders`) whose clock is driven by `UniformAnimator`s on the render thread, so it stays smooth while the UI thread is busy (loading QtMultimedia alone takes most of a second). The intro holds on the wordmark until the app is ready; the main window is then shown cloaked, drawn once and uncloaked over the intro, so there is no blank frame. A click or key skips ahead. It follows the theme and accent and can be turned off in the Appearance panel; `KADRON_NO_INTRO` skips it for one run. `KADRON_SCREENSHOT_INTRO=<seconds>` (with `KADRON_SCREENSHOT`) saves that moment of the intro instead of the app.
+
+`design/intro/kadron-intro.html` is the same animation on a 2D canvas; `design/intro/render.js` renders it frame by frame to an MP4 (needs `puppeteer-core`, Chrome and FFmpeg).
+
 ## Updates
 
 Installed copies look for a newer GitHub release shortly after startup (at most once a day) and when the version in the sidebar is clicked. An update downloads the release's `Kadron-<version>-setup.exe`, checks its size and the SHA-256 GitHub publishes for it, and runs it silently once Kadron closes; **Restart to update** closes Kadron (asking about unsaved work as usual) and opens the new version. Portable copies link to the release page instead. For a release, tag it `v<version>` and attach the setup and the zip. `KADRON_UPDATE_URL` points the check at another endpoint and `KADRON_NO_UPDATE_CHECK` turns the automatic check off.

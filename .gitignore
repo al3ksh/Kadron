@@ -10,3 +10,6 @@ cmake-build-*/
 
 build-release/
 dist/
+
+# Rendered previews of design/intro (render.js makes them)
+design/intro/*.mp4

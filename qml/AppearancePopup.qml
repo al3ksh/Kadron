@@ -116,6 +116,13 @@ Popup {
             wrapMode: Text.WordWrap
         }
 
+        ToolCheck {
+            objectName: "startupIntroCheck"
+            text: "Play the intro when Kadron starts"
+            checked: Prefs.startupIntro
+            onToggled: Prefs.startupIntro = checked
+        }
+
         EditorButton {
             text: "Reset to Kadron defaults"
             subtle: true
