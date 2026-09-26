@@ -478,6 +478,13 @@ ApplicationWindow {
                 NavItem { id: navDrop; Layout.fillWidth: true; title: "Drop"; iconName: "publish"; active: root.workspace === 8; onClicked: root.workspace = 8 }
                 NavItem { id: navShortener; Layout.fillWidth: true; title: "Shortener"; iconName: "publish"; active: root.workspace === 9; onClicked: root.workspace = 9 }
                 Item { Layout.fillHeight: true }
+                UpdateCard {
+                    id: updateCard
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: 12
+                    updater: appUpdater
+                    onRestartRequested: root.close()
+                }
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
                 RowLayout {
                     Layout.fillWidth: true
@@ -486,6 +493,22 @@ ApplicationWindow {
                     spacing: 8
                     Rectangle { width: 7; height: 7; radius: 4; color: toolsClient.connected ? Theme.accent : Theme.textFaint }
                     Text { text: toolsClient.connected ? "Server connected" : "Local workspace"; color: Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true }
+                    // Running version; click to look for an update.
+                    Text {
+                        objectName: "versionLink"
+                        text: appUpdater.checking ? "Checking…" : "v" + appUpdater.currentVersion
+                        color: versionMouse.containsMouse ? Theme.text : Theme.textFaint
+                        font.pixelSize: 10
+                        font.features: { "tnum": 1 }
+                        MouseArea {
+                            id: versionMouse
+                            anchors.fill: parent
+                            anchors.margins: -5
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: appUpdater.check()
+                        }
+                    }
                 }
             }
             Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Theme.line }

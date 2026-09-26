@@ -1,3 +1,4 @@
+#include "AppUpdater.h"
 #include "EditorProject.h"
 #include "ExportController.h"
 #include "ThumbnailStrip.h"
@@ -9,7 +10,9 @@
 #include "LocalDownload.h"
 #include "LocalQr.h"
 
+#include <QCryptographicHash>
 #include <QFile>
+#include <QStandardPaths>
 #include <QImage>
 #include <QImageReader>
 #include <QFileInfo>
@@ -38,6 +41,7 @@ private slots:
     void localQrWorkflow();
     void ytDlpDiagnostics();
     void editHistory();
+    void appUpdates();
 };
 
 void CoreTests::editHistory()
@@ -789,6 +793,126 @@ void CoreTests::remoteJobWorkflow()
     QCOMPARE(savedPdf.readAll(), QByteArray("pdf-data"));
     QVERIFY2(errors.isEmpty(), qPrintable(errors.join("; ")));
     QCOMPARE(requests.size(), 8);
+}
+
+void CoreTests::appUpdates()
+{
+    const QByteArray release = R"({"tag_name":"v0.2.0","html_url":"https://example.org/r/v0.2.0","draft":false,"prerelease":false,
+        "assets":[{"name":"Kadron-0.2.0-win64-portable.zip","browser_download_url":"https://example.org/zip","size":5},
+                  {"name":"Kadron-0.2.0-setup.exe","browser_download_url":"https://example.org/setup","size":42,
+                   "digest":"sha256:ABCDEF0123"}]})";
+    const auto parsed = AppUpdater::parseRelease(release);
+    QCOMPARE(parsed.value("version").toString(), QString("0.2.0"));
+    QCOMPARE(parsed.value("page").toUrl(), QUrl("https://example.org/r/v0.2.0"));
+    QCOMPARE(parsed.value("assetName").toString(), QString("Kadron-0.2.0-setup.exe"));
+    QCOMPARE(parsed.value("asset").toUrl(), QUrl("https://example.org/setup"));
+    QCOMPARE(parsed.value("size").toLongLong(), 42);
+    QCOMPARE(parsed.value("sha256").toString(), QString("abcdef0123"));
+    QVERIFY(AppUpdater::parseRelease(R"({"tag_name":"v0.3.0","draft":true})").isEmpty());
+    QVERIFY(AppUpdater::parseRelease(R"({"tag_name":"nightly"})").isEmpty());
+    QVERIFY(AppUpdater::parseRelease("not json").isEmpty());
+
+    QVERIFY(AppUpdater::isNewer("v0.2.0", "0.1.0"));
+    QVERIFY(AppUpdater::isNewer("0.1.10", "0.1.9"));
+    QVERIFY(!AppUpdater::isNewer("0.1.0", "0.1.0"));
+    QVERIFY(!AppUpdater::isNewer("0.0.9", "0.1.0"));
+    QVERIFY(!AppUpdater::isNewer("", "0.1.0"));
+
+    // check() against a local stand-in for the GitHub API.
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    const auto origin = QString("http://127.0.0.1:%1").arg(server.serverPort());
+    QByteArray status = "200 OK";
+    QByteArray latest = release;
+    const QByteArray installer(4096, 'k');
+    QByteArray served = installer;
+    connect(&server, &QTcpServer::newConnection, &server, [&] {
+        auto *socket = server.nextPendingConnection();
+        connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
+            const auto request = socket->readAll();
+            const QByteArray payload = !status.startsWith("200") ? QByteArray(R"({"message":"Not Found"})")
+                                       : request.startsWith("GET /setup") ? served : latest;
+            socket->write("HTTP/1.1 " + status + "\r\nContent-Type: application/json\r\nContent-Length: "
+                          + QByteArray::number(payload.size()) + "\r\nConnection: close\r\n\r\n" + payload);
+            socket->disconnectFromHost();
+        });
+    });
+    qputenv("KADRON_UPDATE_URL", QString("http://127.0.0.1:%1/latest").arg(server.serverPort()).toUtf8());
+    QCoreApplication::setApplicationVersion("0.1.0");
+
+    AppUpdater updater;
+    updater.check();
+    QVERIFY(updater.checking());
+    QTRY_VERIFY_WITH_TIMEOUT(!updater.checking(), 10000);
+    QVERIFY(updater.updateAvailable());
+    QCOMPARE(updater.latestVersion(), QString("0.2.0"));
+    QCOMPARE(updater.statusText(), QString("Kadron 0.2.0 is available"));
+    QCOMPARE(updater.releaseUrl(), QUrl("https://example.org/r/v0.2.0"));
+    // The test binary has no uninstaller beside it, like a portable copy.
+    QVERIFY(!updater.canInstall());
+    updater.install();
+    QVERIFY(!updater.downloading());
+    QCOMPARE(updater.statusText(), QString("Download Kadron 0.2.0 from the release page"));
+
+    // No published release yet.
+    status = "404 Not Found";
+    AppUpdater fresh;
+    fresh.check();
+    QTRY_VERIFY_WITH_TIMEOUT(!fresh.checking(), 10000);
+    QVERIFY(!fresh.updateAvailable());
+    QCOMPARE(fresh.statusText(), QString("Kadron 0.1.0 is up to date"));
+
+    // An installed copy (uninstaller beside the executable) downloads the
+    // setup and accepts it only if size and SHA-256 match the release.
+    status = "200 OK";
+    const auto hash = QCryptographicHash::hash(installer, QCryptographicHash::Sha256).toHex();
+    latest = QString(R"({"tag_name":"v0.2.0","html_url":"https://example.org/r","assets":[{"name":"Kadron-0.2.0-setup.exe",
+        "browser_download_url":"%1/setup","size":%2,"digest":"sha256:%3"}]})")
+                 .arg(origin).arg(installer.size()).arg(QString::fromLatin1(hash)).toUtf8();
+    const auto marker = QCoreApplication::applicationDirPath() + "/uninstall.exe";
+    QFile markerFile(marker);
+    QVERIFY(markerFile.open(QIODevice::WriteOnly));
+    markerFile.close();
+    const auto downloaded = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).filePath("Kadron-0.2.0-setup.exe");
+    QFile::remove(downloaded);
+    {
+        AppUpdater installed;
+        QVERIFY(installed.canInstall());
+        installed.check();
+        QTRY_VERIFY_WITH_TIMEOUT(installed.updateAvailable(), 10000);
+        served = installer;
+        served[100] = 'x';
+        installed.install();
+        QVERIFY(installed.downloading());
+        QTRY_VERIFY_WITH_TIMEOUT(!installed.downloading(), 10000);
+        QVERIFY(!installed.ready());
+        QCOMPARE(installed.statusText(), QString("The downloaded update did not match the release; nothing was installed."));
+        QVERIFY(!QFileInfo::exists(downloaded));
+
+        served = installer.left(1000);
+        installed.install();
+        QTRY_VERIFY_WITH_TIMEOUT(!installed.downloading(), 10000);
+        QVERIFY(!installed.ready());
+
+        served = installer;
+        installed.install();
+        QTRY_VERIFY_WITH_TIMEOUT(!installed.downloading(), 10000);
+        QVERIFY(installed.ready());
+        QCOMPARE(installed.progress(), 1.0);
+        QCOMPARE(installed.statusText(), QString("Kadron 0.2.0 is ready to install"));
+        QFile file(downloaded);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), installer);
+        // A ready update is not downloaded again or re-checked.
+        installed.check();
+        QVERIFY(!installed.checking());
+        // Destroying the updater drops its aboutToQuit hook, so the fake
+        // installer is never started.
+    }
+    QFile::remove(downloaded);
+    QFile::remove(marker);
+    qunsetenv("KADRON_UPDATE_URL");
 }
 
 QTEST_GUILESS_MAIN(CoreTests)

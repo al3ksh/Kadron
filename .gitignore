@@ -8,3 +8,5 @@ cmake-build-*/
 *.part.mp4
 *.part.m4a
 
+build-release/
+dist/

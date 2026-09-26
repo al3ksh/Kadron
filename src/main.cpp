@@ -7,9 +7,11 @@
 #include "LocalPdfTools.h"
 #include "LocalQr.h"
 #include "WindowChrome.h"
+#include "AppUpdater.h"
 
 #include <QGuiApplication>
 #include <QStyleHints>
+#include <QDir>
 #include <QFileInfo>
 #include <QFile>
 #include <QFont>
@@ -40,6 +42,11 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("Kadron"));
     app.setApplicationName(QStringLiteral("Kadron"));
+    app.setApplicationVersion(QStringLiteral(KADRON_VERSION));
+    // Bundled tools live in bin/ and share the DLLs next to kadron.exe; child
+    // processes inherit PATH, so they find them without a second copy.
+    qputenv("PATH", QDir::toNativeSeparators(QCoreApplication::applicationDirPath()).toLocal8Bit()
+                        + QDir::listSeparator().toLatin1() + qgetenv("PATH"));
     app.setFont(QFont(QStringLiteral("Segoe UI"), 10));
     app.setWindowIcon(QIcon(QStringLiteral(":/assets/kadron-mark.png")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
@@ -53,6 +60,7 @@ int main(int argc, char *argv[])
     LocalDownload localDownload;
     LocalPdfTools localPdf;
     LocalQr localQr;
+    AppUpdater appUpdater;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("editorProject", &project);
     engine.rootContext()->setContextProperty("exporter", &exporter);
@@ -62,6 +70,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("localDownload", &localDownload);
     engine.rootContext()->setContextProperty("localPdf", &localPdf);
     engine.rootContext()->setContextProperty("localQr", &localQr);
+    engine.rootContext()->setContextProperty("appUpdater", &appUpdater);
     engine.addImageProvider(QStringLiteral("qr"), new QrImageProvider(&localQr));
     engine.loadFromModule("Kadron", "Main");
     if (engine.rootObjects().isEmpty())
@@ -78,6 +87,12 @@ int main(int argc, char *argv[])
     }
 
     const auto screenshotPath = qEnvironmentVariable("KADRON_SCREENSHOT");
+    // Look for a new release shortly after startup, at most once a day.
+    // Screenshots only check against an explicit KADRON_UPDATE_URL.
+    if (screenshotPath.isEmpty() && !qEnvironmentVariableIsSet("KADRON_NO_UPDATE_CHECK"))
+        QTimer::singleShot(4000, &appUpdater, &AppUpdater::checkDaily);
+    else if (!screenshotPath.isEmpty() && qEnvironmentVariableIsSet("KADRON_UPDATE_URL"))
+        appUpdater.check();
     if (!screenshotPath.isEmpty()) {
         const auto dimensions = qEnvironmentVariable("KADRON_SCREENSHOT_SIZE").split('x');
         if (dimensions.size() == 2) {

@@ -46,13 +46,17 @@ Nothing leaves your machine unless you ask it to. **Clips**, **Drop**, and **Sho
   </tr>
 </table>
 
+## Download
+
+Get the Windows installer or the portable zip from [Releases](https://github.com/al3ksh/Kadron/releases/latest). Both include FFmpeg and the other tools Kadron uses, so there's nothing else to install. The installer needs no administrator rights, and Kadron updates itself from new releases.
+
 ## Status
 
-Kadron is in active development. So far it has only been built and tested on Windows. There's no installer or bundled FFmpeg yet: the external tools below must be installed.
+Kadron is in active development. So far it has only been built and tested on Windows.
 
 ## Building
 
-You need:
+To build from source, you need:
 
 - CMake 3.24+ and Ninja
 - A C++20 compiler
@@ -82,7 +86,9 @@ cmake --build build -j 8
 ctest --test-dir build --output-on-failure
 ```
 
-Run `build/kadron.exe` with `C:\msys64\ucrt64\bin` on `PATH`. You can pass a media file or a `.kadr` project as the first argument. `KADRON_FFMPEG`, `KADRON_FFPROBE`, `KADRON_PDFTOPPM` (and similar variables) point Kadron at specific executables. [BUILDING.md](BUILDING.md) has more detail.
+Run `build/kadron.exe` with `C:\msys64\ucrt64\bin` on `PATH`. You can pass a media file or a `.kadr` project as the first argument. `KADRON_FFMPEG`, `KADRON_FFPROBE`, `KADRON_PDFTOPPM` (and similar variables) point Kadron at specific executables.
+
+`packaging/windows/package.sh` builds the installer and portable zip into `dist/`. [BUILDING.md](BUILDING.md) has more detail on both.
 
 ## Project layout
 
@@ -91,6 +97,7 @@ src/      C++ core: project model, export, local tools, server clients
 qml/      Interface (the Kadron QML module); Theme.qml holds every color, size and motion constant
 tests/    Core tests (real FFmpeg/qpdf runs, local HTTP fixtures) and UI interaction tests
 assets/   Logo and Windows icon
+packaging/windows/  Installer script (NSIS) and the packaging build
 ```
 
 The interface rules are in [DESIGN.md](DESIGN.md), and scope and constraints are in [PRODUCT.md](PRODUCT.md).

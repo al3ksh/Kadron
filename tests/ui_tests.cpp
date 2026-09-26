@@ -20,6 +20,7 @@ private slots:
     void toolControls();
     void studioNavigation();
     void toolInputs();
+    void updateCard();
 };
 
 // Components come from the same Kadron module the app ships; any QML warning
@@ -330,6 +331,80 @@ void UiTests::toolInputs()
     QVariant label;
     QVERIFY(QMetaObject::invokeMethod(strip, "label", Q_RETURN_ARG(QVariant, label), Q_ARG(QVariant, 83500)));
     QCOMPARE(label.toString(), QStringLiteral("1:23.5"));
+}
+
+void UiTests::updateCard()
+{
+    QQmlEngine engine;
+    // Stand-in with AppUpdater's properties, so no network is involved.
+    QQmlComponent fakeComponent(&engine);
+    fakeComponent.setData(R"(import QtQuick
+QtObject {
+    property bool updateAvailable: true
+    property bool canInstall: true
+    property bool checking: false
+    property bool downloading: false
+    property bool ready: false
+    property real progress: 0
+    property string latestVersion: "0.2.0"
+    property string currentVersion: "0.1.0"
+    property string statusText: "Kadron 0.2.0 is available"
+    property url releaseUrl: "https://example.org/releases"
+    property int installs: 0
+    property int restarts: 0
+    signal changed()
+    function install() { installs++ }
+    function restartToUpdate() { restarts++ }
+    function check() {}
+})", QUrl("qrc:/fake-updater.qml"));
+    std::unique_ptr<QObject> updater(fakeComponent.create());
+    QVERIFY(updater);
+
+    auto object = createFromModule(engine, "UpdateCard");
+    auto *card = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY(card);
+    card->setWidth(164);
+    card->setProperty("updater", QVariant::fromValue(updater.get()));
+    QVERIFY(card->property("offering").toBool());
+
+    QQuickWindow window;
+    window.setGeometry(50, 50, 188, 260);
+    card->setParentItem(window.contentItem());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QTest::qWait(700);
+
+    auto *button = card->findChild<QQuickItem *>("updateButton");
+    QVERIFY(button && button->isVisible());
+    QCOMPARE(button->property("text").toString(), QString("Update"));
+    const auto center = [button] { return button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint(); };
+    QTest::mouseClick(&window, Qt::LeftButton, {}, center());
+    QCOMPARE(updater->property("installs").toInt(), 1);
+
+    // While downloading the button gives way to progress.
+    updater->setProperty("downloading", true);
+    updater->setProperty("progress", 0.42);
+    QVERIFY(!button->isVisible());
+    updater->setProperty("downloading", false);
+
+    // A verified download restarts into the installer.
+    updater->setProperty("ready", true);
+    QCOMPARE(button->property("text").toString(), QString("Restart to update"));
+    QSignalSpy restart(card, signalOf(card, "restartRequested()"));
+    QVERIFY(restart.isValid());
+    QTest::qWait(50);
+    QTest::mouseClick(&window, Qt::LeftButton, {}, center());
+    QCOMPARE(updater->property("restarts").toInt(), 1);
+    QCOMPARE(restart.count(), 1);
+
+    // Portable copies are sent to the release page instead.
+    updater->setProperty("ready", false);
+    updater->setProperty("canInstall", false);
+    QCOMPARE(button->property("text").toString(), QString("Open release"));
+
+    // No update: the card folds away.
+    updater->setProperty("updateAvailable", false);
+    QVERIFY(!card->property("offering").toBool());
 }
 
 QTEST_MAIN(UiTests)

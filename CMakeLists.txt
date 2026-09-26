@@ -30,12 +30,19 @@ qt_add_executable(kadron
     src/LocalQr.h
     src/WindowChrome.cpp
     src/WindowChrome.h
+    src/AppUpdater.cpp
+    src/AppUpdater.h
 )
 
 qt_add_resources(kadron "kadron_assets" PREFIX "/" FILES assets/kadron-mark.png)
 if(WIN32)
     target_sources(kadron PRIVATE assets/kadron.rc)
 endif()
+target_compile_definitions(kadron PRIVATE
+    KADRON_VERSION="${PROJECT_VERSION}"
+    KADRON_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    KADRON_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    KADRON_VERSION_PATCH=${PROJECT_VERSION_PATCH})
 
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
@@ -65,6 +72,7 @@ qt_add_qml_module(kadron_ui
         qml/DropZone.qml
         qml/RangeStrip.qml
         qml/SkeletonBlock.qml
+        qml/UpdateCard.qml
 )
 target_link_libraries(kadron_ui PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
 
@@ -109,6 +117,8 @@ if(BUILD_TESTING)
         src/LocalPdfTools.h
         src/LocalQr.cpp
         src/LocalQr.h
+        src/AppUpdater.cpp
+        src/AppUpdater.h
     )
     target_include_directories(kadron_core_tests PRIVATE src)
     target_link_libraries(kadron_core_tests PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test Qt6::Network Qt6::Concurrent)
