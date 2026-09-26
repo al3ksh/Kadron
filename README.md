@@ -32,6 +32,7 @@
 | Audio | Trim on the waveform, play the selection, then convert to MP3, WAV, FLAC or Opus, with optional loudness normalization |
 | GIF Studio | Choose a range on a filmstrip with a looping preview; set frame rate, width, and a size limit |
 | Compress | Shrink video or images, optionally to a target file size |
+| Images | Convert a batch of photos between JPG, PNG, WebP and AVIF (HEIC in), resize them, fit them under a file size, crop with aspect presets, rotate and flip; compare before and after. Shows the camera, date and GPS location a photo carries; saved copies have no metadata |
 | Download | Paste a link and get a preview (thumbnail, title, length) before downloading with yt-dlp; Kadron keeps its own copy of yt-dlp up to date |
 | PDF Tools | Edit pages visually (reorder, rotate, delete, preview); merge PDFs as cards showing each first page, in the order you drag them; pick pages to extract on thumbnails; turn images into a PDF |
 | QR Code | Preview updates as you type; choose colors and error correction, then save PNG or SVG |

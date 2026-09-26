@@ -28,6 +28,8 @@ qt_add_executable(kadron
     src/LocalPdfTools.h
     src/LocalQr.cpp
     src/LocalQr.h
+    src/LocalImageTools.cpp
+    src/LocalImageTools.h
     src/WindowChrome.cpp
     src/WindowChrome.h
     src/AppUpdater.cpp
@@ -79,6 +81,10 @@ qt_add_qml_module(kadron_ui
         qml/FileBoard.qml
         qml/PagePicker.qml
         qml/Intro.qml
+        qml/ImagesWorkspace.qml
+        qml/CropOverlay.qml
+        qml/ToolSlider.qml
+        qml/CheckerBoard.qml
 )
 target_link_libraries(kadron_ui PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
 qt_add_shaders(kadron_ui "kadron_shaders"
@@ -127,6 +133,8 @@ if(BUILD_TESTING)
         src/LocalPdfTools.h
         src/LocalQr.cpp
         src/LocalQr.h
+        src/LocalImageTools.cpp
+        src/LocalImageTools.h
         src/AppUpdater.cpp
         src/AppUpdater.h
     )
@@ -134,8 +142,9 @@ if(BUILD_TESTING)
     target_link_libraries(kadron_core_tests PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test Qt6::Network Qt6::Concurrent)
     add_test(NAME core COMMAND kadron_core_tests)
 
-    qt_add_executable(kadron_ui_tests tests/ui_tests.cpp)
-    target_link_libraries(kadron_ui_tests PRIVATE kadron_uiplugin Qt6::Quick Qt6::Qml Qt6::Test)
+    qt_add_executable(kadron_ui_tests tests/ui_tests.cpp src/LocalImageTools.cpp src/LocalImageTools.h)
+    target_include_directories(kadron_ui_tests PRIVATE src)
+    target_link_libraries(kadron_ui_tests PRIVATE kadron_uiplugin Qt6::Quick Qt6::Qml Qt6::Test Qt6::Concurrent)
     target_compile_definitions(kadron_ui_tests PRIVATE KADRON_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME ui COMMAND kadron_ui_tests)
     set_tests_properties(ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

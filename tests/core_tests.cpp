@@ -9,6 +9,7 @@
 #include "LocalPdfTools.h"
 #include "LocalDownload.h"
 #include "LocalQr.h"
+#include "LocalImageTools.h"
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -44,6 +45,8 @@ private slots:
     void appUpdates();
     void hardwareEncoders();
     void pageRanges();
+    void imageExif();
+    void imageOperations();
 };
 
 void CoreTests::editHistory()
@@ -976,6 +979,160 @@ void CoreTests::pageRanges()
     QCOMPARE(LocalPdfTools::rangeToPages("1, 3-5, 9, 40", 10), QVariantList({1, 3, 4, 5, 9}));
     QCOMPARE(LocalPdfTools::rangeToPages("5-3, x, 2-", 10), QVariantList());
     QCOMPARE(LocalPdfTools::rangeToPages(LocalPdfTools::pagesToRange({2, 3, 4, 8}), 8), QVariantList({2, 3, 4, 8}));
+}
+
+// A little-endian TIFF block like a phone writes: maker, model, orientation,
+// capture date and a GPS position (52°13'30" N, 21°0'12" E).
+static QByteArray exifBlock(quint16 orientation)
+{
+    QByteArray tiff("II*\0", 4);
+    const auto u16 = [](quint16 v) { return QByteArray(reinterpret_cast<const char *>(&v), 2); };
+    const auto u32 = [](quint32 v) { return QByteArray(reinterpret_cast<const char *>(&v), 4); };
+    const auto entry = [&](quint16 tag, quint16 type, quint32 count, const QByteArray &value) {
+        return u16(tag) + u16(type) + u32(count) + value.leftJustified(4, '\0', true);
+    };
+    const QByteArray make("Apple\0", 6), model("iPhone 15\0", 10), date("2024:05:17 14:03:22\0", 20);
+    const quint32 ifd0 = 8, ifd0Size = 2 + 5 * 12 + 4;
+    const quint32 makeAt = ifd0 + ifd0Size, modelAt = makeAt + make.size(), dateAt = modelAt + model.size();
+    const quint32 gpsAt = dateAt + date.size(), gpsSize = 2 + 4 * 12 + 4, rationals = gpsAt + gpsSize;
+    tiff += u32(ifd0);
+    tiff += u16(5) + entry(0x010F, 2, make.size(), u32(makeAt)) + entry(0x0110, 2, model.size(), u32(modelAt))
+            + entry(0x0112, 3, 1, u16(orientation)) + entry(0x0132, 2, date.size(), u32(dateAt))
+            + entry(0x8825, 4, 1, u32(gpsAt)) + u32(0);
+    tiff += make + model + date;
+    tiff += u16(4) + entry(1, 2, 2, QByteArray("N")) + entry(2, 5, 3, u32(rationals)) + entry(3, 2, 2, QByteArray("E"))
+            + entry(4, 5, 3, u32(rationals + 24)) + u32(0);
+    for (quint32 v : {52u, 1u, 13u, 1u, 3000u, 100u, 21u, 1u, 0u, 1u, 1200u, 100u})
+        tiff += u32(v);
+    return tiff;
+}
+
+// A JPEG APP1 segment around an EXIF block, placed right after SOI.
+static QByteArray withExif(const QByteArray &jpeg, const QByteArray &tiff)
+{
+    const auto app1 = QByteArray("Exif\0\0", 6) + tiff;
+    const int length = app1.size() + 2;
+    return jpeg.left(2) + QByteArray("\xff\xe1", 2) + char(length >> 8) + char(length & 0xff) + app1 + jpeg.mid(2);
+}
+
+void CoreTests::imageExif()
+{
+    const auto info = LocalImageTools::parseExif(withExif(QByteArray("\xff\xd8", 2), exifBlock(6)));
+    QCOMPARE(info.value("orientation").toInt(), 6);
+    QCOMPARE(info.value("camera").toString(), QStringLiteral("Apple iPhone 15"));
+    QCOMPARE(info.value("taken").toString(), QStringLiteral("2024-05-17 14:03"));
+    QVERIFY(info.value("hasGps").toBool());
+    QVERIFY(qAbs(info.value("latitude").toDouble() - 52.225) < 1e-4);
+    QVERIFY(qAbs(info.value("longitude").toDouble() - 21.00333) < 1e-4);
+    // PNG keeps the same block in an eXIf chunk.
+    QCOMPARE(LocalImageTools::parseExif(QByteArray("\x89PNG\0\0\0\0eXIf", 12) + exifBlock(1)).value("orientation").toInt(), 1);
+    // Nothing to find, or a truncated block, is simply empty.
+    QVERIFY(LocalImageTools::parseExif(QByteArray(64, 'x')).isEmpty());
+    QVERIFY(!LocalImageTools::parseExif(QByteArray("Exif\0\0", 6) + exifBlock(1).left(30)).contains("camera"));
+
+    QCOMPARE(LocalImageTools::outputFormat("same", "JPEG"), QStringLiteral("jpg"));
+    QCOMPARE(LocalImageTools::outputFormat("same", "heic"), QStringLiteral("jpg"));
+    QCOMPARE(LocalImageTools::outputFormat("same", "tiff"), QStringLiteral("png"));
+    QCOMPARE(LocalImageTools::outputFormat("webp", "png"), QStringLiteral("webp"));
+
+    QTemporaryDir directory;
+    QFile existing(directory.filePath("photo.jpg"));
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    existing.close();
+    QCOMPARE(QFileInfo(LocalImageTools::uniqueOutputPath(directory.path(), "photo", "jpg")).fileName(), QStringLiteral("photo (edited).jpg"));
+    QCOMPARE(QFileInfo(LocalImageTools::uniqueOutputPath(directory.path(), "photo", "webp")).fileName(), QStringLiteral("photo.webp"));
+    const QSet<QString> planned{QDir::cleanPath(directory.filePath("photo (edited).jpg")).toLower()};
+    QCOMPARE(QFileInfo(LocalImageTools::uniqueOutputPath(directory.path(), "photo", "jpg", planned)).fileName(), QStringLiteral("photo (edited 2).jpg"));
+}
+
+static QSize probeSize(const QString &path)
+{
+    QProcess probe;
+    probe.start(ffprobeExecutable(), {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", path});
+    probe.waitForFinished(30000);
+    const auto parts = QString::fromUtf8(probe.readAllStandardOutput()).trimmed().split(',');
+    return parts.size() == 2 ? QSize(parts.at(0).toInt(), parts.at(1).toInt()) : QSize();
+}
+
+void CoreTests::imageOperations()
+{
+    LocalImageTools images;
+    if (!images.available()) QSKIP("FFmpeg is not installed");
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    // A 1200x800 photo whose EXIF says "rotate 90° clockwise", and a transparent PNG.
+    const auto plain = directory.filePath("plain.jpg");
+    QProcess generator;
+    generator.start(ffmpegExecutable(), {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1200x800",
+                                         "-frames:v", "1", "-q:v", "2", plain});
+    QVERIFY(generator.waitForFinished(30000));
+    QFile plainFile(plain);
+    QVERIFY(plainFile.open(QIODevice::ReadOnly));
+    const auto body = plainFile.readAll();
+    plainFile.close();
+    QFile photo(directory.filePath("photo.jpg"));
+    QVERIFY(photo.open(QIODevice::WriteOnly));
+    photo.write(withExif(body, exifBlock(6)));
+    photo.close();
+    const auto logo = directory.filePath("logo.png");
+    generator.start(ffmpegExecutable(), {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                                         "-i", "color=c=red@0.0:s=300x200,format=rgba,drawbox=x=100:y=50:w=100:h=100:c=blue@1:t=fill",
+                                         "-frames:v", "1", logo});
+    QVERIFY(generator.waitForFinished(30000));
+
+    const auto photoUrl = QUrl::fromLocalFile(photo.fileName()), logoUrl = QUrl::fromLocalFile(logo);
+    images.inspect({photoUrl, logoUrl});
+    QTRY_VERIFY_WITH_TIMEOUT(images.infos().size() == 2, 30000);
+    const auto photoInfo = images.infos().value(photoUrl.toString()).toMap();
+    QCOMPARE(photoInfo.value("width").toInt(), 800);   // shown upright
+    QCOMPARE(photoInfo.value("height").toInt(), 1200);
+    QVERIFY(photoInfo.value("hasGps").toBool());
+    QVERIFY(!photoInfo.value("hasAlpha").toBool());
+    QVERIFY(images.infos().value(logoUrl.toString()).toMap().value("hasAlpha").toBool());
+
+    // Crop the top-left quarter of the upright photo, fit it in 300 px, save as WebP;
+    // the PNG becomes a JPG on white, and a quarter turn swaps its sides.
+    const QVariantMap crop{{"source", photoUrl}, {"format", "webp"}, {"quality", 80}, {"resize", "long"}, {"longEdge", 300},
+                           {"cropX", 0.0}, {"cropY", 0.0}, {"cropW", 0.5}, {"cropH", 0.5}};
+    const QVariantMap flatten{{"source", logoUrl}, {"format", "jpg"}, {"quality", 90}, {"rotate", 90}};
+    QTemporaryDir output;
+    QVERIFY(images.process({crop, flatten}, QUrl::fromLocalFile(output.path())));
+    QTRY_VERIFY_WITH_TIMEOUT(!images.busy(), 60000);
+    QVERIFY2(images.errorText().isEmpty(), qPrintable(images.errorText()));
+    QCOMPARE(images.results().size(), 2);
+    const auto webp = images.results().at(0).toMap().value("output").toUrl().toLocalFile();
+    QCOMPARE(QFileInfo(webp).fileName(), QStringLiteral("photo.webp"));
+    QCOMPARE(probeSize(webp), QSize(200, 300));
+    // No EXIF, and so no GPS, in the result.
+    QFile saved(webp);
+    QVERIFY(saved.open(QIODevice::ReadOnly));
+    QVERIFY(LocalImageTools::parseExif(saved.readAll()).isEmpty());
+    const auto jpg = images.results().at(1).toMap().value("output").toUrl().toLocalFile();
+    QCOMPARE(probeSize(jpg), QSize(200, 300));
+    QImage flat(jpg);
+    QVERIFY(!flat.isNull());
+    QVERIFY(qGray(flat.pixel(5, 5)) > 245);   // was transparent
+
+    // Target size: the quality drops until the file fits.
+    const QVariantMap target{{"source", QUrl::fromLocalFile(plain)}, {"format", "jpg"}, {"quality", 95}, {"targetKB", 60}};
+    QVERIFY(images.process({target}, QUrl::fromLocalFile(output.path())));
+    QTRY_VERIFY_WITH_TIMEOUT(!images.busy(), 60000);
+    const auto sized = images.results().at(0).toMap();
+    QVERIFY2(sized.value("error").toString().isEmpty(), qPrintable(sized.value("error").toString()));
+    QVERIFY(sized.value("bytes").toLongLong() <= 60 * 1024);
+    QVERIFY(sized.value("bytes").toLongLong() > 10 * 1024);
+
+    // AVIF, and a preview with before/after renditions.
+    const QVariantMap avif{{"source", photoUrl}, {"format", "avif"}, {"quality", 60}, {"resize", "percent"}, {"percent", 25}, {"key", "k1"}};
+    images.renderPreview(avif);
+    QTRY_VERIFY_WITH_TIMEOUT(!images.previewBusy() && images.preview().value("key") == "k1", 60000);
+    const auto preview = images.preview();
+    QVERIFY2(preview.value("error").toString().isEmpty(), qPrintable(preview.value("error").toString()));
+    QCOMPARE(preview.value("width").toInt(), 200);
+    QCOMPARE(preview.value("height").toInt(), 300);
+    QVERIFY(preview.value("bytes").toLongLong() > 0);
+    QVERIFY(QFileInfo::exists(preview.value("before").toUrl().toLocalFile()));
+    QVERIFY(QFileInfo::exists(preview.value("after").toUrl().toLocalFile()));
 }
 
 #include "core_tests.moc"

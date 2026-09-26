@@ -1,4 +1,9 @@
+#include "LocalImageTools.h"
+#include "MediaTools.h"
+
 #include <QMetaMethod>
+#include <QProcess>
+#include <QQmlContext>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -26,6 +31,7 @@ private slots:
     void updateCard();
     void appearance();
     void intro();
+    void imagesWorkspace();
 };
 
 // Components come from the same Kadron module the app ships; any QML warning
@@ -471,6 +477,70 @@ void UiTests::intro()
     QVERIFY(!intro->property("leaving").toBool());
     intro->setProperty("appReady", true);
     QVERIFY(intro->property("leaving").toBool());
+}
+
+void UiTests::imagesWorkspace()
+{
+    LocalImageTools tools;
+    if (!tools.available()) QSKIP("FFmpeg is not installed");
+    QTemporaryDir directory;
+    const auto photo = directory.filePath("photo.jpg");
+    QProcess generator;
+    generator.start(ffmpegExecutable(), {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1200x800",
+                                         "-frames:v", "1", photo});
+    QVERIFY(generator.waitForFinished(30000));
+    QFile notes(directory.filePath("notes.txt"));
+    QVERIFY(notes.open(QIODevice::WriteOnly));
+    notes.close();
+
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty("localImages", &tools);
+    auto page = createFromModule(engine, "ImagesWorkspace");
+    QVERIFY(page);
+
+    // Only images are taken, and each once.
+    QVariant added;
+    const QVariantList files{QUrl::fromLocalFile(photo), QUrl::fromLocalFile(notes.fileName()), QUrl::fromLocalFile(photo)};
+    QMetaObject::invokeMethod(page.get(), "addFiles", Q_RETURN_ARG(QVariant, added), Q_ARG(QVariant, QVariant(files)));
+    QCOMPARE(added.toInt(), 1);
+    QCOMPARE(page->property("selected").toInt(), 0);
+    QTRY_VERIFY_WITH_TIMEOUT(tools.infos().contains(QUrl::fromLocalFile(photo).toString()), 30000);
+
+    // The selected entry of the page's ListModel, as a plain map.
+    const auto crop = [&page] {
+        QVariantMap map;
+        if (const auto *item = page->property("current").value<QObject *>())
+            for (const auto &name : {"rotate", "aspect", "cropX", "cropY", "cropW", "cropH"})
+                map.insert(name, item->property(name));
+        return map;
+    };
+    // 1:1 on a 3:2 image keeps the full height, centred.
+    QMetaObject::invokeMethod(page.get(), "setAspect", Q_ARG(QVariant, "1:1"));
+    QVERIFY(qAbs(crop().value("cropW").toDouble() - 800.0 / 1200.0) < 1e-6);
+    QVERIFY(qAbs(crop().value("cropH").toDouble() - 1.0) < 1e-6);
+    QVERIFY(qAbs(crop().value("cropX").toDouble() - (1 - 800.0 / 1200.0) / 2) < 1e-6);
+    // A quarter turn makes it portrait; the square is fitted again.
+    QMetaObject::invokeMethod(page.get(), "rotateBy", Q_ARG(QVariant, 90));
+    QCOMPARE(crop().value("rotate").toInt(), 90);
+    QVERIFY(qAbs(crop().value("cropW").toDouble() - 1.0) < 1e-6);
+    QVERIFY(qAbs(crop().value("cropH").toDouble() - 800.0 / 1200.0) < 1e-6);
+
+    // The job carries the shared output settings and this image's edits.
+    page->setProperty("format", "webp");
+    page->setProperty("quality", 70);
+    QVariant job;
+    QMetaObject::invokeMethod(page.get(), "job", Q_RETURN_ARG(QVariant, job), Q_ARG(QVariant, page->property("current")));
+    const auto map = job.value<QJSValue>().toVariant().toMap();
+    QCOMPARE(map.value("format").toString(), QStringLiteral("webp"));
+    QCOMPARE(map.value("quality").toInt(), 70);
+    QCOMPARE(map.value("rotate").toInt(), 90);
+    QCOMPARE(map.value("resize").toString(), QStringLiteral("none"));
+
+    QMetaObject::invokeMethod(page.get(), "resetEdits");
+    QCOMPARE(crop().value("rotate").toInt(), 0);
+    QCOMPARE(crop().value("aspect").toString(), QStringLiteral("free"));
+    QMetaObject::invokeMethod(page.get(), "clearAll");
+    QCOMPARE(page->property("selected").toInt(), -1);
 }
 
 QTEST_MAIN(UiTests)

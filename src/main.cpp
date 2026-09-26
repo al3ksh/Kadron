@@ -6,6 +6,7 @@
 #include "LocalDownload.h"
 #include "LocalPdfTools.h"
 #include "LocalQr.h"
+#include "LocalImageTools.h"
 #include "WindowChrome.h"
 #include "AppUpdater.h"
 
@@ -77,6 +78,7 @@ int main(int argc, char *argv[])
     LocalDownload localDownload;
     LocalPdfTools localPdf;
     LocalQr localQr;
+    LocalImageTools localImages;
     AppUpdater appUpdater;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("editorProject", &project);
@@ -87,6 +89,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("localDownload", &localDownload);
     engine.rootContext()->setContextProperty("localPdf", &localPdf);
     engine.rootContext()->setContextProperty("localQr", &localQr);
+    engine.rootContext()->setContextProperty("localImages", &localImages);
     engine.rootContext()->setContextProperty("appUpdater", &appUpdater);
     engine.addImageProvider(QStringLiteral("qr"), new QrImageProvider(&localQr));
     QTemporaryDir screenshotSettings;
@@ -224,6 +227,30 @@ int main(int argc, char *argv[])
                     QMetaObject::invokeMethod(tools, "setPdfMode", Q_ARG(QVariant, mode));
                     QMetaObject::invokeMethod(tools, "takePdfFiles", Q_ARG(QVariant, QVariant(files)));
                 }
+            });
+        }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_FILES")) {
+            QVariantList files;
+            for (const auto &path : qEnvironmentVariable("KADRON_SCREENSHOT_IMAGE_FILES").split(';', Qt::SkipEmptyParts))
+                files << QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath());
+            QTimer::singleShot(300, &app, [mainWindow, files] {
+                if (auto *images = mainWindow->findChild<QObject *>("imagesArea")) {
+                    QMetaObject::invokeMethod(images, "addFiles", Q_ARG(QVariant, QVariant(files)));
+                    if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_VIEW"))
+                        images->setProperty("view", qEnvironmentVariable("KADRON_SCREENSHOT_IMAGE_VIEW"));
+                }
+            });
+            // Edits once the images have been read: select, rotate, then pick a crop shape.
+            QTimer::singleShot(1500, &app, [mainWindow] {
+                auto *images = mainWindow->findChild<QObject *>("imagesArea");
+                if (!images)
+                    return;
+                if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_SELECT"))
+                    images->setProperty("selected", qEnvironmentVariableIntValue("KADRON_SCREENSHOT_IMAGE_SELECT"));
+                if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_ROTATE"))
+                    QMetaObject::invokeMethod(images, "rotateBy", Q_ARG(QVariant, qEnvironmentVariableIntValue("KADRON_SCREENSHOT_IMAGE_ROTATE")));
+                if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_ASPECT"))
+                    QMetaObject::invokeMethod(images, "setAspect", Q_ARG(QVariant, qEnvironmentVariable("KADRON_SCREENSHOT_IMAGE_ASPECT")));
             });
         }
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_GIF_SOURCE")) {

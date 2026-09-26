@@ -43,17 +43,21 @@ ApplicationWindow {
     property url uploadFile: ""
     property url pendingOpenUrl: ""
     property bool pendingIsProject: false
-    readonly property string sectionTitle: ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code", "Clips", "Drop", "Shortener"][workspace]
-    readonly property bool anyBusy: exporter.busy || toolsClient.busy || localTools.busy || localDownload.busy || localPdf.busy || localQr.busy
+    readonly property string sectionTitle: ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code", "Clips", "Drop", "Shortener", "Images"][workspace]
+    // Workspaces 7-9 publish to the Tools server; 10 (Images) is local like 1-6.
+    readonly property bool shareWorkspace: workspace >= 7 && workspace <= 9
+    readonly property bool anyBusy: exporter.busy || toolsClient.busy || localTools.busy || localDownload.busy || localPdf.busy || localQr.busy || localImages.busy
     onWorkspaceChanged: {
         if (workspace === 0) editorEnter.restart()
-        else if (workspace >= 7) shareEnter.restart()
+        else if (workspace === 10) imagesEnter.restart()
+        else if (shareWorkspace) shareEnter.restart()
         else toolsEnter.restart()
     }
     onInspectorModeChanged: inspectorEnter.restart()
     function revealAfterIntro() {
         if (workspace === 0) editorEnter.restart()
-        else if (workspace >= 7) shareEnter.restart()
+        else if (workspace === 10) imagesEnter.restart()
+        else if (shareWorkspace) shareEnter.restart()
         else toolsEnter.restart()
     }
 
@@ -438,7 +442,7 @@ ApplicationWindow {
             // One shared highlight travels between rail items on a spring.
             Item {
                 id: navHighlight
-                readonly property Item target: [navEditor, navDownload, navAudio, navCompress, navGif, navPdf, navQr, navClips, navDrop, navShortener][root.workspace] || null
+                readonly property Item target: [navEditor, navDownload, navAudio, navCompress, navGif, navPdf, navQr, navClips, navDrop, navShortener, navImages][root.workspace] || null
                 visible: target !== null
                 x: navColumn.x + (target ? target.x : 0)
                 y: navColumn.y + (target ? target.y : 0)
@@ -475,6 +479,7 @@ ApplicationWindow {
                 NavItem { id: navAudio; Layout.fillWidth: true; title: "Audio"; iconName: "audio"; active: root.workspace === 2; onClicked: root.workspace = 2 }
                 NavItem { id: navCompress; Layout.fillWidth: true; title: "Compress"; iconName: "compress"; active: root.workspace === 3; onClicked: root.workspace = 3 }
                 NavItem { id: navGif; Layout.fillWidth: true; title: "GIF Studio"; iconName: "gif"; active: root.workspace === 4; onClicked: root.workspace = 4 }
+                NavItem { id: navImages; objectName: "navImages"; Layout.fillWidth: true; title: "Images"; iconName: "image"; active: root.workspace === 10; onClicked: root.workspace = 10 }
                 Item { Layout.preferredHeight: 20 }
                 Text { text: "UTILITIES"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
                 NavItem { id: navPdf; Layout.fillWidth: true; title: "PDF Tools"; iconName: "pdf"; active: root.workspace === 5; onClicked: root.workspace = 5 }
@@ -559,7 +564,7 @@ ApplicationWindow {
                     spacing: 2
                     Text { text: root.workspace === 0 && root.inspectorMode === 1 ? "Publish" : root.sectionTitle; color: Theme.text; font.pixelSize: 18; font.weight: Font.DemiBold }
                     Text {
-                        text: root.workspace === 0 ? (editorProject.hasMedia ? editorProject.mediaName : "Create a project or import media") : root.workspace >= 7 ? "Connected tools · your server" : "Private processing · on this device"
+                        text: root.workspace === 0 ? (editorProject.hasMedia ? editorProject.mediaName : "Create a project or import media") : root.shareWorkspace ? "Connected tools · your server" : "Private processing · on this device"
                         color: Theme.textMuted
                         font.pixelSize: 11
                         elide: Text.ElideMiddle
@@ -579,6 +584,7 @@ ApplicationWindow {
         RevealAnimation { id: editorEnter; target: editorArea; shift: editorShift }
         RevealAnimation { id: toolsEnter; target: toolsArea; shift: toolsShift }
         RevealAnimation { id: shareEnter; target: shareArea; shift: shareShift }
+        RevealAnimation { id: imagesEnter; target: imagesArea; shift: imagesShift }
         RevealAnimation { id: inspectorEnter; target: inspectorScroll; shift: inspectorShift; distance: 6 }
 
         RowLayout {
@@ -983,10 +989,18 @@ ApplicationWindow {
             transform: Translate { id: shareShift }
             section: root.workspace
             sourceUrl: root.publishSource()
-            visible: root.workspace >= 7
+            visible: root.shareWorkspace
             Layout.fillWidth: true
             Layout.fillHeight: true
             onChooseFile: uploadDialog.open()
+        }
+
+        ImagesWorkspace {
+            id: imagesArea
+            transform: Translate { id: imagesShift }
+            visible: root.workspace === 10
+            Layout.fillWidth: true
+            Layout.fillHeight: true
         }
 
         Rectangle {
@@ -998,15 +1012,15 @@ ApplicationWindow {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 14
                 spacing: 8
-                Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText ? Theme.danger : root.anyBusy ? Theme.warning : Theme.accent }
+                Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || localImages.errorText ? Theme.danger : root.anyBusy ? Theme.warning : Theme.accent }
                 Text {
-                    text: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || (exporter.busy ? exporter.stage + " " + exporter.progress + "%" : localTools.busy ? localTools.stage + " " + localTools.progress + "%" : localDownload.busy ? localDownload.stage + " " + localDownload.progress + "%" : localPdf.busy ? localPdf.stage : localQr.busy ? localQr.stage : toolsClient.busy ? toolsClient.stage + " " + toolsClient.progress + "%" : root.notice || "Ready")
+                    text: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || localImages.errorText || (exporter.busy ? exporter.stage + " " + exporter.progress + "%" : localTools.busy ? localTools.stage + " " + localTools.progress + "%" : localDownload.busy ? localDownload.stage + " " + localDownload.progress + "%" : localPdf.busy ? localPdf.stage : localQr.busy ? localQr.stage : localImages.busy ? localImages.stage : toolsClient.busy ? toolsClient.stage + " " + toolsClient.progress + "%" : root.notice || "Ready")
                     color: Theme.textSoft
                     font.pixelSize: 11
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
-                Text { text: root.workspace >= 7 ? "TOOLS SERVER" : "LOCAL PROCESSING"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.5 }
+                Text { text: root.shareWorkspace ? "TOOLS SERVER" : "LOCAL PROCESSING"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.5 }
             }
         }
     }
