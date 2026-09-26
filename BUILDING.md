@@ -28,6 +28,10 @@ The package holds the Qt runtime (via `windeployqt`, with a `qt.conf` for MSYS2'
 
 The version comes from `project(Kadron VERSION ...)` in `CMakeLists.txt`.
 
+## GPU encoding
+
+Shortly after startup Kadron tries a tiny test encode with `h264_nvenc`, `h264_qsv` and `h264_amf`; the ones that succeed appear in the editor's **Encoder** list. **Auto** uses the first of them, else the CPU (`libx264`). The choice is remembered. A GPU encode that fails is retried on the CPU. `KADRON_NO_GPU` skips detection. The core test `hardwareEncoders` exports a clip with every encoder found on the machine.
+
 ## Updates
 
 Installed copies look for a newer GitHub release shortly after startup (at most once a day) and when the version in the sidebar is clicked. An update downloads the release's `Kadron-<version>-setup.exe`, checks its size and the SHA-256 GitHub publishes for it, and runs it silently once Kadron closes; **Restart to update** closes Kadron (asking about unsaved work as usual) and opens the new version. Portable copies link to the release page instead. For a release, tag it `v<version>` and attach the setup and the zip. `KADRON_UPDATE_URL` points the check at another endpoint and `KADRON_NO_UPDATE_CHECK` turns the automatic check off.

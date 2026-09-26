@@ -44,7 +44,7 @@ target_compile_definitions(kadron PRIVATE
     KADRON_VERSION_MINOR=${PROJECT_VERSION_MINOR}
     KADRON_VERSION_PATCH=${PROJECT_VERSION_PATCH})
 
-set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/Theme.qml qml/Prefs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # QML lives in a static module so the UI tests load exactly what the app ships.
 qt_add_library(kadron_ui STATIC)
@@ -73,6 +73,11 @@ qt_add_qml_module(kadron_ui
         qml/RangeStrip.qml
         qml/SkeletonBlock.qml
         qml/UpdateCard.qml
+        qml/Prefs.qml
+        qml/VolumeControl.qml
+        qml/AppearancePopup.qml
+        qml/FileBoard.qml
+        qml/PagePicker.qml
 )
 target_link_libraries(kadron_ui PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
 

@@ -16,6 +16,7 @@ ApplicationWindow {
     // Read by WindowChrome to paint the native Windows caption in the app's colors.
     readonly property color captionColor: Theme.rail
     readonly property color captionTextColor: Theme.textSoft
+    readonly property bool captionDark: Theme.dark
     title: "Kadron" + (editorProject.projectUrl.toString() ? " - " + editorProject.projectUrl.toString().split("/").pop() : "")
 
     property bool forceClose: false
@@ -391,7 +392,7 @@ ApplicationWindow {
         id: player
         objectName: "editorPlayer"
         source: editorProject.mediaUrl
-        audioOutput: AudioOutput { volume: volumeSlider.value }
+        audioOutput: AudioOutput { volume: editorVolume.effectiveVolume }
         videoOutput: videoOutput
         onDurationChanged: function(duration) { if (source.toString() === editorProject.mediaUrl.toString()) editorProject.setDurationMs(duration) }
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) root.finishCue()
@@ -492,7 +493,7 @@ ApplicationWindow {
                     Layout.leftMargin: 9
                     spacing: 8
                     Rectangle { width: 7; height: 7; radius: 4; color: toolsClient.connected ? Theme.accent : Theme.textFaint }
-                    Text { text: toolsClient.connected ? "Server connected" : "Local workspace"; color: Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true }
+                    Text { text: toolsClient.connected ? "Server connected" : "Local workspace"; color: Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true; Layout.minimumWidth: 0; elide: Text.ElideRight }
                     // Running version; click to look for an update.
                     Text {
                         objectName: "versionLink"
@@ -507,6 +508,25 @@ ApplicationWindow {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: appUpdater.check()
+                        }
+                    }
+                    ToolButton {
+                        id: appearanceButton
+                        objectName: "appearanceButton"
+                        implicitWidth: 26
+                        implicitHeight: 26
+                        Accessible.name: "Appearance"
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        ToolTip.text: "Theme and accent"
+                        onClicked: appearancePopup.opened ? appearancePopup.close() : appearancePopup.open()
+                        contentItem: ToolIcon { name: "palette"; tint: appearanceButton.hovered || appearancePopup.opened ? Theme.text : Theme.textFaint }
+                        background: Rectangle { radius: Theme.radiusSmall; color: appearanceButton.hovered || appearancePopup.opened ? Theme.hover : "transparent" }
+                        AppearancePopup {
+                            id: appearancePopup
+                            objectName: "appearancePopup"
+                            x: -8
+                            y: -height - 10
                         }
                     }
                 }
@@ -644,32 +664,7 @@ ApplicationWindow {
                         Text { text: root.timecode(root.sequencePositionMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
                         Text { text: "/ " + root.timecode(editorProject.sequenceDurationMs); color: Theme.textMuted; font.pixelSize: 12 }
                         Item { Layout.fillWidth: true }
-                        Text { text: "Volume"; visible: transportRow.width > 460; color: Theme.textMuted; font.pixelSize: 11 }
-                        Slider {
-                            id: volumeSlider
-                            from: 0
-                            to: 1
-                            value: 0.8
-                            Layout.preferredWidth: transportRow.width > 460 ? 90 : 56
-                            background: Rectangle {
-                                x: volumeSlider.leftPadding
-                                y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
-                                width: volumeSlider.availableWidth
-                                height: 3
-                                radius: 2
-                                color: Theme.lineStrong
-                                Rectangle { width: volumeSlider.visualPosition * parent.width; height: parent.height; radius: 2; color: Theme.accent }
-                            }
-                            handle: Rectangle {
-                                x: volumeSlider.leftPadding + volumeSlider.visualPosition * (volumeSlider.availableWidth - width)
-                                y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
-                                width: 14
-                                height: 14
-                                radius: 7
-                                color: Theme.accentSoft
-                                border.color: Theme.accentEdge
-                            }
-                        }
+                        VolumeControl { id: editorVolume; objectName: "editorVolume"; compact: transportRow.width <= 460 }
                     }
                     Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
                 }
@@ -750,6 +745,37 @@ ApplicationWindow {
                             Text { text: "Sequence duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
                             Text { text: root.timecode(editorProject.sequenceDurationMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
                         }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: exporter.available
+                            spacing: 8
+                            Text { text: "Encoder"; color: Theme.textMuted; font.pixelSize: 12 }
+                            ToolCombo {
+                                id: encoderCombo
+                                objectName: "encoderCombo"
+                                Layout.fillWidth: true
+                                enabled: !exporter.busy
+                                textRole: "label"
+                                valueRole: "value"
+                                model: encoderItems
+                                readonly property var encoderItems: {
+                                    var names = { nvenc: "NVIDIA NVENC (GPU)", qsv: "Intel Quick Sync (GPU)", amf: "AMD AMF (GPU)" }
+                                    var items = [{ value: "auto", label: !exporter.encodersChecked ? "Auto (checking GPU…)"
+                                                                        : exporter.hardwareEncoders.length > 0 ? "Auto · " + names[exporter.hardwareEncoders[0]]
+                                                                        : "Auto · CPU (no GPU encoder)" },
+                                                 { value: "cpu", label: "CPU (x264)" }]
+                                    for (var i = 0; i < exporter.hardwareEncoders.length; i++)
+                                        items.push({ value: exporter.hardwareEncoders[i], label: names[exporter.hardwareEncoders[i]] })
+                                    return items
+                                }
+                                currentIndex: {
+                                    for (var i = 0; i < encoderItems.length; i++)
+                                        if (encoderItems[i].value === exporter.encoder) return i
+                                    return 0
+                                }
+                                onActivated: exporter.encoder = currentValue
+                            }
+                        }
                         Text {
                             Layout.fillWidth: true
                             visible: !exporter.available
@@ -769,7 +795,7 @@ ApplicationWindow {
                         Text {
                             Layout.fillWidth: true
                             visible: exporter.busy
-                            text: exporter.stage + "  " + exporter.progress + "%"
+                            text: exporter.stage + "  " + exporter.progress + "%  ·  " + exporter.encoderUsed
                             color: Theme.textSoft
                             font.pixelSize: 11
                         }

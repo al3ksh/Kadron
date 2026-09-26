@@ -7,7 +7,9 @@
 #include <QObject>
 #include <QProcess>
 #include <QUrl>
+#include <QSet>
 #include <QVariantList>
+#include <QVariantMap>
 #include <atomic>
 
 class LocalPdfTools final : public QObject
@@ -24,6 +26,9 @@ class LocalPdfTools final : public QObject
     Q_PROPERTY(QUrl pagesDocument READ pagesDocument NOTIFY pagesChanged)
     Q_PROPERTY(QStringList pageImages READ pageImages NOTIFY pagesChanged)
     Q_PROPERTY(QString pagesError READ pagesError NOTIFY pagesChanged)
+    // First page and page count per document for the Merge cards, keyed by
+    // file URL string: {image: url, pages: int, error: string}.
+    Q_PROPERTY(QVariantMap covers READ covers NOTIFY coversChanged)
 
 public:
     explicit LocalPdfTools(QObject *parent = nullptr);
@@ -39,10 +44,16 @@ public:
     QUrl pagesDocument() const;
     QStringList pageImages() const;
     QString pagesError() const;
+    QVariantMap covers() const;
 
     // Renders every page of a PDF as a thumbnail for the visual editor.
     Q_INVOKABLE void loadPages(const QUrl &document);
     Q_INVOKABLE void clearPages();
+    // Renders the first page of each document that has no cover yet.
+    Q_INVOKABLE void loadCovers(const QVariantList &documents);
+    // Page ranges like "1-3, 7" from a sorted list of 1-based pages.
+    Q_INVOKABLE static QString pagesToRange(const QVariantList &pages);
+    Q_INVOKABLE static QVariantList rangeToPages(const QString &range, int pageCount);
     // Renders one page large for the preview; emits pagePreviewReady.
     Q_INVOKABLE void renderPreview(int page);
     // Writes a new PDF from the loaded document: `pages` is an ordered list of
@@ -57,6 +68,7 @@ public:
 signals:
     void changed();
     void pagesChanged();
+    void coversChanged();
     void pagePreviewReady(int page, const QUrl &image);
 
 private:
@@ -82,4 +94,7 @@ private:
     QStringList m_pageImages;
     QString m_pagesError;
     int m_pagesGeneration = 0;
+    std::unique_ptr<QTemporaryDir> m_coversDir;
+    QVariantMap m_covers;
+    QSet<QString> m_coversPending;
 };

@@ -42,6 +42,8 @@ private slots:
     void ytDlpDiagnostics();
     void editHistory();
     void appUpdates();
+    void hardwareEncoders();
+    void pageRanges();
 };
 
 void CoreTests::editHistory()
@@ -916,4 +918,64 @@ void CoreTests::appUpdates()
 }
 
 QTEST_GUILESS_MAIN(CoreTests)
+void CoreTests::hardwareEncoders()
+{
+    QVERIFY(ExportController::videoCodecArgs("cpu", false).contains("libx264"));
+    QVERIFY(ExportController::videoCodecArgs("nvenc", true).contains("h264_nvenc"));
+    QVERIFY(ExportController::videoCodecArgs("qsv", false).contains("h264_qsv"));
+    QVERIFY(ExportController::videoCodecArgs("amf", false).contains("h264_amf"));
+
+    const auto ffmpeg = qEnvironmentVariable("KADRON_FFMPEG", "ffmpeg");
+    const auto found = ExportController::probeHardwareEncoders(ffmpeg);
+    for (const auto &id : found)
+        QVERIFY(QStringList({"nvenc", "qsv", "amf"}).contains(id));
+    qInfo() << "Hardware encoders on this machine:" << found;
+
+    // Every encoder that probes as working must also export a real clip.
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto sourcePath = directory.path() + "/source.mp4";
+    QProcess generator;
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y",
+                             "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30",
+                             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                             "-t", "3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", sourcePath});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+
+    ExportController exporter;
+    exporter.detectEncoders();
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.detectingEncoders(), 60000);
+    QCOMPARE(exporter.hardwareEncoders(), found);
+    const auto previous = exporter.encoder();
+    for (const auto &id : QStringList{"cpu"} + found) {
+        exporter.setEncoder(id);
+        const auto outputPath = directory.path() + "/out-" + id + ".mp4";
+        QVERIFY(exporter.start(QUrl::fromLocalFile(sourcePath), QUrl::fromLocalFile(outputPath), 500, 2500));
+        QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 60000);
+        QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+        QCOMPARE(exporter.encoderUsed(), ExportController::encoderLabel(id));
+        QVERIFY(QFileInfo(outputPath).size() > 0);
+    }
+    // A GPU choice that is not present here runs on the CPU.
+    if (!found.contains("amf")) {
+        exporter.setEncoder("amf");
+        const auto outputPath = directory.path() + "/out-missing.mp4";
+        QVERIFY(exporter.start(QUrl::fromLocalFile(sourcePath), QUrl::fromLocalFile(outputPath), 500, 1500));
+        QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 60000);
+        QCOMPARE(exporter.encoderUsed(), ExportController::encoderLabel("cpu"));
+    }
+    exporter.setEncoder(previous);
+}
+
+void CoreTests::pageRanges()
+{
+    QCOMPARE(LocalPdfTools::pagesToRange({2, 3, 4, 5, 9}), QStringLiteral("2-5, 9"));
+    QCOMPARE(LocalPdfTools::pagesToRange({7, 1, 1, 2}), QStringLiteral("1-2, 7"));
+    QCOMPARE(LocalPdfTools::pagesToRange({}), QString());
+    QCOMPARE(LocalPdfTools::rangeToPages("1, 3-5, 9, 40", 10), QVariantList({1, 3, 4, 5, 9}));
+    QCOMPARE(LocalPdfTools::rangeToPages("5-3, x, 2-", 10), QVariantList());
+    QCOMPARE(LocalPdfTools::rangeToPages(LocalPdfTools::pagesToRange({2, 3, 4, 8}), 8), QVariantList({2, 3, 4, 8}));
+}
+
 #include "core_tests.moc"

@@ -8,7 +8,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QSettings>
 #include <QUuid>
+#include <QtConcurrent>
 #include <QtMath>
 #include <QtGlobal>
 
@@ -26,6 +28,113 @@ ExportController::ExportController(QObject *parent)
         if (error == QProcess::FailedToStart)
             fail(QStringLiteral("Could not start FFmpeg. Check KADRON_FFMPEG or your PATH."));
     });
+    const auto saved = QSettings().value(QStringLiteral("export/encoder")).toString();
+    if (!saved.isEmpty())
+        m_encoder = saved;
+}
+
+QString ExportController::encoder() const { return m_encoder; }
+QStringList ExportController::hardwareEncoders() const { return m_hardwareEncoders; }
+bool ExportController::detectingEncoders() const { return m_detecting; }
+bool ExportController::encodersChecked() const { return m_checked; }
+QString ExportController::encoderUsed() const { return encoderLabel(m_activeEncoder) + (m_fellBack ? QStringLiteral(" (GPU failed)") : QString()); }
+
+void ExportController::setEncoder(const QString &encoder)
+{
+    static const QStringList known{"auto", "cpu", "nvenc", "qsv", "amf"};
+    if (!known.contains(encoder) || encoder == m_encoder)
+        return;
+    m_encoder = encoder;
+    QSettings().setValue(QStringLiteral("export/encoder"), encoder);
+    emit encoderChanged();
+}
+
+QString ExportController::encoderLabel(const QString &encoder)
+{
+    if (encoder == "nvenc") return QStringLiteral("NVIDIA NVENC");
+    if (encoder == "qsv") return QStringLiteral("Intel Quick Sync");
+    if (encoder == "amf") return QStringLiteral("AMD AMF");
+    return QStringLiteral("CPU (x264)");
+}
+
+QStringList ExportController::videoCodecArgs(const QString &encoder, bool fast)
+{
+    // Quality targets roughly match x264 CRF 20.
+    if (encoder == "nvenc")
+        return {"-c:v", "h264_nvenc", "-preset", fast ? "p4" : "p6", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-pix_fmt", "yuv420p"};
+    if (encoder == "qsv")
+        return {"-c:v", "h264_qsv", "-preset", fast ? "faster" : "medium", "-global_quality", "21", "-pix_fmt", "nv12"};
+    if (encoder == "amf")
+        return {"-c:v", "h264_amf", "-quality", fast ? "speed" : "balanced", "-rc", "cqp", "-qp_i", "20", "-qp_p", "22", "-pix_fmt", "yuv420p"};
+    return {"-c:v", "libx264", "-preset", fast ? "fast" : "medium", "-crf", "20"};
+}
+
+QStringList ExportController::probeHardwareEncoders(const QString &ffmpeg)
+{
+    QStringList found;
+    if (ffmpeg.isEmpty())
+        return found;
+    // Listing an encoder only means FFmpeg was built with it; a real encode
+    // proves the driver and GPU are there too.
+    for (const auto &id : {QStringLiteral("nvenc"), QStringLiteral("qsv"), QStringLiteral("amf")}) {
+        QProcess probe;
+        QStringList args{"-hide_banner", "-nostdin", "-loglevel", "error",
+                         "-f", "lavfi", "-i", "color=c=black:s=320x240:r=30:d=0.2"};
+        args << videoCodecArgs(id, true) << "-f" << "null" << "-";
+        probe.start(ffmpeg, args);
+        if (!probe.waitForFinished(10000)) {
+            probe.kill();
+            probe.waitForFinished(1000);
+            continue;
+        }
+        if (probe.exitStatus() == QProcess::NormalExit && probe.exitCode() == 0)
+            found << id;
+    }
+    return found;
+}
+
+void ExportController::detectEncoders()
+{
+    if (m_detecting)
+        return;
+    if (m_ffmpeg.isEmpty() || qEnvironmentVariableIsSet("KADRON_NO_GPU")) {
+        m_checked = true;
+        emit encoderChanged();
+        return;
+    }
+    m_detecting = true;
+    emit encoderChanged();
+    auto *watcher = new QFutureWatcher<QStringList>(this);
+    connect(watcher, &QFutureWatcher<QStringList>::finished, this, [this, watcher] {
+        m_hardwareEncoders = watcher->result();
+        m_detecting = false;
+        m_checked = true;
+        watcher->deleteLater();
+        emit encoderChanged();
+    });
+    watcher->setFuture(QtConcurrent::run(&ExportController::probeHardwareEncoders, m_ffmpeg));
+}
+
+QString ExportController::resolvedEncoder() const
+{
+    if (m_encoder == "cpu")
+        return QStringLiteral("cpu");
+    if (m_encoder != "auto")
+        return m_hardwareEncoders.contains(m_encoder) ? m_encoder : QStringLiteral("cpu");
+    return m_hardwareEncoders.isEmpty() ? QStringLiteral("cpu") : m_hardwareEncoders.first();
+}
+
+// A GPU encoder that fails mid-export (driver reset, unsupported input) is
+// retried once on the CPU instead of failing the export.
+bool ExportController::fallBackToCpu()
+{
+    if (m_activeEncoder == "cpu" || m_cancelled)
+        return false;
+    m_activeEncoder = QStringLiteral("cpu");
+    m_fellBack = true;
+    m_errorBuffer.clear();
+    m_progressBuffer.clear();
+    return true;
 }
 
 bool ExportController::available() const { return !m_ffmpeg.isEmpty(); }
@@ -74,23 +183,32 @@ bool ExportController::start(const QUrl &source, const QUrl &destination, qint64
     m_errorBuffer.clear();
     m_busy = true;
     m_phase = Phase::Single;
+    m_activeEncoder = resolvedEncoder();
+    m_fellBack = false;
+    m_singleSource = sourceInfo.absoluteFilePath();
+    m_singleInMs = inMs;
+    launchSingle();
+    return true;
+}
 
+void ExportController::launchSingle()
+{
     const auto seconds = [](qint64 milliseconds) {
         return QString::number(milliseconds / 1000.0, 'f', 3);
     };
-    m_process.setProgram(m_ffmpeg);
-    m_process.setArguments({
+    QStringList args{
         "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1",
-        "-ss", seconds(inMs), "-i", sourceInfo.absoluteFilePath(),
+        "-ss", seconds(m_singleInMs), "-i", m_singleSource,
         "-t", seconds(m_rangeMs),
-        "-map", "0:v:0?", "-map", "0:a:0?",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
-        "-y", m_partialPath
-    });
+        "-map", "0:v:0?", "-map", "0:a:0?"
+    };
+    args << videoCodecArgs(m_activeEncoder, false)
+         << "-c:a" << "aac" << "-b:a" << "192k" << "-movflags" << "+faststart"
+         << "-y" << m_partialPath;
+    m_process.setProgram(m_ffmpeg);
+    m_process.setArguments(args);
     emit changed();
     m_process.start();
-    return true;
 }
 
 bool ExportController::startSequence(const QVariantList &clips, const QUrl &destination)
@@ -151,6 +269,8 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
     m_cancelled = false;
     m_busy = true;
     m_phase = Phase::Probe;
+    m_activeEncoder = resolvedEncoder();
+    m_fellBack = false;
     emit changed();
     probeNext();
     return true;
@@ -208,7 +328,7 @@ void ExportController::encodeNext()
     } else {
         args << "-vf" << "format=yuv420p";
     }
-    args << "-c:v" << "libx264" << "-preset" << "fast" << "-crf" << "20"
+    args << videoCodecArgs(m_activeEncoder, true)
          << "-r" << "30" << "-c:a" << "aac" << "-b:a" << "160k"
          << "-ar" << "48000" << "-ac" << "2" << "-shortest" << "-movflags" << "+faststart"
          << "-y" << (m_sequenceDir->path() + QString("/clip_%1.mp4").arg(m_segmentIndex, 4, 10, QChar('0')));
@@ -380,6 +500,16 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
         || !(m_phase == Phase::Encode
              ? QFileInfo(m_sequenceDir->path() + QString("/clip_%1.mp4").arg(m_segmentIndex, 4, 10, QChar('0'))).size() > 0
              : QFileInfo(m_partialPath).isFile() && QFileInfo(m_partialPath).size() > 0)) {
+        if ((m_phase == Phase::Single || m_phase == Phase::Encode) && fallBackToCpu()) {
+            if (m_phase == Phase::Single) {
+                QFile::remove(m_partialPath);
+                m_progress = 0;
+                launchSingle();
+            } else {
+                encodeNext();
+            }
+            return;
+        }
         const auto details = QString::fromUtf8(m_errorBuffer).trimmed();
         fail(details.isEmpty() ? QStringLiteral("Export failed. Check the source file and codec support.")
                                : details.right(500));

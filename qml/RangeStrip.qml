@@ -73,6 +73,8 @@ Item {
             fillMode: Image.Stretch
             smooth: true
             opacity: 0.4
+            layer.enabled: !Theme.dark
+            layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.waveInk }
         }
         Item {
             visible: strip.waveform.length > 0

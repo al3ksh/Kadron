@@ -13,8 +13,34 @@ Item {
     property string pdfMode: "edit"
     property bool pdfEdited: false
     property int pdfSelected: 0
+    // Extract pages: the chosen 1-based pages, mirrored in the range field.
+    property var splitPages: []
+    readonly property bool pdfUsesBoard: pdfMode === "merge" || pdfMode === "images-to-pdf"
     ListModel { id: pageModel }
-    onPdfFilesChanged: if (pdfMode === "edit") loadPdfPages()
+    onPdfFilesChanged: {
+        if (pdfMode === "edit" || pdfMode === "split") loadPdfPages()
+        else if (pdfMode === "merge") localPdf.loadCovers(pdfFiles)
+        setSplitPages([])
+    }
+    function setSplitPages(pages) {
+        splitPages = pages
+        var range = localPdf.pagesToRange(pages)
+        if (pdfPages.text !== range && !pdfPages.activeFocus) pdfPages.text = range
+    }
+    // Merge and Images to PDF add to the list; the other modes take one file.
+    function takePdfFiles(urls) {
+        if (!pdfUsesBoard) { pdfFiles = [urls[0]]; return }
+        var next = pdfFiles.slice()
+        var known = pdfFiles.map(function(u) { return u.toString() })
+        for (var i = 0; i < urls.length; i++)
+            if (known.indexOf(urls[i].toString()) < 0) { next.push(urls[i]); known.push(urls[i].toString()) }
+        pdfFiles = next
+    }
+    function removePdfFile(index) {
+        var next = pdfFiles.slice()
+        next.splice(index, 1)
+        pdfFiles = next
+    }
     Connections {
         target: localPdf
         function onPagesChanged() { if (!localPdf.loadingPages) toolsPage.resetPages() }
@@ -30,11 +56,11 @@ Item {
         var keep = (mode === "images-to-pdf") === (pdfMode === "images-to-pdf") && mode !== "merge" && pdfMode !== "merge"
         pdfMode = mode
         if (!keep) pdfFiles = []
-        else if (mode === "edit") loadPdfPages()
+        else if (mode === "edit" || mode === "split") loadPdfPages()
     }
     function loadPdfPages() {
-        if (pdfFiles.length > 0) localPdf.loadPages(pdfFiles[0])
-        else localPdf.clearPages()
+        if (pdfFiles.length === 0) localPdf.clearPages()
+        else if (localPdf.pagesDocument.toString() !== pdfFiles[0].toString() || localPdf.pageImages.length === 0) localPdf.loadPages(pdfFiles[0])
     }
     function resetPages() {
         pageModel.clear()
@@ -121,7 +147,7 @@ Item {
             var pattern = images ? /\.(jpe?g|png|webp|bmp|tiff?)$/i : /\.pdf$/i
             var accepted = []
             for (var i = 0; i < urls.length; i++) if (pattern.test(urls[i].toString())) accepted.push(urls[i])
-            if (accepted.length > 0) pdfFiles = accepted
+            if (accepted.length > 0) takePdfFiles(accepted)
         } else {
             sourceUrl = urls[0]
             compressFormat.currentIndex = 0
@@ -131,7 +157,7 @@ Item {
     MediaPlayer {
         id: audioPreview
         source: toolsPage.section === 2 ? toolsPage.sourceUrl : ""
-        audioOutput: AudioOutput {}
+        audioOutput: AudioOutput { volume: audioVolume.effectiveVolume }
         property string loadedSource: ""
         onMediaStatusChanged: {
             // A new file starts with the whole file selected.
@@ -304,7 +330,7 @@ Item {
                 for (var i = 0; i < pageModel.count; i++) pages.push({ page: pageModel.get(i).page, rotation: pageModel.get(i).rotation })
                 localPdf.compose(pages, selectedFile)
             } else {
-                localPdf.process(toolsPage.pdfMode, toolsPage.pdfFiles, pdfPages.text, 0, selectedFile)
+                localPdf.process(toolsPage.pdfMode, toolsPage.pdfFiles, localPdf.pagesToRange(toolsPage.splitPages), 0, selectedFile)
             }
         }
     }
@@ -313,7 +339,7 @@ Item {
         title: "Choose documents"
         fileMode: toolsPage.pdfMode === "edit" || toolsPage.pdfMode === "split" ? FileDialog.OpenFile : FileDialog.OpenFiles
         nameFilters: toolsPage.pdfMode === "images-to-pdf" ? ["Images (*.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff)"] : ["PDF files (*.pdf)"]
-        onAccepted: toolsPage.pdfFiles = fileMode === FileDialog.OpenFile ? [selectedFile] : selectedFiles
+        onAccepted: toolsPage.takePdfFiles(fileMode === FileDialog.OpenFile ? [selectedFile] : selectedFiles)
     }
     Popup {
         id: pagePreview
@@ -686,6 +712,7 @@ Item {
                         font.features: { "tnum": 1 }
                     }
                     Item { Layout.fillWidth: true }
+                    VolumeControl { id: audioVolume; objectName: "audioVolume" }
                     ToolCheck { text: "Loop"; checked: toolsPage.audioLooping; onToggled: toolsPage.audioLooping = checked }
                     EditorButton {
                         text: "Whole file"
@@ -880,7 +907,7 @@ Item {
                     onBrowseRequested: pdfDialog.open()
                 }
                 Rectangle {
-                    visible: toolsPage.pdfFiles.length > 0
+                    visible: toolsPage.pdfFiles.length > 0 && !toolsPage.pdfUsesBoard
                     Layout.fillWidth: true
                     implicitHeight: 54
                     radius: Theme.radius
@@ -1069,16 +1096,87 @@ Item {
                     }
                 }
 
-                // Other modes keep their compact forms.
-                Text { text: "Pages (e.g. 1,3-5)"; visible: toolsPage.pdfMode === "split" && toolsPage.pdfFiles.length > 0; color: Theme.textMuted; font.pixelSize: 12 }
-                EditorField { id: pdfPages; visible: toolsPage.pdfMode === "split" && toolsPage.pdfFiles.length > 0; Layout.preferredWidth: 280; placeholderText: "1,3-5" }
+                // Merge / Images to PDF: ordered cards with an Add tile.
+                RowLayout {
+                    visible: toolsPage.pdfUsesBoard && toolsPage.pdfFiles.length > 0
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Text {
+                        Layout.fillWidth: true
+                        text: {
+                            var n = toolsPage.pdfFiles.length
+                            if (toolsPage.pdfMode === "images-to-pdf") return n + (n === 1 ? " image · one page each" : " images · one page each, in this order")
+                            var pages = 0
+                            for (var i = 0; i < n; i++) pages += (localPdf.covers[toolsPage.pdfFiles[i].toString()] || {}).pages || 0
+                            return n + (n === 1 ? " file" : " files") + (pages ? " · " + pages + " pages" : "") + (n < 2 ? " · add at least one more" : " · drag to set the order")
+                        }
+                        color: Theme.textMuted
+                        font.pixelSize: 12
+                    }
+                    EditorButton { text: "Clear"; subtle: true; enabled: !localPdf.busy; onClicked: toolsPage.pdfFiles = [] }
+                }
+                FileBoard {
+                    objectName: "pdfFileBoard"
+                    visible: toolsPage.pdfUsesBoard && toolsPage.pdfFiles.length > 0
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    files: toolsPage.pdfFiles
+                    images: toolsPage.pdfMode === "images-to-pdf"
+                    covers: localPdf.covers
+                    onReordered: function(files) { toolsPage.pdfFiles = files }
+                    onRemoveRequested: function(index) { toolsPage.removePdfFile(index) }
+                    onAddRequested: pdfDialog.open()
+                }
+
+                // Extract pages: pick on the thumbnails or type a range.
+                RowLayout {
+                    visible: toolsPage.pdfMode === "split" && toolsPage.pdfFiles.length > 0
+                    Layout.fillWidth: true
+                    spacing: 6
+                    EditorField {
+                        id: pdfPages
+                        objectName: "pdfPages"
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 420
+                        placeholderText: "Click pages below, or type e.g. 1, 3-5"
+                        onTextEdited: toolsPage.splitPages = localPdf.rangeToPages(text, localPdf.pageImages.length)
+                    }
+                    EditorButton { text: "All"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= localPdf.pageImages.length; i++) p.push(i); toolsPage.setSplitPages(p) } }
+                    EditorButton { text: "Odd"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= localPdf.pageImages.length; i += 2) p.push(i); toolsPage.setSplitPages(p) } }
+                    EditorButton { text: "Even"; subtle: true; onClicked: { var p = []; for (var i = 2; i <= localPdf.pageImages.length; i += 2) p.push(i); toolsPage.setSplitPages(p) } }
+                    EditorButton { text: "None"; subtle: true; enabled: toolsPage.splitPages.length > 0; onClicked: toolsPage.setSplitPages([]) }
+                    Item { Layout.fillWidth: true }
+                    Text {
+                        text: toolsPage.splitPages.length > 0 ? toolsPage.splitPages.length + " of " + localPdf.pageImages.length + " pages" : "Shift+click picks a run"
+                        color: Theme.textMuted
+                        font.pixelSize: 12
+                    }
+                }
+                Item {
+                    visible: toolsPage.pdfMode === "split" && toolsPage.pdfFiles.length > 0 && localPdf.loadingPages
+                    Layout.fillWidth: true
+                    implicitHeight: 200
+                    Row {
+                        spacing: 10
+                        Repeater { model: 5; SkeletonBlock { width: 134; height: 194; radius: 10 } }
+                    }
+                }
+                PagePicker {
+                    objectName: "pagePicker"
+                    visible: toolsPage.pdfMode === "split" && toolsPage.pdfFiles.length > 0 && !localPdf.loadingPages
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    images: localPdf.pageImages
+                    selected: toolsPage.splitPages
+                    onSelectionEdited: function(pages) { toolsPage.setSplitPages(pages) }
+                }
                 Text { text: "Documents stay on this device."; color: Theme.textFaint; font.pixelSize: 11 }
                 EditorButton {
                     text: toolsPage.pdfMode === "edit" ? "Save PDF" : toolsPage.pdfMode === "merge" ? "Merge PDFs" : toolsPage.pdfMode === "split" ? "Extract pages" : "Create PDF"
                     iconName: "save"
                     primary: true
                     enabled: !localPdf.busy && (toolsPage.pdfMode === "edit" ? pageModel.count > 0 && localPdf.qpdfAvailable
-                             : toolsPage.pdfFiles.length > 0 && (localPdf.qpdfAvailable || toolsPage.pdfMode === "images-to-pdf") && (toolsPage.pdfMode !== "split" || pdfPages.text.trim().length > 0))
+                             : toolsPage.pdfFiles.length > (toolsPage.pdfMode === "merge" ? 1 : 0) && (localPdf.qpdfAvailable || toolsPage.pdfMode === "images-to-pdf") && (toolsPage.pdfMode !== "split" || toolsPage.splitPages.length > 0))
                     onClicked: toolsPage.openPdfSave()
                 }
             }

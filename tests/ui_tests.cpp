@@ -3,7 +3,9 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSettings>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 #include <QQmlExtensionPlugin>
 
@@ -12,6 +14,7 @@ Q_IMPORT_QML_PLUGIN(KadronPlugin)
 class UiTests final : public QObject
 {
     Q_OBJECT
+    QTemporaryDir m_settingsDir;
 
 private slots:
     void initTestCase();
@@ -21,6 +24,7 @@ private slots:
     void studioNavigation();
     void toolInputs();
     void updateCard();
+    void appearance();
 };
 
 // Components come from the same Kadron module the app ships; any QML warning
@@ -50,6 +54,12 @@ void UiTests::initTestCase()
 {
     // The app runs the Basic style; native styles reject custom control parts.
     qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
+    // Prefs persists through Settings; keep test runs out of the real profile.
+    QCoreApplication::setOrganizationName(QStringLiteral("KadronTests"));
+    QCoreApplication::setOrganizationDomain(QStringLiteral("kadron.test"));
+    QCoreApplication::setApplicationName(QStringLiteral("KadronUiTests"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDir.path());
 }
 
 void UiTests::init()
@@ -405,6 +415,46 @@ QtObject {
     // No update: the card folds away.
     updater->setProperty("updateAvailable", false);
     QVERIFY(!card->property("offering").toBool());
+}
+
+void UiTests::appearance()
+{
+    QQmlEngine engine;
+    auto *prefs = engine.singletonInstance<QObject *>("Kadron", "Prefs");
+    auto *theme = engine.singletonInstance<QObject *>("Kadron", "Theme");
+    QVERIFY(prefs);
+    QVERIFY(theme);
+    prefs->setProperty("themeMode", "dark");
+    prefs->setProperty("accent", "#c9f27a");
+    QVERIFY(theme->property("dark").toBool());
+    QCOMPARE(theme->property("window").value<QColor>(), QColor("#101317"));
+    QCOMPARE(theme->property("accent").value<QColor>(), QColor("#c9f27a"));
+
+    // Light surfaces, and the pale default accent deepened to stay readable.
+    prefs->setProperty("themeMode", "light");
+    QVERIFY(!theme->property("dark").toBool());
+    QCOMPARE(theme->property("window").value<QColor>(), QColor("#eef1ec"));
+    QVERIFY(theme->property("accent").value<QColor>().lightnessF() < QColor("#c9f27a").lightnessF());
+
+    // A custom accent flows into the derived shades.
+    prefs->setProperty("themeMode", "dark");
+    prefs->setProperty("accent", "#7cc4ff");
+    QCOMPARE(theme->property("accent").value<QColor>(), QColor("#7cc4ff"));
+    const auto wash = theme->property("accentWash").value<QColor>();
+    QVERIFY(wash.blue() > wash.red());
+
+    // One remembered preview level; mute silences without losing it.
+    auto object = createFromModule(engine, "VolumeControl");
+    QVERIFY(object);
+    prefs->setProperty("previewVolume", 0.4);
+    prefs->setProperty("previewMuted", false);
+    QCOMPARE(object->property("effectiveVolume").toDouble(), 0.4);
+    prefs->setProperty("previewMuted", true);
+    QCOMPARE(object->property("effectiveVolume").toDouble(), 0.0);
+    QCOMPARE(prefs->property("previewVolume").toDouble(), 0.4);
+
+    prefs->setProperty("previewMuted", false);
+    prefs->setProperty("accent", "#c9f27a");
 }
 
 QTEST_MAIN(UiTests)

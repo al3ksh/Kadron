@@ -1,6 +1,8 @@
 #include "WindowChrome.h"
 
 #include <QColor>
+#include <QMetaMethod>
+#include <QMetaProperty>
 #include <QVariant>
 #include <QWindow>
 
@@ -28,7 +30,8 @@ void applyWindowChrome(QWindow *window)
     if (!window)
         return;
     const auto hwnd = reinterpret_cast<HWND>(window->winId());
-    const BOOL dark = TRUE;
+    const auto darkProperty = window->property("captionDark");
+    const BOOL dark = darkProperty.isValid() ? darkProperty.toBool() : TRUE;
     DwmSetWindowAttribute(hwnd, kUseImmersiveDarkMode, &dark, sizeof dark);
     const auto caption = window->property("captionColor").value<QColor>();
     if (caption.isValid()) {
@@ -44,4 +47,25 @@ void applyWindowChrome(QWindow *window)
 #else
     Q_UNUSED(window);
 #endif
+}
+
+WindowChromeWatcher::WindowChromeWatcher(QWindow *window)
+    : QObject(window)
+    , m_window(window)
+{
+    if (!window)
+        return;
+    const auto *meta = window->metaObject();
+    const auto slot = metaObject()->method(metaObject()->indexOfSlot("apply()"));
+    for (const char *name : {"captionColor", "captionTextColor", "captionDark"}) {
+        const int index = meta->indexOfProperty(name);
+        if (index >= 0 && meta->property(index).hasNotifySignal())
+            connect(window, meta->property(index).notifySignal(), this, slot);
+    }
+    apply();
+}
+
+void WindowChromeWatcher::apply()
+{
+    applyWindowChrome(m_window);
 }

@@ -20,7 +20,10 @@
 - Drag a block's edge to trim it; the monitor previews the new frame, and the cut stays reversible until you release.
 - Drag blocks to reorder them, split at the playhead, and undo or redo any edit.
 - Scrubbing lands on the exact frame, and playback runs across the whole sequence.
-- Export the sequence as MP4. Projects are saved as `.kadr` files.
+- Export the sequence as MP4 on the GPU (NVIDIA NVENC, Intel Quick Sync or AMD AMF, whichever works on your machine) or on the CPU. If the GPU encoder fails mid-export, Kadron finishes on the CPU. Projects are saved as `.kadr` files.
+- Preview volume is shared by the editor and the tools, and remembered.
+
+**Appearance.** Dark, light, or follow Windows, with an accent color of your choice. Open it from the palette button at the bottom of the sidebar.
 
 **Tools that run on your device:**
 
@@ -30,7 +33,7 @@
 | GIF Studio | Choose a range on a filmstrip with a looping preview; set frame rate, width, and a size limit |
 | Compress | Shrink video or images, optionally to a target file size |
 | Download | Paste a link and get a preview (thumbnail, title, length) before downloading with yt-dlp; Kadron keeps its own copy of yt-dlp up to date |
-| PDF Tools | Edit pages visually (reorder, rotate, delete, preview), merge files, extract pages, and turn images into a PDF |
+| PDF Tools | Edit pages visually (reorder, rotate, delete, preview); merge PDFs as cards showing each first page, in the order you drag them; pick pages to extract on thumbnails; turn images into a PDF |
 | QR Code | Preview updates as you type; choose colors and error correction, then save PNG or SVG |
 
 Nothing leaves your machine unless you ask it to. **Clips**, **Drop**, and **Shortener** are the only features that upload anything, and they send it to a self-hosted [Tools](https://github.com/al3ksh/Tools) server you connect in the app. Tools is the web version that runs at [tools.aleksh.xyz](https://tools.aleksh.xyz).

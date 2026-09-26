@@ -60,6 +60,92 @@ bool LocalPdfTools::loadingPages() const { return m_renderer != nullptr; }
 QUrl LocalPdfTools::pagesDocument() const { return m_pagesDocument; }
 QStringList LocalPdfTools::pageImages() const { return m_pageImages; }
 QString LocalPdfTools::pagesError() const { return m_pagesError; }
+QVariantMap LocalPdfTools::covers() const { return m_covers; }
+
+void LocalPdfTools::loadCovers(const QVariantList &documents)
+{
+    if (m_pdftoppm.isEmpty())
+        return;
+    if (!m_coversDir)
+        m_coversDir = std::make_unique<QTemporaryDir>();
+    for (const auto &entry : documents) {
+        const auto url = entry.toUrl();
+        const auto key = url.toString();
+        const QFileInfo file(url.toLocalFile());
+        if (!url.isLocalFile() || !file.isFile() || m_covers.contains(key) || m_coversPending.contains(key))
+            continue;
+        m_coversPending.insert(key);
+        const auto target = m_coversDir->path() + "/" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const auto pdftoppm = m_pdftoppm;
+        const auto qpdf = m_qpdf;
+        const auto path = file.absoluteFilePath();
+        auto *watcher = new QFutureWatcher<QVariantMap>(this);
+        connect(watcher, &QFutureWatcher<QVariantMap>::finished, this, [this, watcher, key] {
+            watcher->deleteLater();
+            m_coversPending.remove(key);
+            m_covers.insert(key, watcher->result());
+            emit coversChanged();
+        });
+        watcher->setFuture(QtConcurrent::run([pdftoppm, qpdf, path, target] {
+            QVariantMap cover;
+            QProcess render;
+            render.start(pdftoppm, {"-png", "-singlefile", "-f", "1", "-l", "1", "-scale-to", "280", path, target});
+            render.waitForFinished(30000);
+            if (QFileInfo::exists(target + ".png"))
+                cover.insert("image", QUrl::fromLocalFile(target + ".png"));
+            else
+                cover.insert("error", QString::fromUtf8(render.readAllStandardError()).contains("password", Qt::CaseInsensitive)
+                                          ? QStringLiteral("Password protected") : QStringLiteral("Cannot read this PDF"));
+            if (!qpdf.isEmpty()) {
+                QProcess count;
+                count.start(qpdf, {"--show-npages", path});
+                if (count.waitForFinished(15000) && count.exitCode() == 0)
+                    cover.insert("pages", QString::fromUtf8(count.readAllStandardOutput()).trimmed().toInt());
+            }
+            return cover;
+        }));
+    }
+}
+
+QString LocalPdfTools::pagesToRange(const QVariantList &pages)
+{
+    QList<int> sorted;
+    for (const auto &page : pages)
+        sorted << page.toInt();
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+    QStringList parts;
+    for (int i = 0; i < sorted.size(); ++i) {
+        const int start = sorted.at(i);
+        int end = start;
+        while (i + 1 < sorted.size() && sorted.at(i + 1) == end + 1)
+            end = sorted.at(++i);
+        parts << (end > start ? QStringLiteral("%1-%2").arg(start).arg(end) : QString::number(start));
+    }
+    return parts.join(", ");
+}
+
+QVariantList LocalPdfTools::rangeToPages(const QString &range, int pageCount)
+{
+    QList<int> pages;
+    for (const auto &rawPart : range.split(',', Qt::SkipEmptyParts)) {
+        const auto part = rawPart.trimmed();
+        const auto bounds = part.split('-');
+        bool okStart = false, okEnd = true;
+        const int start = bounds.value(0).trimmed().toInt(&okStart);
+        const int end = bounds.size() > 1 ? bounds.value(1).trimmed().toInt(&okEnd) : start;
+        if (!okStart || !okEnd || bounds.size() > 2)
+            continue;
+        for (int page = qMax(1, start); page <= qMin(pageCount, end); ++page)
+            if (!pages.contains(page))
+                pages << page;
+    }
+    std::sort(pages.begin(), pages.end());
+    QVariantList result;
+    for (const int page : pages)
+        result << page;
+    return result;
+}
 
 void LocalPdfTools::clearPages()
 {

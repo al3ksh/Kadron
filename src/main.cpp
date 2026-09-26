@@ -22,6 +22,8 @@
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QTimer>
+#include <QTemporaryDir>
+#include <QSettings>
 #include <QTextStream>
 
 Q_IMPORT_QML_PLUGIN(KadronPlugin)
@@ -41,6 +43,7 @@ int main(int argc, char *argv[])
         qInstallMessageHandler(fileMessageHandler);
     QGuiApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("Kadron"));
+    app.setOrganizationDomain(QStringLiteral("aleksh.xyz"));
     app.setApplicationName(QStringLiteral("Kadron"));
     app.setApplicationVersion(QStringLiteral(KADRON_VERSION));
     // Bundled tools live in bin/ and share the DLLs next to kadron.exe; child
@@ -72,10 +75,23 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("localQr", &localQr);
     engine.rootContext()->setContextProperty("appUpdater", &appUpdater);
     engine.addImageProvider(QStringLiteral("qr"), new QrImageProvider(&localQr));
+    // Screenshot runs keep their preferences in a throwaway store and can pick
+    // the appearance, so they never change the user's own settings.
+    QTemporaryDir screenshotSettings;
+    if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT")) {
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, screenshotSettings.path());
+        if (auto *prefs = engine.singletonInstance<QObject *>("Kadron", "Prefs")) {
+            if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_THEME"))
+                prefs->setProperty("themeMode", qEnvironmentVariable("KADRON_SCREENSHOT_THEME"));
+            if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_ACCENT"))
+                prefs->setProperty("accent", qEnvironmentVariable("KADRON_SCREENSHOT_ACCENT"));
+        }
+    }
     engine.loadFromModule("Kadron", "Main");
     if (engine.rootObjects().isEmpty())
         return 1;
-    applyWindowChrome(qobject_cast<QWindow *>(engine.rootObjects().first()));
+    new WindowChromeWatcher(qobject_cast<QWindow *>(engine.rootObjects().first()));
 
     const auto arguments = app.arguments();
     if (arguments.size() > 1 && !arguments.at(1).startsWith("--")) {
@@ -89,6 +105,9 @@ int main(int argc, char *argv[])
     const auto screenshotPath = qEnvironmentVariable("KADRON_SCREENSHOT");
     // Look for a new release shortly after startup, at most once a day.
     // Screenshots only check against an explicit KADRON_UPDATE_URL.
+    // Which GPU encoders actually work here; takes a few seconds, off the UI thread.
+    if (screenshotPath.isEmpty())
+        QTimer::singleShot(1500, &exporter, &ExportController::detectEncoders);
     if (screenshotPath.isEmpty() && !qEnvironmentVariableIsSet("KADRON_NO_UPDATE_CHECK"))
         QTimer::singleShot(4000, &appUpdater, &AppUpdater::checkDaily);
     else if (!screenshotPath.isEmpty() && qEnvironmentVariableIsSet("KADRON_UPDATE_URL"))
@@ -117,6 +136,12 @@ int main(int argc, char *argv[])
                     player->setProperty("position", position);
             });
         }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_APPEARANCE")) {
+            QTimer::singleShot(400, &app, [&engine] {
+                if (auto *popup = engine.rootObjects().first()->findChild<QObject *>("appearancePopup"))
+                    QMetaObject::invokeMethod(popup, "open");
+            });
+        }
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_CLOSE")) {
             QTimer::singleShot(400, &app, [&engine] {
                 if (auto *dialog = engine.rootObjects().first()->findChild<QObject *>("quitDialog"))
@@ -128,6 +153,18 @@ int main(int argc, char *argv[])
             QTimer::singleShot(300, &app, [&engine, text] {
                 if (auto *tools = engine.rootObjects().first()->findChild<QObject *>("toolsArea"))
                     QMetaObject::invokeMethod(tools, "fillText", Q_ARG(QVariant, text));
+            });
+        }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_PDF_MODE")) {
+            const auto mode = qEnvironmentVariable("KADRON_SCREENSHOT_PDF_MODE");
+            QVariantList files;
+            for (const auto &path : qEnvironmentVariable("KADRON_SCREENSHOT_PDF_FILES").split(';', Qt::SkipEmptyParts))
+                files << QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath());
+            QTimer::singleShot(300, &app, [&engine, mode, files] {
+                if (auto *tools = engine.rootObjects().first()->findChild<QObject *>("toolsArea")) {
+                    QMetaObject::invokeMethod(tools, "setPdfMode", Q_ARG(QVariant, mode));
+                    QMetaObject::invokeMethod(tools, "takePdfFiles", Q_ARG(QVariant, QVariant(files)));
+                }
             });
         }
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_GIF_SOURCE")) {

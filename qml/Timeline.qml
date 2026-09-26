@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Controls
 import QtQuick.Shapes
 
@@ -279,6 +280,9 @@ FocusScope {
                                     fillMode: Image.Stretch
                                     smooth: true
                                     opacity: block.active ? 0.7 : 0.4
+                                    // The waveform image is white; ink it on light surfaces.
+                                    layer.enabled: !Theme.dark
+                                    layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.waveInk }
                                 }
                             }
                             Rectangle {
