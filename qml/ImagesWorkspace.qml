@@ -199,6 +199,7 @@ Item {
         // Editor: the selected image and the strip of all images.
         ColumnLayout {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             Layout.fillHeight: true
             Layout.margins: 18
             spacing: 12
@@ -218,13 +219,14 @@ Item {
                         onClicked: imagesPage.view = modelData[0]
                     }
                 }
-                Item { Layout.fillWidth: true }
                 Text {
                     text: imagesPage.currentInfo && imagesPage.currentInfo.name ? imagesPage.currentInfo.name : ""
                     color: Theme.textMuted
                     font.pixelSize: 12
                     elide: Text.ElideMiddle
-                    Layout.maximumWidth: 360
+                    horizontalAlignment: Text.AlignRight
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                 }
             }
 
@@ -489,6 +491,8 @@ Item {
         // Settings.
         Rectangle {
             Layout.preferredWidth: 340
+            Layout.minimumWidth: 340
+            Layout.maximumWidth: 340
             Layout.fillHeight: true
             color: Theme.panel
             Rectangle { width: 1; height: parent.height; color: Theme.line }
@@ -500,6 +504,7 @@ Item {
                 ScrollView {
                     id: settingsScroll
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     Layout.fillHeight: true
                     clip: true
                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -586,6 +591,7 @@ Item {
                             valueRole: "value"
                             model: [{ value: "none", label: "Original size" }, { value: "long", label: "Longest side" },
                                     { value: "percent", label: "Percent" }, { value: "box", label: "Fit in a box" }]
+                            currentIndex: ["none", "long", "percent", "box"].indexOf(imagesPage.resizeMode)
                             onActivated: imagesPage.resizeMode = currentValue
                         }
                         RowLayout {
@@ -594,12 +600,18 @@ Item {
                             Layout.leftMargin: 20
                             Layout.rightMargin: 20
                             spacing: 6
-                            EditorField { id: longEdgeField; text: "1920"; Layout.preferredWidth: 90; onTextChanged: imagesPage.revision++; validator: IntValidator { bottom: 1; top: 20000 } }
+                            EditorField { id: longEdgeField; text: "1920"; Layout.fillWidth: true; Layout.minimumWidth: 64; onTextChanged: imagesPage.revision++; validator: IntValidator { bottom: 1; top: 20000 } }
                             Text { text: "px"; color: Theme.textMuted; font.pixelSize: 12 }
-                            Item { Layout.fillWidth: true }
                             Repeater {
                                 model: [1080, 1920, 2560]
-                                delegate: EditorButton { required property int modelData; text: modelData; subtle: true; onClicked: longEdgeField.text = modelData }
+                                delegate: EditorButton {
+                                    required property int modelData
+                                    Layout.preferredWidth: 56
+                                    text: modelData
+                                    subtle: String(modelData) !== longEdgeField.text
+                                    primary: String(modelData) === longEdgeField.text
+                                    onClicked: longEdgeField.text = modelData
+                                }
                             }
                         }
                         RowLayout {

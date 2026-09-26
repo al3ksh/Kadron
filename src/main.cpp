@@ -249,6 +249,8 @@ int main(int argc, char *argv[])
                     images->setProperty("selected", qEnvironmentVariableIntValue("KADRON_SCREENSHOT_IMAGE_SELECT"));
                 if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_ROTATE"))
                     QMetaObject::invokeMethod(images, "rotateBy", Q_ARG(QVariant, qEnvironmentVariableIntValue("KADRON_SCREENSHOT_IMAGE_ROTATE")));
+                if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_RESIZE"))
+                    images->setProperty("resizeMode", qEnvironmentVariable("KADRON_SCREENSHOT_IMAGE_RESIZE"));
                 if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_ASPECT"))
                     QMetaObject::invokeMethod(images, "setAspect", Q_ARG(QVariant, qEnvironmentVariable("KADRON_SCREENSHOT_IMAGE_ASPECT")));
             });
