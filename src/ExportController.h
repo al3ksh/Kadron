@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QSize>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -47,10 +48,21 @@ public:
     static QString encoderLabel(const QString &encoder);
     // Tries each hardware encoder with a tiny encode; slow, call off the UI thread.
     static QStringList probeHardwareEncoders(const QString &ffmpeg);
+    // Sequence frame size for a first clip of this size: at most 1920 on the
+    // long side and 1080 on the short one, so portrait stays 1080x1920.
+    static QSize canvasFor(int width, int height);
+    // Final pass over the encoded clips (inputs 0..n-1, or one joined file):
+    // crossfades them when crossfadeMs > 0 and mixes in music from input
+    // musicInput when it is >= 0. Outputs [a], and [v] when crossfading.
+    static QString mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int musicInput,
+                             double musicVolume, bool duck);
 
     Q_INVOKABLE void detectEncoders();
     Q_INVOKABLE bool start(const QUrl &source, const QUrl &destination, qint64 inMs, qint64 outMs);
-    Q_INVOKABLE bool startSequence(const QVariantList &clips, const QUrl &destination);
+    // options: transition ("cut", "fade", "crossfade"), transitionMs, and
+    // musicUrl, musicVolume (0-1), musicDuck for a music bed.
+    Q_INVOKABLE bool startSequence(const QVariantList &clips, const QUrl &destination,
+                                   const QVariantMap &options = {});
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void resetResult();
 
@@ -65,11 +77,15 @@ private:
         qint64 outMs = 0;
         bool hasVideo = false;
         bool hasAudio = false;
+        double volume = 1.0;
     };
-    enum class Phase { Idle, Single, Probe, Encode, Concat };
+    enum class Phase { Idle, Single, Probe, Encode, Concat, Final };
     void probeNext();
     void encodeNext();
     void concatSegments();
+    void startFinal();
+    QString segmentPath(int index) const;
+    QString joinedPath() const;
     void clearSequence();
     void readProgress();
     void finish(int exitCode, QProcess::ExitStatus exitStatus);
@@ -94,6 +110,15 @@ private:
     int m_canvasHeight = 0;
     qint64 m_completedMs = 0;
     qint64 m_rangeMs = 0;
+    // Sequence options.
+    QString m_transition;
+    int m_transitionMs = 0;
+    QString m_musicPath;
+    double m_musicVolume = 0.35;
+    bool m_musicDuck = true;
+    // Share of the progress bar the clip encodes take; the rest is the final pass.
+    int m_encodeShare = 90;
+    qint64 m_finalMs = 0;
     bool m_busy = false;
     bool m_cancelled = false;
     int m_progress = 0;

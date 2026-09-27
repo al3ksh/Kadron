@@ -534,6 +534,77 @@ void CoreTests::sequenceExport()
     QCOMPARE(exporter.stage(), QString("Cancelled"));
     QVERIFY(!QFileInfo(cancelledPath).exists());
     QVERIFY(outputDirectory.entryList({".kadron-sequence-*"}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+
+    // Portrait keeps its full size; landscape is capped at 1920x1080.
+    QCOMPARE(ExportController::canvasFor(1080, 1920), QSize(1080, 1920));
+    QCOMPARE(ExportController::canvasFor(2160, 3840), QSize(1080, 1920));
+    QCOMPARE(ExportController::canvasFor(3840, 2160), QSize(1920, 1080));
+    QCOMPARE(ExportController::canvasFor(320, 180), QSize(320, 180));
+    const auto crossfadeFilter = ExportController::mixFilter({1000, 2000}, 400, -1, 0.3, true);
+    QVERIFY2(crossfadeFilter.contains("xfade=transition=fade:duration=0.400:offset=0.600[v]"), qPrintable(crossfadeFilter));
+    QVERIFY2(crossfadeFilter.contains("acrossfade=d=0.400[a]"), qPrintable(crossfadeFilter));
+    const auto musicFilter = ExportController::mixFilter({3000}, 0, 1, 0.3, true);
+    QVERIFY2(musicFilter.contains("atrim=duration=3.000") && musicFilter.contains("sidechaincompress"), qPrintable(musicFilter));
+
+    // Clip volume, a crossfade and ducked music; the project keeps them.
+    const auto musicPath = directory.path() + "/music.wav";
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                             "sine=frequency=330:sample_rate=44100", "-t", "1.5", musicPath});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+    QVERIFY(project.setClipVolume(0, 1.5));
+    QVERIFY(project.setClipMuted(1, true));
+    QVERIFY(project.setTransition("crossfade"));
+    QVERIFY(!project.setTransition("wipe"));
+    QVERIFY(project.setMusic(QUrl::fromLocalFile(musicPath)));
+    project.setMusicVolume(0.5);
+    QVERIFY(project.mixed());
+    QCOMPARE(project.clips().at(1).toMap().value("muted").toBool(), true);
+    QVERIFY(project.undo());
+    QCOMPARE(project.musicVolume(), 0.35);
+    QVERIFY(project.redo());
+    const auto projectPath = directory.path() + "/mix.kadr";
+    QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
+    EditorProject reopened;
+    QVERIFY(reopened.openProject(QUrl::fromLocalFile(projectPath)));
+    QCOMPARE(reopened.transition(), QString("crossfade"));
+    QCOMPARE(reopened.musicName(), QString("music.wav"));
+    QCOMPARE(reopened.musicVolume(), 0.5);
+    QCOMPARE(reopened.clips().at(0).toMap().value("volume").toDouble(), 1.5);
+    QCOMPARE(reopened.clips().at(1).toMap().value("muted").toBool(), true);
+
+    const auto mixedPath = directory.path() + "/mixed.mp4";
+    QVERIFY(exporter.startSequence(project.clips(), QUrl::fromLocalFile(mixedPath), project.exportOptions()));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    probe.start(ffprobe, {"-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", mixedPath});
+    QVERIFY(probe.waitForFinished(30000));
+    // 1.2 + 1.3 + 1.4 s with two 0.48 s overlaps (limited by the 1.2 s clip).
+    const auto mixedDuration = probe.readAllStandardOutput().trimmed().toDouble();
+    QVERIFY2(mixedDuration > 2.8 && mixedDuration < 3.1, qPrintable(QString("Unexpected crossfade duration: %1").arg(mixedDuration)));
+
+    // Fade through black keeps the full length; one muted clip stays silent.
+    QVERIFY(project.setTransition("fade"));
+    project.clearMusic();
+    const auto fadedPath = directory.path() + "/faded.mp4";
+    QVERIFY(exporter.startSequence(project.clips(), QUrl::fromLocalFile(fadedPath), project.exportOptions()));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    EditorProject single;
+    QVERIFY(single.importMedia(QUrl::fromLocalFile(videoPath)));
+    single.setDurationMs(2000);
+    QVERIFY(!single.mixed());
+    QVERIFY(single.setClipMuted(0, true));
+    QVERIFY(single.mixed());
+    const auto mutedPath = directory.path() + "/muted.mp4";
+    QVERIFY(exporter.startSequence(single.clips(), QUrl::fromLocalFile(mutedPath), single.exportOptions()));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    QProcess meter;
+    meter.start(ffmpeg, {"-hide_banner", "-nostdin", "-i", mutedPath, "-af", "volumedetect", "-f", "null", "-"});
+    QVERIFY(meter.waitForFinished(30000));
+    const auto report = QString::fromUtf8(meter.readAllStandardError());
+    QVERIFY2(report.contains("max_volume: -91") || report.contains("max_volume: -inf"), qPrintable(report.right(400)));
 }
 
 void CoreTests::remoteWorkflow()

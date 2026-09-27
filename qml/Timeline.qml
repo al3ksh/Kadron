@@ -15,6 +15,9 @@ FocusScope {
     property bool playing: false
     property var thumbnailSource: null
     property real zoom: 1
+    // Marks on the joins when clips fade or crossfade, and a lane for music.
+    property string transition: "cut"
+    property string musicName: ""
 
     signal scrubRequested(real sequenceMs)
     signal scrubFinished()
@@ -210,7 +213,7 @@ FocusScope {
                 id: track
                 y: ruler.height + 6
                 width: parent.width
-                height: parent.height - y
+                height: parent.height - y - (timeline.musicName ? musicLane.height + 4 : 0)
 
                 Repeater {
                     model: timeline.clips.length
@@ -279,7 +282,7 @@ FocusScope {
                                     source: block.waveform
                                     fillMode: Image.Stretch
                                     smooth: true
-                                    opacity: block.active ? 0.7 : 0.4
+                                    opacity: block.clip.muted ? 0.1 : block.active ? 0.7 : 0.4
                                     // The waveform image is white; ink it on light surfaces.
                                     layer.enabled: !Theme.dark
                                     layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.waveInk }
@@ -307,6 +310,7 @@ FocusScope {
                                     x: 6
                                     width: parent.width - 12
                                     text: (block.index + 1).toString().padStart(2, "0") + "  " + block.clip.name + "  " + timeline.timeLabel(block.clip.lengthMs, true)
+                                          + (block.clip.muted ? "  · muted" : block.clip.volume !== undefined && Math.abs(block.clip.volume - 1) > 0.001 ? "  · " + Math.round(block.clip.volume * 100) + "%" : "")
                                     color: block.active ? Theme.accentSoft : Theme.textSoft
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 10
@@ -498,6 +502,51 @@ FocusScope {
                     radius: 2
                     color: Theme.accent
                     Behavior on x { SmoothSpring {} }
+                }
+            }
+
+            // Joins that fade or crossfade.
+            Repeater {
+                model: timeline.transition !== "cut" && timeline.dragIndex < 0 ? Math.max(0, timeline.clips.length - 1) : 0
+                delegate: Rectangle {
+                    required property int index
+                    x: (timeline.starts[index + 1] || 0) * timeline.pxPerMs - width / 2 - 0.5
+                    y: track.y + track.height / 2 - height / 2
+                    z: 6
+                    width: 12
+                    height: 12
+                    rotation: 45
+                    radius: 2
+                    color: timeline.transition === "fade" ? "black" : Theme.accent
+                    border.color: timeline.transition === "fade" ? Theme.accent : Theme.accentInk
+                    border.width: 1.5
+                }
+            }
+
+            // Music under the sequence.
+            Rectangle {
+                id: musicLane
+                visible: timeline.musicName.length > 0
+                y: track.y + track.height + 4
+                width: Math.max(3, timeline.totalMs * timeline.pxPerMs - 1)
+                height: 20
+                radius: Theme.radiusSmall
+                color: Theme.field
+                border.color: Theme.lineStrong
+                clip: true
+                Row {
+                    x: Math.max(6, flick.contentX + 6)
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 6
+                    ToolIcon { name: "music"; tint: Theme.accent; width: 13; height: 13; anchors.verticalCenter: parent.verticalCenter }
+                    Text {
+                        text: timeline.musicName
+                        color: Theme.textSoft
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
             }
 

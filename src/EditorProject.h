@@ -25,6 +25,17 @@ class EditorProject final : public QObject
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY changed)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY changed)
     Q_PROPERTY(QString errorText READ errorText NOTIFY errorTextChanged)
+    // How clips meet: "cut", "fade" (through black) or "crossfade".
+    Q_PROPERTY(QString transition READ transition NOTIFY changed)
+    Q_PROPERTY(int transitionMs READ transitionMs NOTIFY changed)
+    // A music track under the whole sequence, looped and faded out at the end.
+    Q_PROPERTY(QUrl musicUrl READ musicUrl NOTIFY changed)
+    Q_PROPERTY(QString musicName READ musicName NOTIFY changed)
+    Q_PROPERTY(double musicVolume READ musicVolume NOTIFY changed)
+    // Lower the music while the clips have sound (speech).
+    Q_PROPERTY(bool musicDuck READ musicDuck NOTIFY changed)
+    // Whether an export needs the full sequence pipeline rather than a plain trim.
+    Q_PROPERTY(bool mixed READ mixed NOTIFY changed)
 
 public:
     explicit EditorProject(QObject *parent = nullptr);
@@ -45,6 +56,15 @@ public:
     bool canUndo() const;
     bool canRedo() const;
     QString errorText() const;
+    QString transition() const;
+    int transitionMs() const;
+    QUrl musicUrl() const;
+    QString musicName() const;
+    double musicVolume() const;
+    bool musicDuck() const;
+    bool mixed() const;
+    // Transition and music settings for ExportController::startSequence.
+    Q_INVOKABLE QVariantMap exportOptions() const;
 
     Q_INVOKABLE bool importMedia(const QUrl &url);
     Q_INVOKABLE bool appendMedia(const QUrl &url);
@@ -55,6 +75,15 @@ public:
     Q_INVOKABLE bool setClipRange(int index, qint64 inMs, qint64 outMs);
     Q_INVOKABLE bool duplicateClip(int index);
     Q_INVOKABLE bool removeClip(int index);
+    // Clip volume, 0 to 2 (200%); muting keeps the level for unmuting.
+    Q_INVOKABLE bool setClipVolume(int index, double volume);
+    Q_INVOKABLE bool setClipMuted(int index, bool muted);
+    Q_INVOKABLE bool setTransition(const QString &kind);
+    Q_INVOKABLE void setTransitionMs(int value);
+    Q_INVOKABLE bool setMusic(const QUrl &url);
+    Q_INVOKABLE void clearMusic();
+    Q_INVOKABLE void setMusicVolume(double value);
+    Q_INVOKABLE void setMusicDuck(bool value);
     Q_INVOKABLE bool openProject(const QUrl &url);
     // Back to an empty editor: no clips, no project file, no history.
     Q_INVOKABLE void closeProject();
@@ -77,6 +106,15 @@ private:
         qint64 durationMs = 0;
         qint64 inMs = 0;
         qint64 outMs = 0;
+        double volume = 1.0;
+        bool muted = false;
+    };
+    struct Mix {
+        QString transition = QStringLiteral("cut");
+        int transitionMs = 500;
+        QUrl musicUrl;
+        double musicVolume = 0.35;
+        bool musicDuck = true;
     };
     const Clip *active() const;
     Clip *active();
@@ -89,6 +127,7 @@ private:
     struct Snapshot {
         QVector<Clip> clips;
         int activeIndex = -1;
+        Mix mix;
     };
     Snapshot snapshot() const;
     void restore(const Snapshot &state);
@@ -98,6 +137,7 @@ private:
 
     QVector<Clip> m_clips;
     int m_activeClipIndex = -1;
+    Mix m_mix;
     QUrl m_projectUrl;
     bool m_dirty = false;
     QString m_errorText;

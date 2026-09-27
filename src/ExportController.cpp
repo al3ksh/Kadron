@@ -137,6 +137,63 @@ bool ExportController::fallBackToCpu()
     return true;
 }
 
+QSize ExportController::canvasFor(int width, int height)
+{
+    if (width <= 0 || height <= 0)
+        return {1280, 720};
+    const auto ratio = qMin(1.0, qMin(1920.0 / qMax(width, height), 1080.0 / qMin(width, height)));
+    return {qMax(2, qRound(width * ratio / 2) * 2), qMax(2, qRound(height * ratio / 2) * 2)};
+}
+
+QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int musicInput,
+                                     double musicVolume, bool duck)
+{
+    const auto seconds = [](qint64 milliseconds) { return QString::number(milliseconds / 1000.0, 'f', 3); };
+    QStringList parts;
+    QString audio = QStringLiteral("[0:a]");
+    qint64 total = 0;
+    for (const auto length : lengthsMs)
+        total += length;
+    const auto count = lengthsMs.size();
+    if (crossfadeMs > 0 && count > 1) {
+        // Each join overlaps the clips by crossfadeMs; offsets are in the joined timeline.
+        for (int i = 0; i < count; ++i)
+            parts << QStringLiteral("[%1:v]settb=AVTB,fps=30,format=yuv420p[in%1]").arg(i);
+        QString video = QStringLiteral("[in0]");
+        qint64 joined = lengthsMs.first();
+        for (int i = 1; i < count; ++i) {
+            const bool last = i + 1 == count;
+            const auto nextVideo = last ? QStringLiteral("[v]") : QStringLiteral("[v%1]").arg(i);
+            const auto nextAudio = last ? (musicInput < 0 ? QStringLiteral("[a]") : QStringLiteral("[joined]"))
+                                        : QStringLiteral("[a%1]").arg(i);
+            parts << QStringLiteral("%1[in%2]xfade=transition=fade:duration=%3:offset=%4%5")
+                         .arg(video).arg(i).arg(seconds(crossfadeMs), seconds(joined - crossfadeMs), nextVideo);
+            parts << QStringLiteral("%1[%2:a]acrossfade=d=%3%4").arg(audio).arg(i).arg(seconds(crossfadeMs), nextAudio);
+            video = nextVideo;
+            audio = nextAudio;
+            joined += lengthsMs.at(i) - crossfadeMs;
+        }
+        total = joined;
+    }
+    if (musicInput >= 0) {
+        // Looped music cut to the video, eased in and faded out over the last seconds.
+        const auto fadeOut = qMin<qint64>(2000, total / 3);
+        parts << QStringLiteral("[%1:a]atrim=duration=%2,asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,"
+                                "volume=%3,afade=t=in:d=0.3,afade=t=out:st=%4:d=%5[music]")
+                     .arg(musicInput).arg(seconds(total), QString::number(musicVolume, 'f', 3),
+                                          seconds(total - fadeOut), seconds(fadeOut));
+        if (duck) {
+            // The clips' own sound pushes the music down while it plays.
+            parts << QStringLiteral("%1asplit=2[voice][key]").arg(audio);
+            parts << QStringLiteral("[music][key]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=400[ducked]");
+            parts << QStringLiteral("[voice][ducked]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.97[a]");
+        } else {
+            parts << QStringLiteral("%1[music]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.97[a]").arg(audio);
+        }
+    }
+    return parts.join(';');
+}
+
 bool ExportController::available() const { return !m_ffmpeg.isEmpty(); }
 bool ExportController::busy() const { return m_busy; }
 int ExportController::progress() const { return m_progress; }
@@ -211,7 +268,7 @@ void ExportController::launchSingle()
     m_process.start();
 }
 
-bool ExportController::startSequence(const QVariantList &clips, const QUrl &destination)
+bool ExportController::startSequence(const QVariantList &clips, const QUrl &destination, const QVariantMap &options)
 {
     if (m_busy)
         return false;
@@ -221,9 +278,9 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
         fail(QStringLiteral("FFmpeg and FFprobe are required for sequence export."));
         return false;
     }
-    if (clips.size() < 2 || clips.size() > 1000 || !destination.isLocalFile()
+    if (clips.isEmpty() || clips.size() > 1000 || !destination.isLocalFile()
         || QFileInfo(destination.toLocalFile()).suffix().toLower() != "mp4") {
-        fail(QStringLiteral("Choose at least two clips and an MP4 output file."));
+        fail(QStringLiteral("Choose at least one clip and an MP4 output file."));
         return false;
     }
     const QFileInfo outputInfo(destination.toLocalFile());
@@ -246,9 +303,28 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
             fail(QStringLiteral("A sequence clip is missing or has an invalid time range."));
             return false;
         }
-        segments.append({sourceInfo.absoluteFilePath(), in, out});
+        Segment segment{sourceInfo.absoluteFilePath(), in, out};
+        segment.volume = clip.value("muted").toBool() ? 0.0 : qBound(0.0, clip.value("volume", 1.0).toDouble(), 2.0);
+        segments.append(segment);
         totalMs += out - in;
     }
+    const auto musicUrl = options.value("musicUrl").toUrl();
+    const auto musicPath = musicUrl.isLocalFile() ? QFileInfo(musicUrl.toLocalFile()).absoluteFilePath() : QString();
+    if (!musicUrl.isEmpty() && (musicPath.isEmpty() || !QFileInfo(musicPath).isFile())) {
+        fail(QStringLiteral("The music file is missing."));
+        return false;
+    }
+    auto transition = options.value("transition", "cut").toString();
+    auto transitionMs = qBound(100, options.value("transitionMs", 500).toInt(), 3000);
+    if (transition == "crossfade") {
+        // Every clip has to outlast the overlaps at both of its ends.
+        qint64 shortest = totalMs;
+        for (const auto &segment : std::as_const(segments))
+            shortest = qMin(shortest, segment.outMs - segment.inMs);
+        transitionMs = qMin<qint64>(transitionMs, shortest * 2 / 5);
+    }
+    if (segments.size() < 2 || transitionMs < 100 || (transition != "fade" && transition != "crossfade"))
+        transition = QStringLiteral("cut");
     auto directory = std::make_unique<QTemporaryDir>(outputInfo.absolutePath() + "/.kadron-sequence-XXXXXX");
     if (!directory->isValid()) {
         fail(QStringLiteral("Could not create temporary export files beside the output."));
@@ -261,6 +337,13 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
     m_partialPath = outputInfo.absolutePath() + "/." + outputInfo.completeBaseName()
         + "." + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".part.mp4";
     m_rangeMs = totalMs;
+    m_transition = transition;
+    m_transitionMs = transitionMs;
+    m_musicPath = musicPath;
+    m_musicVolume = qBound(0.0, options.value("musicVolume", 0.35).toDouble(), 1.0);
+    m_musicDuck = options.value("musicDuck", true).toBool();
+    m_encodeShare = transition == "crossfade" ? 50 : 90;
+    m_finalMs = totalMs - (transition == "crossfade" ? (segments.size() - 1) * transitionMs : 0);
     m_completedMs = 0;
     m_segmentIndex = 0;
     m_canvasWidth = 0;
@@ -298,10 +381,21 @@ void ExportController::probeNext()
     emit changed();
 }
 
+QString ExportController::segmentPath(int index) const
+{
+    return m_sequenceDir->path() + QString("/clip_%1.mp4").arg(index, 4, 10, QChar('0'));
+}
+
+QString ExportController::joinedPath() const
+{
+    return m_sequenceDir->path() + QStringLiteral("/joined.mp4");
+}
+
 void ExportController::encodeNext()
 {
     if (m_segmentIndex >= m_segments.size()) {
-        concatSegments();
+        if (m_transition == "crossfade") startFinal();
+        else concatSegments();
         return;
     }
     m_phase = Phase::Encode;
@@ -321,17 +415,32 @@ void ExportController::encodeNext()
     args << "-t" << seconds(segment.outMs - segment.inMs)
          << "-map" << (segment.hasVideo ? "0:v:0" : "1:v:0")
          << "-map" << (segment.hasAudio ? "0:a:0" : "1:a:0");
+    // Fade through black: half the transition out of one clip, half into the next.
+    const auto lengthMs = segment.outMs - segment.inMs;
+    const auto half = m_transition == "fade" ? qMin<qint64>(m_transitionMs / 2, lengthMs / 2) : 0;
+    const bool fadeIn = half > 0 && m_segmentIndex > 0;
+    const bool fadeOut = half > 0 && m_segmentIndex + 1 < m_segments.size();
+    QString videoFades, audioFades;
+    if (fadeIn) {
+        videoFades += QString(",fade=t=in:st=0:d=%1").arg(seconds(half));
+        audioFades += QString(",afade=t=in:st=0:d=%1").arg(seconds(half));
+    }
+    if (fadeOut) {
+        videoFades += QString(",fade=t=out:st=%1:d=%2").arg(seconds(lengthMs - half), seconds(half));
+        audioFades += QString(",afade=t=out:st=%1:d=%2").arg(seconds(lengthMs - half), seconds(half));
+    }
     if (segment.hasVideo) {
         args << "-vf" << QString("scale=%1:%2:force_original_aspect_ratio=decrease,"
                                  "pad=%1:%2:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p,setsar=1")
-                                 .arg(m_canvasWidth).arg(m_canvasHeight);
+                                 .arg(m_canvasWidth).arg(m_canvasHeight) + videoFades;
     } else {
-        args << "-vf" << "format=yuv420p";
+        args << "-vf" << "format=yuv420p" + videoFades;
     }
+    args << "-af" << QString("volume=%1").arg(QString::number(segment.volume, 'f', 3)) + audioFades;
     args << videoCodecArgs(m_activeEncoder, true)
          << "-r" << "30" << "-c:a" << "aac" << "-b:a" << "160k"
          << "-ar" << "48000" << "-ac" << "2" << "-shortest" << "-movflags" << "+faststart"
-         << "-y" << (m_sequenceDir->path() + QString("/clip_%1.mp4").arg(m_segmentIndex, 4, 10, QChar('0')));
+         << "-y" << segmentPath(m_segmentIndex);
     m_process.start(m_ffmpeg, args);
     emit changed();
 }
@@ -349,7 +458,7 @@ void ExportController::concatSegments()
         return;
     }
     for (int index = 0; index < m_segments.size(); ++index) {
-        auto path = m_sequenceDir->path() + QString("/clip_%1.mp4").arg(index, 4, 10, QChar('0'));
+        auto path = segmentPath(index);
         path = QDir::fromNativeSeparators(path).replace("'", "'\\''");
         const auto line = QString("file '%1'\n").arg(path).toUtf8();
         if (list.write(line) != line.size()) {
@@ -367,8 +476,42 @@ void ExportController::concatSegments()
     m_process.start(m_ffmpeg, {
         "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1",
         "-safe", "0", "-f", "concat", "-i", listPath,
-        "-c", "copy", "-movflags", "+faststart", "-y", m_partialPath
+        "-c", "copy", "-movflags", "+faststart", "-y", m_musicPath.isEmpty() ? m_partialPath : joinedPath()
     });
+}
+
+// Crossfades the encoded clips and/or lays the music under them.
+void ExportController::startFinal()
+{
+    m_phase = Phase::Final;
+    m_stage = m_musicPath.isEmpty() ? QStringLiteral("Joining clips") : QStringLiteral("Mixing music");
+    m_errorBuffer.clear();
+    m_progressBuffer.clear();
+    const bool crossfade = m_transition == "crossfade";
+    QVector<qint64> lengths;
+    for (const auto &segment : std::as_const(m_segments))
+        lengths << segment.outMs - segment.inMs;
+    QStringList args{"-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1"};
+    if (crossfade) {
+        for (int index = 0; index < m_segments.size(); ++index)
+            args << "-i" << segmentPath(index);
+    } else {
+        args << "-i" << joinedPath();
+        lengths = {m_finalMs};
+    }
+    const int musicInput = m_musicPath.isEmpty() ? -1 : (crossfade ? m_segments.size() : 1);
+    if (musicInput >= 0)
+        args << "-stream_loop" << "-1" << "-i" << m_musicPath;
+    args << "-filter_complex" << mixFilter(lengths, crossfade ? m_transitionMs : 0, musicInput, m_musicVolume, m_musicDuck);
+    if (crossfade)
+        args << "-map" << "[v]" << videoCodecArgs(m_activeEncoder, false) << "-r" << "30";
+    else
+        args << "-map" << "0:v:0" << "-c:v" << "copy";
+    args << "-map" << "[a]" << "-c:a" << "aac" << "-b:a" << "192k" << "-ar" << "48000"
+         << "-t" << QString::number(m_finalMs / 1000.0, 'f', 3)
+         << "-movflags" << "+faststart" << "-y" << m_partialPath;
+    m_process.start(m_ffmpeg, args);
+    emit changed();
 }
 
 void ExportController::clearSequence()
@@ -421,7 +564,10 @@ void ExportController::readProgress()
             if (m_phase == Phase::Encode) {
                 const auto segmentMs = m_segments[m_segmentIndex].outMs - m_segments[m_segmentIndex].inMs;
                 next = qBound(0, static_cast<int>((m_completedMs + qMin(segmentMs, microseconds / 1000))
-                                                  * 90 / m_rangeMs), 90);
+                                                  * m_encodeShare / m_rangeMs), m_encodeShare);
+            } else if (m_phase == Phase::Final) {
+                next = qBound(m_encodeShare, m_encodeShare + static_cast<int>(microseconds / 1000 * (99 - m_encodeShare)
+                                                                               / qMax<qint64>(1, m_finalMs)), 99);
             } else if (m_phase == Phase::Concat) {
                 next = qBound(90, 90 + static_cast<int>(microseconds / (m_rangeMs * 100)), 99);
             } else {
@@ -482,9 +628,9 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
                 const auto width = stream.value("width").toInt();
                 const auto height = stream.value("height").toInt();
                 if (m_canvasWidth == 0 && width > 0 && height > 0) {
-                    const auto ratio = qMin(1.0, qMin(1920.0 / width, 1080.0 / height));
-                    m_canvasWidth = qMax(2, qRound(width * ratio / 2) * 2);
-                    m_canvasHeight = qMax(2, qRound(height * ratio / 2) * 2);
+                    const auto canvas = canvasFor(width, height);
+                    m_canvasWidth = canvas.width();
+                    m_canvasHeight = canvas.height();
                 }
             }
         }
@@ -498,13 +644,18 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
     }
     if (exitStatus != QProcess::NormalExit || exitCode != 0
         || !(m_phase == Phase::Encode
-             ? QFileInfo(m_sequenceDir->path() + QString("/clip_%1.mp4").arg(m_segmentIndex, 4, 10, QChar('0'))).size() > 0
+             ? QFileInfo(segmentPath(m_segmentIndex)).size() > 0
+             : m_phase == Phase::Concat && !m_musicPath.isEmpty() ? QFileInfo(joinedPath()).size() > 0
              : QFileInfo(m_partialPath).isFile() && QFileInfo(m_partialPath).size() > 0)) {
-        if ((m_phase == Phase::Single || m_phase == Phase::Encode) && fallBackToCpu()) {
+        const bool reencodes = m_phase == Phase::Single || m_phase == Phase::Encode
+            || (m_phase == Phase::Final && m_transition == "crossfade");
+        if (reencodes && fallBackToCpu()) {
             if (m_phase == Phase::Single) {
                 QFile::remove(m_partialPath);
                 m_progress = 0;
                 launchSingle();
+            } else if (m_phase == Phase::Final) {
+                startFinal();
             } else {
                 encodeNext();
             }
@@ -517,10 +668,14 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
     }
     if (m_phase == Phase::Encode) {
         m_completedMs += m_segments[m_segmentIndex].outMs - m_segments[m_segmentIndex].inMs;
-        m_progress = qMax(m_progress, static_cast<int>(m_completedMs * 90 / m_rangeMs));
+        m_progress = qMax(m_progress, static_cast<int>(m_completedMs * m_encodeShare / m_rangeMs));
         ++m_segmentIndex;
         emit changed();
         encodeNext();
+        return;
+    }
+    if (m_phase == Phase::Concat && !m_musicPath.isEmpty()) {
+        startFinal();
         return;
     }
     if (!QFile::rename(m_partialPath, m_destinationPath)) {

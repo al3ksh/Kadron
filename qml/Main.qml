@@ -39,6 +39,41 @@ ApplicationWindow {
     property bool seekInFlight: false
     property string playerError: ""
     property string notice: ""
+    // The active clip, and slider values while they are dragged (-1 when not).
+    readonly property var activeClip: editorProject.activeClipIndex >= 0 ? editorProject.clips[editorProject.activeClipIndex] || null : null
+    property real clipVolumeDrag: -1
+    property real transitionDrag: -1
+    property real musicVolumeDrag: -1
+    readonly property real clipGain: !activeClip ? 1 : activeClip.muted ? 0 : Math.min(1, clipVolumeDrag >= 0 ? clipVolumeDrag : activeClip.volume)
+    // How dark the preview gets near a join: a fade through black goes all
+    // the way, a crossfade is hinted with a light dip.
+    readonly property real transitionDim: {
+        var index = editorProject.activeClipIndex
+        if (editorProject.transition === "cut" || editorProject.clipCount < 2 || index < 0 || !activeClip) return 0
+        var half = (transitionDrag >= 0 ? transitionDrag : editorProject.transitionMs) / 2
+        var position = sequencePositionMs - clipStartMs(index)
+        var distance = Infinity
+        if (index > 0) distance = Math.min(distance, position)
+        if (index < editorProject.clipCount - 1) distance = Math.min(distance, activeClip.lengthMs - position)
+        if (distance >= half) return 0
+        var depth = 1 - Math.max(0, distance) / half
+        return editorProject.transition === "fade" ? depth : depth * 0.35
+    }
+    // Everything an export depends on, to tell when a result is stale.
+    function editState() { return JSON.stringify([editorProject.clips, editorProject.exportOptions()]) }
+    // Keeps the music preview in step with the sequence while it plays.
+    function syncMusic() {
+        var playing = player.playbackState === MediaPlayer.PlayingState || (sequencePlaying && sequenceAdvancing)
+        if (!playing || musicPlayer.duration <= 0 || editorProject.musicUrl.toString().length === 0) {
+            if (musicPlayer.playbackState === MediaPlayer.PlayingState) musicPlayer.pause()
+            return
+        }
+        var target = sequencePositionMs % musicPlayer.duration
+        if (musicPlayer.playbackState !== MediaPlayer.PlayingState) {
+            musicPlayer.position = target
+            musicPlayer.play()
+        } else if (Math.abs(musicPlayer.position - target) > 400) musicPlayer.position = target
+    }
     property int inspectorMode: 0
     property int workspace: 0
     property url uploadFile: ""
@@ -84,8 +119,8 @@ ApplicationWindow {
         var parts = []
         var items = editorProject.clips
         for (var i = 0; i < items.length; i++)
-            parts.push(items[i].url.toString() + ":" + items[i].inMs + ":" + items[i].outMs)
-        return parts.join("|")
+            parts.push(items[i].url.toString() + ":" + items[i].inMs + ":" + items[i].outMs + ":" + items[i].volume + ":" + items[i].muted)
+        return parts.join("|") + JSON.stringify(editorProject.exportOptions())
     }
     function addMedia(url) {
         if (exporter.busy) {
@@ -217,7 +252,7 @@ ApplicationWindow {
             return
         }
         // Work that was just exported is done: only unexported edits ask first.
-        if (editorProject.dirty && JSON.stringify(editorProject.clips) !== exportedClips) closeDialog.open()
+        if (editorProject.dirty && editState() !== exportedClips) closeDialog.open()
         else applyClose()
     }
     // The sequence as it was when the last export finished.
@@ -226,7 +261,7 @@ ApplicationWindow {
         target: exporter
         function onChanged() {
             if (!exporter.busy && exporter.outputUrl.toString().length > 0 && !exporter.errorText)
-                root.exportedClips = JSON.stringify(editorProject.clips)
+                root.exportedClips = root.editState()
         }
     }
     function applyClose() {
@@ -396,9 +431,17 @@ ApplicationWindow {
         defaultSuffix: "mp4"
         nameFilters: ["MP4 video (*.mp4)"]
         onAccepted: {
-            if (editorProject.clipCount > 1) exporter.startSequence(editorProject.clips, selectedFile)
+            // A single clip with nothing added is a plain trim at the source's size.
+            if (editorProject.mixed) exporter.startSequence(editorProject.clips, selectedFile, editorProject.exportOptions())
             else exporter.start(editorProject.mediaUrl, selectedFile, editorProject.inMs, editorProject.outMs)
         }
+    }
+    FileDialog {
+        id: musicDialog
+        title: "Add music"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Audio files (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus)", "All files (*)"]
+        onAccepted: if (editorProject.setMusic(selectedFile)) root.notice = "Music added under the whole sequence"
     }
     FileDialog {
         id: uploadDialog
@@ -488,8 +531,9 @@ ApplicationWindow {
         id: player
         objectName: "editorPlayer"
         source: editorProject.mediaUrl
-        audioOutput: AudioOutput { volume: editorVolume.effectiveVolume }
+        audioOutput: AudioOutput { volume: editorVolume.effectiveVolume * root.clipGain * (editorProject.transition === "fade" ? 1 - root.transitionDim : 1) }
         videoOutput: videoOutput
+        onPlaybackStateChanged: root.syncMusic()
         onDurationChanged: function(duration) { if (source.toString() === editorProject.mediaUrl.toString()) editorProject.setDurationMs(duration) }
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) root.finishCue()
         onPositionChanged: {
@@ -504,6 +548,25 @@ ApplicationWindow {
             root.pendingCueIndex = -1
             root.playerError = errorString
         }
+    }
+
+    // Music preview: follows the sequence; ducking is approximated by
+    // lowering it whenever the active clip has sound.
+    MediaPlayer {
+        id: musicPlayer
+        objectName: "musicPlayer"
+        source: editorProject.musicUrl
+        loops: MediaPlayer.Infinite
+        audioOutput: AudioOutput {
+            volume: editorVolume.effectiveVolume * (root.musicVolumeDrag >= 0 ? root.musicVolumeDrag : editorProject.musicVolume)
+                    * (editorProject.musicDuck && root.clipGain > 0 ? 0.4 : 1)
+        }
+    }
+    Timer {
+        interval: 250
+        repeat: true
+        running: editorProject.musicUrl.toString().length > 0 && root.workspace === 0
+        onTriggered: root.syncMusic()
     }
 
     RowLayout {
@@ -785,6 +848,16 @@ ApplicationWindow {
                         visible: player.hasVideo
                         fillMode: VideoOutput.PreserveAspectFit
                     }
+                    Rectangle {
+                        objectName: "transitionDim"
+                        visible: player.hasVideo && root.transitionDim > 0
+                        x: videoOutput.x + videoOutput.contentRect.x
+                        y: videoOutput.y + videoOutput.contentRect.y
+                        width: videoOutput.contentRect.width
+                        height: videoOutput.contentRect.height
+                        color: "black"
+                        opacity: root.transitionDim
+                    }
                     Column {
                         anchors.centerIn: parent
                         spacing: 13
@@ -919,8 +992,211 @@ ApplicationWindow {
                             enabled: editorProject.hasMedia && !exporter.busy && player.position > editorProject.inMs + 100 && player.position < editorProject.outMs - 100
                             onClicked: editorProject.splitAt(player.position)
                         }
+
+                        // Clip volume.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 4
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text { text: "Clip volume"; color: Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true }
+                                Text {
+                                    objectName: "clipVolumeLabel"
+                                    text: !root.activeClip ? "" : root.activeClip.muted ? "Muted" : Math.round((root.clipVolumeDrag >= 0 ? root.clipVolumeDrag : root.activeClip.volume) * 100) + "%"
+                                    color: root.activeClip && root.activeClip.muted ? Theme.warning : Theme.text
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                EditorButton {
+                                    objectName: "clipMuteButton"
+                                    iconName: root.activeClip && root.activeClip.muted ? "mute" : "volume"
+                                    subtle: true
+                                    enabled: editorProject.hasMedia && !exporter.busy
+                                    onClicked: editorProject.setClipMuted(editorProject.activeClipIndex, !root.activeClip.muted)
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: root.activeClip && root.activeClip.muted ? "Unmute this clip" : "Mute this clip"
+                                }
+                                ToolSlider {
+                                    objectName: "clipVolumeSlider"
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 2
+                                    stepSize: 0.05
+                                    enabled: editorProject.hasMedia && !exporter.busy
+                                    value: root.activeClip ? root.activeClip.volume : 1
+                                    opacity: root.activeClip && root.activeClip.muted ? 0.5 : 1
+                                    onMoved: {
+                                        if (pressed) root.clipVolumeDrag = value
+                                        else editorProject.setClipVolume(editorProject.activeClipIndex, value)
+                                    }
+                                    onPressedChanged: {
+                                        if (pressed || root.clipVolumeDrag < 0) return
+                                        editorProject.setClipVolume(editorProject.activeClipIndex, root.clipVolumeDrag)
+                                        root.clipVolumeDrag = -1
+                                    }
+                                }
+                            }
+                        }
+
+                        // How clips meet.
+                        ColumnLayout {
+                            visible: editorProject.clipCount > 1
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
+                            Text { text: "Between clips"; color: Theme.textMuted; font.pixelSize: 11 }
+                            ToolCombo {
+                                objectName: "transitionCombo"
+                                Layout.fillWidth: true
+                                enabled: !exporter.busy
+                                textRole: "label"
+                                valueRole: "value"
+                                model: [{ value: "cut", label: "Cut" }, { value: "fade", label: "Fade through black" }, { value: "crossfade", label: "Crossfade" }]
+                                currentIndex: ["cut", "fade", "crossfade"].indexOf(editorProject.transition)
+                                onActivated: editorProject.setTransition(currentValue)
+                            }
+                            RowLayout {
+                                visible: editorProject.transition !== "cut"
+                                Layout.fillWidth: true
+                                spacing: 8
+                                ToolSlider {
+                                    objectName: "transitionSlider"
+                                    Layout.fillWidth: true
+                                    from: 200
+                                    to: 2000
+                                    stepSize: 100
+                                    enabled: !exporter.busy
+                                    value: editorProject.transitionMs
+                                    onMoved: {
+                                        if (pressed) root.transitionDrag = value
+                                        else editorProject.setTransitionMs(value)
+                                    }
+                                    onPressedChanged: {
+                                        if (pressed || root.transitionDrag < 0) return
+                                        editorProject.setTransitionMs(root.transitionDrag)
+                                        root.transitionDrag = -1
+                                    }
+                                }
+                                Text {
+                                    text: ((root.transitionDrag >= 0 ? root.transitionDrag : editorProject.transitionMs) / 1000).toFixed(1) + " s"
+                                    color: Theme.text
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                    Layout.preferredWidth: 34
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                            }
+                        }
+
+                        // Music under the whole sequence.
+                        ColumnLayout {
+                            visible: editorProject.hasMedia
+                            Layout.fillWidth: true
+                            spacing: 6
+                            readonly property bool hasMusic: editorProject.musicUrl.toString().length > 0
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
+                            Text { text: "Music"; color: Theme.textMuted; font.pixelSize: 11 }
+                            EditorButton {
+                                objectName: "addMusicButton"
+                                visible: !parent.hasMusic
+                                Layout.fillWidth: true
+                                text: "Add music…"
+                                iconName: "music"
+                                enabled: !exporter.busy
+                                onClicked: musicDialog.open()
+                            }
+                            RowLayout {
+                                visible: parent.hasMusic
+                                Layout.fillWidth: true
+                                spacing: 4
+                                ToolIcon { name: "music"; tint: Theme.accent; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
+                                Text {
+                                    objectName: "musicName"
+                                    text: editorProject.musicName
+                                    color: Theme.text
+                                    font.pixelSize: 12
+                                    elide: Text.ElideMiddle
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 4
+                                }
+                                EditorButton {
+                                    iconName: "folder"
+                                    subtle: true
+                                    enabled: !exporter.busy
+                                    onClicked: musicDialog.open()
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: "Choose another track"
+                                }
+                                EditorButton {
+                                    objectName: "removeMusicButton"
+                                    iconName: "close"
+                                    subtle: true
+                                    enabled: !exporter.busy
+                                    onClicked: editorProject.clearMusic()
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: "Remove the music"
+                                }
+                            }
+                            RowLayout {
+                                visible: parent.hasMusic
+                                Layout.fillWidth: true
+                                spacing: 8
+                                ToolSlider {
+                                    objectName: "musicVolumeSlider"
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 1
+                                    stepSize: 0.05
+                                    enabled: !exporter.busy
+                                    value: editorProject.musicVolume
+                                    onMoved: {
+                                        if (pressed) root.musicVolumeDrag = value
+                                        else editorProject.setMusicVolume(value)
+                                    }
+                                    onPressedChanged: {
+                                        if (pressed || root.musicVolumeDrag < 0) return
+                                        editorProject.setMusicVolume(root.musicVolumeDrag)
+                                        root.musicVolumeDrag = -1
+                                    }
+                                }
+                                Text {
+                                    text: Math.round((root.musicVolumeDrag >= 0 ? root.musicVolumeDrag : editorProject.musicVolume) * 100) + "%"
+                                    color: Theme.text
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                    Layout.preferredWidth: 34
+                                    horizontalAlignment: Text.AlignRight
+                                }
+                            }
+                            ToolCheck {
+                                objectName: "musicDuckCheck"
+                                visible: parent.hasMusic
+                                text: "Quieter while someone speaks"
+                                enabled: !exporter.busy
+                                checked: editorProject.musicDuck
+                                onToggled: editorProject.setMusicDuck(checked)
+                            }
+                            Text {
+                                visible: parent.hasMusic
+                                Layout.fillWidth: true
+                                text: "Plays from the start, loops to the end of the video and fades out."
+                                wrapMode: Text.WordWrap
+                                color: Theme.textFaint
+                                font.pixelSize: 10
+                            }
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
+                            Layout.topMargin: 4
                             Text { text: "Sequence duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
                             Text { text: root.timecode(editorProject.sequenceDurationMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
                         }
@@ -1115,6 +1391,8 @@ ApplicationWindow {
                     playheadMs: root.sequencePositionMs
                     playing: player.playbackState === MediaPlayer.PlayingState
                     thumbnailSource: thumbnails
+                    transition: editorProject.transition
+                    musicName: editorProject.musicName
                     onScrubRequested: function(ms) { root.beginScrub(ms) }
                     onScrubFinished: root.scrubbing = false
                     onSelectRequested: function(index) {

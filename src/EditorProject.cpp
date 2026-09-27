@@ -36,12 +36,119 @@ bool EditorProject::dirty() const { return m_dirty; }
 bool EditorProject::canUndo() const { return !m_undo.isEmpty(); }
 bool EditorProject::canRedo() const { return !m_redo.isEmpty(); }
 
-EditorProject::Snapshot EditorProject::snapshot() const { return {m_clips, m_activeClipIndex}; }
+QString EditorProject::transition() const { return m_mix.transition; }
+int EditorProject::transitionMs() const { return m_mix.transitionMs; }
+QUrl EditorProject::musicUrl() const { return m_mix.musicUrl; }
+QString EditorProject::musicName() const { return QFileInfo(m_mix.musicUrl.toLocalFile()).fileName(); }
+double EditorProject::musicVolume() const { return m_mix.musicVolume; }
+bool EditorProject::musicDuck() const { return m_mix.musicDuck; }
+
+bool EditorProject::mixed() const
+{
+    if (m_clips.size() != 1 || !m_mix.musicUrl.isEmpty())
+        return true;
+    const auto &clip = m_clips.first();
+    return clip.muted || !qFuzzyCompare(clip.volume, 1.0);
+}
+
+QVariantMap EditorProject::exportOptions() const
+{
+    return {
+        {"transition", m_mix.transition},
+        {"transitionMs", m_mix.transitionMs},
+        {"musicUrl", m_mix.musicUrl},
+        {"musicVolume", m_mix.musicVolume},
+        {"musicDuck", m_mix.musicDuck}
+    };
+}
+
+bool EditorProject::setClipVolume(int index, double volume)
+{
+    if (index < 0 || index >= m_clips.size())
+        return false;
+    volume = qBound(0.0, volume, 2.0);
+    auto &clip = m_clips[index];
+    if (qFuzzyCompare(clip.volume + 1, volume + 1) && !clip.muted)
+        return true;
+    clip.volume = volume;
+    clip.muted = false;
+    markChanged();
+    return true;
+}
+
+bool EditorProject::setClipMuted(int index, bool muted)
+{
+    if (index < 0 || index >= m_clips.size())
+        return false;
+    if (m_clips[index].muted != muted) {
+        m_clips[index].muted = muted;
+        markChanged();
+    }
+    return true;
+}
+
+bool EditorProject::setTransition(const QString &kind)
+{
+    if (kind != "cut" && kind != "fade" && kind != "crossfade")
+        return false;
+    if (m_mix.transition != kind) {
+        m_mix.transition = kind;
+        markChanged();
+    }
+    return true;
+}
+
+void EditorProject::setTransitionMs(int value)
+{
+    value = qBound(100, value, 3000);
+    if (m_mix.transitionMs != value) {
+        m_mix.transitionMs = value;
+        markChanged();
+    }
+}
+
+bool EditorProject::setMusic(const QUrl &url)
+{
+    if (!validMedia(url))
+        return false;
+    m_mix.musicUrl = QUrl::fromLocalFile(QFileInfo(url.toLocalFile()).absoluteFilePath());
+    clearError();
+    markChanged();
+    return true;
+}
+
+void EditorProject::clearMusic()
+{
+    if (m_mix.musicUrl.isEmpty())
+        return;
+    m_mix.musicUrl.clear();
+    markChanged();
+}
+
+void EditorProject::setMusicVolume(double value)
+{
+    value = qBound(0.0, value, 1.0);
+    if (!qFuzzyCompare(m_mix.musicVolume + 1, value + 1)) {
+        m_mix.musicVolume = value;
+        markChanged();
+    }
+}
+
+void EditorProject::setMusicDuck(bool value)
+{
+    if (m_mix.musicDuck != value) {
+        m_mix.musicDuck = value;
+        markChanged();
+    }
+}
+
+EditorProject::Snapshot EditorProject::snapshot() const { return {m_clips, m_activeClipIndex, m_mix}; }
 
 void EditorProject::restore(const Snapshot &state)
 {
     m_clips = state.clips;
     m_activeClipIndex = state.activeIndex;
+    m_mix = state.mix;
     m_baseline = state;
     m_dirty = true;
     clearError();
@@ -52,6 +159,7 @@ void EditorProject::closeProject()
 {
     m_clips.clear();
     m_activeClipIndex = -1;
+    m_mix = {};
     m_projectUrl.clear();
     m_dirty = false;
     m_probing.clear();
@@ -96,7 +204,9 @@ QVariantList EditorProject::clips() const
             {"durationMs", clip.durationMs},
             {"inMs", clip.inMs},
             {"outMs", clip.outMs},
-            {"lengthMs", qMax<qint64>(0, clip.outMs - clip.inMs)}
+            {"lengthMs", qMax<qint64>(0, clip.outMs - clip.inMs)},
+            {"volume", clip.volume},
+            {"muted", clip.muted}
         });
     }
     return result;
@@ -113,6 +223,8 @@ qint64 EditorProject::sequenceDurationMs() const
 bool EditorProject::canExport() const
 {
     if (m_clips.isEmpty())
+        return false;
+    if (!m_mix.musicUrl.isEmpty() && !QFileInfo(m_mix.musicUrl.toLocalFile()).isFile())
         return false;
     for (const auto &clip : m_clips) {
         if (!QFileInfo(clip.mediaUrl.toLocalFile()).isFile()
@@ -158,6 +270,7 @@ bool EditorProject::importMedia(const QUrl &url)
     clearError();
     m_clips = {{QUrl::fromLocalFile(QFileInfo(url.toLocalFile()).absoluteFilePath()), 0, 0, 0}};
     m_activeClipIndex = 0;
+    m_mix = {};
     m_projectUrl = QUrl();
     markChanged();
     resetHistory();
@@ -257,7 +370,7 @@ bool EditorProject::openProject(const QUrl &url)
     const auto object = document.object();
     const auto version = object.value("version").toInt();
     if (parseError.error != QJsonParseError::NoError || !document.isObject()
-        || (version != 1 && version != 2)) {
+        || version < 1 || version > 3) {
         setError(QStringLiteral("This is not a supported Kadron project."));
         return false;
     }
@@ -294,10 +407,31 @@ bool EditorProject::openProject(const QUrl &url)
         const auto duration = qMax<qint64>(0, item.value("durationMs").toVariant().toLongLong());
         const auto in = qBound<qint64>(0, item.value("inMs").toVariant().toLongLong(), duration);
         const auto out = qBound(in, item.value("outMs").toVariant().toLongLong(), duration);
-        parsedClips.append({QUrl::fromLocalFile(QFileInfo(mediaPath).absoluteFilePath()), duration, in, out});
+        Clip clip{QUrl::fromLocalFile(QFileInfo(mediaPath).absoluteFilePath()), duration, in, out};
+        clip.volume = qBound(0.0, item.value("volume").toDouble(1.0), 2.0);
+        clip.muted = item.value("muted").toBool(false);
+        parsedClips.append(clip);
+    }
+
+    Mix mix;
+    const auto kind = object.value("transition").toString();
+    if (kind == "fade" || kind == "crossfade")
+        mix.transition = kind;
+    mix.transitionMs = qBound(100, object.value("transitionMs").toInt(500), 3000);
+    const auto music = object.value("music").toObject();
+    if (!music.isEmpty()) {
+        const auto musicPath = QDir(projectFile.absolutePath()).absoluteFilePath(music.value("media").toString());
+        if (music.value("media").toString().isEmpty() || !QFileInfo(musicPath).isFile()) {
+            setError(QStringLiteral("Music is missing: %1").arg(musicPath));
+            return false;
+        }
+        mix.musicUrl = QUrl::fromLocalFile(QFileInfo(musicPath).absoluteFilePath());
+        mix.musicVolume = qBound(0.0, music.value("volume").toDouble(0.35), 1.0);
+        mix.musicDuck = music.value("duck").toBool(true);
     }
 
     m_clips = parsedClips;
+    m_mix = mix;
     m_activeClipIndex = qBound(0, object.value("activeIndex").toInt(), m_clips.size() - 1);
     m_projectUrl = QUrl::fromLocalFile(projectFile.absoluteFilePath());
     m_dirty = false;
@@ -322,10 +456,20 @@ bool EditorProject::saveProject(const QUrl &url)
             {"media", QDir(targetInfo.absolutePath()).relativeFilePath(clip.mediaUrl.toLocalFile())},
             {"durationMs", static_cast<double>(clip.durationMs)},
             {"inMs", static_cast<double>(clip.inMs)},
-            {"outMs", static_cast<double>(clip.outMs)}
+            {"outMs", static_cast<double>(clip.outMs)},
+            {"volume", clip.volume},
+            {"muted", clip.muted}
         });
     }
-    QJsonObject object{{"version", 2}, {"clips", entries}, {"activeIndex", m_activeClipIndex}};
+    QJsonObject object{{"version", 3}, {"clips", entries}, {"activeIndex", m_activeClipIndex},
+                       {"transition", m_mix.transition}, {"transitionMs", m_mix.transitionMs}};
+    if (!m_mix.musicUrl.isEmpty()) {
+        object.insert("music", QJsonObject{
+            {"media", QDir(targetInfo.absolutePath()).relativeFilePath(m_mix.musicUrl.toLocalFile())},
+            {"volume", m_mix.musicVolume},
+            {"duck", m_mix.musicDuck}
+        });
+    }
     QSaveFile file(targetInfo.absoluteFilePath());
     if (!file.open(QIODevice::WriteOnly)
         || file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) < 0
