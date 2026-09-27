@@ -648,30 +648,99 @@ ApplicationWindow {
                 spacing: 9
                 Column {
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     spacing: 2
                     Text { text: root.workspace === 0 && root.inspectorMode === 1 ? "Publish" : root.sectionTitle; color: Theme.text; font.pixelSize: 18; font.weight: Font.DemiBold }
-                    Text {
-                        text: root.workspace === 0 ? (editorProject.hasMedia ? editorProject.mediaName : "Create a project or import media") : root.shareWorkspace ? "Connected tools · your server" : "Private processing · on this device"
-                        color: Theme.textMuted
-                        font.pixelSize: 11
-                        elide: Text.ElideMiddle
+                    // The open file, with a close button beside it like a document tab.
+                    Row {
                         width: parent.width
+                        spacing: 4
+                        Text {
+                            id: headerSubtitle
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(implicitWidth, parent.width - (closeProjectButton.visible ? closeProjectButton.width + 4 : 0))
+                            text: root.workspace === 0 ? (editorProject.hasMedia ? editorProject.mediaName : "Create a project or import media") : root.shareWorkspace ? "Connected tools · your server" : "Private processing · on this device"
+                            color: Theme.textMuted
+                            font.pixelSize: 11
+                            elide: Text.ElideMiddle
+                        }
+                        ToolButton {
+                            id: closeProjectButton
+                            objectName: "closeProjectButton"
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: root.workspace === 0 && editorProject.hasMedia
+                            enabled: !exporter.busy
+                            implicitWidth: 18
+                            implicitHeight: 18
+                            padding: 0
+                            onClicked: root.closeEditing()
+                            Accessible.name: "Close project"
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 400
+                            ToolTip.text: "Close project (Ctrl+W)"
+                            contentItem: ToolIcon { name: "close"; strokeWidth: 1.8; tint: closeProjectButton.hovered ? Theme.text : Theme.textFaint }
+                            background: Rectangle { radius: 5; color: closeProjectButton.hovered ? Theme.hover : "transparent" }
+                        }
                     }
                 }
                 Rectangle { visible: root.workspace === 0 && editorProject.dirty; width: 7; height: 7; radius: 4; color: Theme.warning }
-                Text { visible: root.workspace === 0 && editorProject.dirty; text: "Unsaved"; color: Theme.warning; font.pixelSize: 11 }
-                EditorButton { text: "Open"; visible: root.workspace === 0; subtle: true; onClicked: openDialog.open() }
-                EditorButton { text: "Import"; visible: root.workspace === 0; onClicked: mediaDialog.open() }
-                EditorButton { text: "Save"; visible: root.workspace === 0; enabled: editorProject.hasMedia; onClicked: root.saveProject() }
-                EditorButton {
-                    objectName: "closeProjectButton"
-                    iconName: "close"
-                    subtle: true
-                    visible: root.workspace === 0 && editorProject.hasMedia
-                    enabled: !exporter.busy
-                    onClicked: root.closeEditing()
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Close project (Ctrl+W)"
+                Text { visible: root.workspace === 0 && editorProject.dirty; text: "Unsaved"; color: Theme.warning; font.pixelSize: 11; Layout.rightMargin: 6 }
+                // File actions as one group, so only Export stands out.
+                Rectangle {
+                    visible: root.workspace === 0
+                    implicitWidth: fileActions.implicitWidth + 2
+                    implicitHeight: 38
+                    radius: Theme.radius
+                    color: Theme.control
+                    border.width: 1
+                    border.color: Theme.lineStrong
+                    Row {
+                        id: fileActions
+                        anchors.centerIn: parent
+                        Repeater {
+                            model: [["Open", "folder"], ["Import", "plus"], ["Save", "save"]]
+                            delegate: Row {
+                                required property var modelData
+                                required property int index
+                                Rectangle { visible: index > 0; width: 1; height: 20; anchors.verticalCenter: parent.verticalCenter; color: Theme.lineStrong }
+                                ToolButton {
+                                    id: fileAction
+                                    implicitHeight: 36
+                                    leftPadding: 14
+                                    rightPadding: 15
+                                    enabled: modelData[0] !== "Save" || editorProject.hasMedia
+                                    onClicked: {
+                                        if (modelData[0] === "Open") openDialog.open()
+                                        else if (modelData[0] === "Import") mediaDialog.open()
+                                        else root.saveProject()
+                                    }
+                                    contentItem: Row {
+                                        spacing: 7
+                                        ToolIcon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 15; height: 15
+                                            name: fileAction.modelData[1]
+                                            tint: !fileAction.enabled ? Theme.textDisabled : fileAction.hovered ? Theme.text : Theme.textMuted
+                                        }
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: fileAction.modelData[0]
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 12
+                                            font.weight: Font.Medium
+                                            color: fileAction.enabled ? Theme.text : Theme.textDisabled
+                                        }
+                                    }
+                                    background: Rectangle {
+                                        color: fileAction.down ? Theme.pressed : fileAction.hovered ? Theme.hover : "transparent"
+                                        radius: Theme.radius - 1
+                                        Behavior on color { ColorAnimation { duration: Theme.fadeFast } }
+                                    }
+                                    readonly property var modelData: parent.modelData
+                                }
+                            }
+                        }
+                    }
                 }
                 EditorButton { text: "Export MP4"; visible: root.workspace === 0; primary: true; enabled: editorProject.canExport && !exporter.busy && exporter.available; onClicked: exportDialog.open() }
             }
