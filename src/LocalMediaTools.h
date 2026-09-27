@@ -35,7 +35,9 @@ public:
     Q_INVOKABLE bool createGif(const QUrl &source, const QUrl &destination, double startSec,
                                double durationSec, int fps, int width, double targetMB);
     // Turns a video into another shape. options: mode ("crop" follows the
-    // keyframed frame, "blur" fits the whole picture over a blurred copy),
+    // keyframed frame, "blur" fits the whole picture over a blurred copy,
+    // "split" stacks two regions: panels [{x, y, w, h}] top then bottom,
+    // normalized to the picture, and share, the top band's part of the height),
     // aspectW/aspectH, zoom (crop only, 1 = largest frame that fits) and
     // keyframes: [{t: seconds, x, y}] with the frame centre normalized 0..1.
     Q_INVOKABLE bool reframe(const QUrl &source, const QUrl &destination, const QVariantMap &options);
@@ -45,6 +47,8 @@ public:
     Q_INVOKABLE static QSize reframeOutput(int aspectW, int aspectH);
     // The crop in source pixels for an aspect and zoom.
     Q_INVOKABLE static QSize reframeCrop(QSize source, int aspectW, int aspectH, double zoom);
+    // Heights of the top and bottom panels of a split output.
+    static QPair<int, int> splitHeights(QSize output, double share);
     // FFmpeg filter graph from [0:v] to [v].
     static QString reframeFilter(QSize source, const QVariantMap &options);
 

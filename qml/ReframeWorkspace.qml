@@ -8,7 +8,9 @@ import QtMultimedia
 // Reframe: a landscape video becomes 9:16, 1:1, 4:5 or 16:9. In "crop" mode
 // a frame follows the action: move it at different moments and each move is
 // a keyframe it glides between. In "blur" mode the whole picture sits over a
-// blurred copy of itself. LocalMediaTools::reframe renders the same thing.
+// blurred copy of itself. In "split" mode two regions are stacked: a free
+// one (a streamer's webcam, a face) and the main picture below or above it.
+// LocalMediaTools::reframe renders the same thing.
 Item {
     id: page
     objectName: "reframeArea"
@@ -21,6 +23,34 @@ Item {
     // [{t: seconds, x, y}] sorted by t; x/y are the frame centre, 0..1 of the picture.
     property var keyframes: []
     property bool dragging: false
+    // Split screen: the camera region is free; its band's height follows its
+    // shape, and the main region takes the shape of the band that is left.
+    property rect camArea: Qt.rect(0.7, 0.05, 0.26, 0.34)
+    property rect mainArea: Qt.rect(0.25, 0, 0.5, 1)
+    property bool camOnTop: true
+    readonly property bool splitAllowed: aspectW <= aspectH
+    readonly property real camShare: {
+        var camAspect = camArea.width * videoAspect / Math.max(0.001, camArea.height)
+        return Math.max(0.2, Math.min(0.6, outputSize.width / camAspect / outputSize.height))
+    }
+    readonly property real mainRatio: outputSize.width / (outputSize.height * (1 - camShare))
+    onMainRatioChanged: fitMain()
+    onVideoAspectChanged: fitMain()
+    onSplitAllowedChanged: if (!splitAllowed && mode === "split") mode = "crop"
+    // Gives the main region the band's shape around its current centre.
+    function fitMain() {
+        var a = mainArea
+        var h = a.height
+        var w = h * mainRatio / videoAspect
+        if (w > 1) { w = 1; h = w * videoAspect / mainRatio }
+        if (h > 1) { h = 1; w = h * mainRatio / videoAspect }
+        var cx = a.x + a.width / 2, cy = a.y + a.height / 2
+        mainArea = Qt.rect(Math.max(0, Math.min(1 - w, cx - w / 2)), Math.max(0, Math.min(1 - h, cy - h / 2)), w, h)
+    }
+    function regionPixels(area) {
+        return Qt.size(Math.round(area.width * videoPixels.width), Math.round(area.height * videoPixels.height))
+    }
+    function asPanel(area) { return { x: area.x, y: area.y, w: area.width, h: area.height } }
     property real dragX: 0.5
     property real dragY: 0.5
 
@@ -115,7 +145,7 @@ Item {
         var folder = path.replace(/\/[^\/]*$/, "")
         var base = decodeURIComponent(path.split("/").pop().replace(/\.[^.]*$/, ""))
         saveDialog.currentFolder = folder
-        saveDialog.selectedFile = folder + "/" + encodeURIComponent(base + " " + aspectW + "x" + aspectH + (mode === "blur" ? " fill" : "") + ".mp4")
+        saveDialog.selectedFile = folder + "/" + encodeURIComponent(base + " " + aspectW + "x" + aspectH + (mode === "blur" ? " fill" : mode === "split" ? " split" : "") + ".mp4")
         saveDialog.open()
     }
 
@@ -129,7 +159,10 @@ Item {
             player.pause()
             localReframe.reframe(page.sourceUrl, selectedFile, {
                 mode: page.mode, aspectW: page.aspectW, aspectH: page.aspectH, zoom: page.zoom,
-                keyframes: page.keyframes.length > 0 ? page.keyframes : [{ t: 0, x: page.center.x, y: page.center.y }]
+                keyframes: page.keyframes.length > 0 ? page.keyframes : [{ t: 0, x: page.center.x, y: page.center.y }],
+                share: page.camOnTop ? page.camShare : 1 - page.camShare,
+                panels: page.camOnTop ? [page.asPanel(page.camArea), page.asPanel(page.mainArea)]
+                                      : [page.asPanel(page.mainArea), page.asPanel(page.camArea)]
             })
         }
     }
@@ -188,10 +221,13 @@ Item {
                 Layout.fillWidth: true
                 spacing: 6
                 Repeater {
-                    model: [["crop", "Follow with a crop", "crop"], ["blur", "Whole picture, blurred fill", "image"]]
+                    model: [["crop", "Follow with a crop", "crop"], ["blur", "Blurred fill", "image"], ["split", "Split screen", "stack"]]
                     delegate: EditorButton {
                         required property var modelData
                         objectName: "reframeMode_" + modelData[0]
+                        enabled: modelData[0] !== "split" || page.splitAllowed
+                        ToolTip.visible: hovered && modelData[0] === "split"
+                        ToolTip.text: page.splitAllowed ? "Two parts of the picture, one above the other: a webcam and the game, say" : "Split screen needs a portrait or square shape"
                         text: modelData[1]
                         iconName: modelData[2]
                         primary: page.mode === modelData[0]
@@ -309,6 +345,39 @@ Item {
                             }
                             onCanceled: page.dragging = false
                         }
+                    }
+                }
+
+                // Split screen: both regions over the dimmed picture; the camera on top.
+                Item {
+                    id: splitOverlay
+                    objectName: "reframeSplit"
+                    visible: page.mode === "split" && page.picture.width > 0
+                    x: video.x + page.picture.x
+                    y: video.y + page.picture.y
+                    width: page.picture.width
+                    height: page.picture.height
+                    Rectangle { anchors.fill: parent; color: "#a6000000" }
+                    RegionFrame {
+                        anchors.fill: parent
+                        area: page.mainArea
+                        ratio: page.mainRatio
+                        pictureAspect: page.videoAspect
+                        tint: Theme.playhead
+                        ink: "#2a1c0e"
+                        label: "Main"
+                        sourceItem: splitOverlay.visible ? video : null
+                        sourcePicture: page.picture
+                        onMoved: function(area) { page.mainArea = area }
+                    }
+                    RegionFrame {
+                        anchors.fill: parent
+                        area: page.camArea
+                        pictureAspect: page.videoAspect
+                        label: "Camera"
+                        sourceItem: splitOverlay.visible ? video : null
+                        sourcePicture: page.picture
+                        onMoved: function(area) { page.camArea = area }
                     }
                 }
             }
@@ -493,6 +562,26 @@ Item {
                                                         page.cropShare.height * page.picture.height)
                                 }
 
+                                // Split: the two regions in their bands.
+                                Column {
+                                    anchors.fill: parent
+                                    visible: page.mode === "split"
+                                    Repeater {
+                                        model: 2
+                                        delegate: ShaderEffectSource {
+                                            required property int index
+                                            readonly property bool camera: (index === 0) === page.camOnTop
+                                            readonly property rect area: camera ? page.camArea : page.mainArea
+                                            width: phone.width
+                                            height: phone.height * (camera ? page.camShare : 1 - page.camShare)
+                                            sourceItem: page.mode === "split" ? video : null
+                                            live: true
+                                            sourceRect: Qt.rect(page.picture.x + area.x * page.picture.width, page.picture.y + area.y * page.picture.height,
+                                                                area.width * page.picture.width, area.height * page.picture.height)
+                                        }
+                                    }
+                                }
+
                                 // Blurred fill: the picture enlarged and blurred, the whole picture on top.
                                 Item {
                                     anchors.fill: parent
@@ -538,7 +627,7 @@ Item {
                         }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
-                        Text { Layout.leftMargin: 20; Layout.topMargin: 6; text: page.mode === "crop" ? "CROP" : "FILL"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
+                        Text { Layout.leftMargin: 20; Layout.topMargin: 6; text: page.mode === "crop" ? "CROP" : page.mode === "split" ? "SPLIT" : "FILL"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
                         RowLayout {
                             visible: page.mode === "crop"
                             Layout.fillWidth: true
@@ -559,6 +648,15 @@ Item {
                             value: page.zoom
                             onMoved: page.zoom = value
                         }
+                        EditorButton {
+                            objectName: "reframeSwap"
+                            visible: page.mode === "split"
+                            Layout.leftMargin: 20
+                            iconName: "flipV"
+                            text: page.camOnTop ? "Camera on top · swap" : "Camera at the bottom · swap"
+                            subtle: true
+                            onClicked: page.camOnTop = !page.camOnTop
+                        }
                         GridLayout {
                             Layout.fillWidth: true
                             Layout.leftMargin: 20
@@ -578,6 +676,22 @@ Item {
                                 visible: page.mode === "crop"
                                 Layout.fillWidth: true
                                 text: page.videoPixels.width > 0 ? page.cropPixels.width + " × " + page.cropPixels.height + " px of the picture" : "…"
+                                color: Theme.text
+                                font.pixelSize: 12
+                            }
+                            Text { visible: page.mode === "split"; text: "Camera"; color: Theme.textMuted; font.pixelSize: 12 }
+                            Text {
+                                visible: page.mode === "split"
+                                Layout.fillWidth: true
+                                text: page.videoPixels.width > 0 ? page.regionPixels(page.camArea).width + " × " + page.regionPixels(page.camArea).height + " px · " + Math.round(page.camShare * 100) + "% of the height" : "…"
+                                color: Theme.text
+                                font.pixelSize: 12
+                            }
+                            Text { visible: page.mode === "split"; text: "Main"; color: Theme.textMuted; font.pixelSize: 12 }
+                            Text {
+                                visible: page.mode === "split"
+                                Layout.fillWidth: true
+                                text: page.videoPixels.width > 0 ? page.regionPixels(page.mainArea).width + " × " + page.regionPixels(page.mainArea).height + " px" : "…"
                                 color: Theme.text
                                 font.pixelSize: 12
                             }
@@ -607,7 +721,8 @@ Item {
                             Layout.rightMargin: 20
                             Layout.bottomMargin: 12
                             text: page.mode === "crop" ? "Each move of the frame is a keyframe; between them the frame eases, like a camera operator would."
-                                                       : "Nothing is cut off: the whole picture sits over a blurred, enlarged copy of itself."
+                                  : page.mode === "split" ? "Put the green frame around the webcam or face, any size and shape; its band grows to fit it. The amber frame picks the main picture for the rest."
+                                  : "Nothing is cut off: the whole picture sits over a blurred, enlarged copy of itself."
                             color: Theme.textFaint
                             font.pixelSize: 11
                             wrapMode: Text.WordWrap

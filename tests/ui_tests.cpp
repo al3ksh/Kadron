@@ -584,6 +584,22 @@ void UiTests::reframeWorkspace()
     page->setProperty("aspectW", 4);
     page->setProperty("aspectH", 5);
     QCOMPARE(page->property("outputSize").toSize(), QSize(1080, 1350));
+
+    // Split screen at 9:16: a 0.25 x 0.30 webcam region of a 16:9 picture is
+    // 1.48:1, so its band takes 38% of the height; the main region takes the
+    // shape of the rest.
+    page->setProperty("aspectW", 9);
+    page->setProperty("aspectH", 16);
+    page->setProperty("mode", "split");
+    page->setProperty("camArea", QRectF(0.7, 0.05, 0.25, 0.3));
+    const double share = page->property("camShare").toDouble();
+    QVERIFY2(qAbs(share - 1080.0 / (0.25 * 16 / 9 / 0.3) / 1920) < 1e-6, qPrintable(QString::number(share)));
+    const auto main = page->property("mainArea").toRectF();
+    QVERIFY(qAbs(main.width() * 16 / 9 / main.height() - 1080.0 / (1920 * (1 - share))) < 1e-6);
+    // A landscape shape has no room for a stack.
+    page->setProperty("aspectW", 16);
+    page->setProperty("aspectH", 9);
+    QCOMPARE(page->property("mode").toString(), QStringLiteral("crop"));
 }
 
 #include "ui_tests.moc"

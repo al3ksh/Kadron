@@ -87,6 +87,7 @@ qt_add_qml_module(kadron_ui
         qml/Intro.qml
         qml/ImagesWorkspace.qml
         qml/ReframeWorkspace.qml
+        qml/RegionFrame.qml
         qml/CropOverlay.qml
         qml/ToolSlider.qml
         qml/CheckerBoard.qml

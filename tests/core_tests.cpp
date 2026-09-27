@@ -1211,6 +1211,19 @@ void CoreTests::reframeVideo()
     QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 60000);
     QVERIFY2(tools.errorText().isEmpty(), qPrintable(tools.errorText()));
     QCOMPARE(probeSize(square), QSize(1080, 1080));
+
+    // Split: a 40/60 stack of two frames still makes one 1080x1920 picture.
+    QCOMPARE(LocalMediaTools::splitHeights(QSize(1080, 1920), 0.4), qMakePair(768, 1152));
+    const QVariantMap split { { "mode", "split" }, { "aspectW", 9 }, { "aspectH", 16 }, { "share", 0.4 },
+                              { "panels", QVariantList { QVariantMap { { "x", 0.7 }, { "y", 0.05 }, { "w", 0.25 }, { "h", 0.3 } },
+                                                         QVariantMap { { "x", 0.2 }, { "y", 0.0 }, { "w", 0.45 }, { "h", 1.0 } } } } };
+    const auto stackFilter = LocalMediaTools::reframeFilter(QSize(640, 360), split);
+    QVERIFY2(stackFilter.contains("vstack"), qPrintable(stackFilter));
+    const auto stacked = directory.path() + "/stacked.mp4";
+    QVERIFY(tools.reframe(QUrl::fromLocalFile(source), QUrl::fromLocalFile(stacked), split));
+    QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 60000);
+    QVERIFY2(tools.errorText().isEmpty(), qPrintable(tools.errorText()));
+    QCOMPARE(probeSize(stacked), QSize(1080, 1920));
 }
 
 #include "core_tests.moc"

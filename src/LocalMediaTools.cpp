@@ -174,7 +174,7 @@ bool LocalMediaTools::reframe(const QUrl &source, const QUrl &destination, const
     if (busy())
         return false;
     const auto mode = options.value("mode").toString();
-    if (QFileInfo(destination.toLocalFile()).suffix().toLower() != "mp4" || (mode != "crop" && mode != "blur")
+    if (QFileInfo(destination.toLocalFile()).suffix().toLower() != "mp4" || (mode != "crop" && mode != "blur" && mode != "split")
         || options.value("aspectW").toInt() <= 0 || options.value("aspectH").toInt() <= 0) {
         fail(QStringLiteral("Choose an MP4 output and a shape."));
         return false;
@@ -210,6 +210,12 @@ QSize LocalMediaTools::reframeCrop(QSize source, int aspectW, int aspectH, doubl
     else
         height = width / ratio;
     return QSize(qMin(even(width / zoom), source.width()), qMin(even(height / zoom), source.height()));
+}
+
+QPair<int, int> LocalMediaTools::splitHeights(QSize output, double share)
+{
+    const int top = qBound(2, qRound(output.height() * qBound(0.2, share, 0.8) / 2) * 2, output.height() - 2);
+    return { top, output.height() - top };
 }
 
 // A value that eases between keyframes (smoothstep), as an FFmpeg expression of t.
@@ -248,6 +254,25 @@ QString LocalMediaTools::reframeFilter(QSize source, const QVariantMap &options)
                               "[fg]scale=%1:%2:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,setsar=1[f];"
                               "[b][f]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]")
             .arg(W, H, w4, h4);
+    }
+    if (options.value("mode").toString() == "split") {
+        // Two regions of the same picture (say a webcam corner and the game),
+        // each filling its band, stacked. A region a little off the band's
+        // shape is filled from its centre rather than stretched.
+        const auto [topH, bottomH] = splitHeights(output, options.value("share", 0.5).toDouble());
+        const auto panels = options.value("panels").toList();
+        QStringList chains;
+        const int heights[] = { topH, bottomH };
+        for (int i = 0; i < 2; ++i) {
+            const auto panel = panels.value(i).toMap();
+            const int width = qBound(2, qRound(panel.value("w", 1.0).toDouble() * source.width()), source.width());
+            const int height = qBound(2, qRound(panel.value("h", 1.0).toDouble() * source.height()), source.height());
+            const int left = qBound(0, qRound(panel.value("x", 0.0).toDouble() * source.width()), source.width() - width);
+            const int top = qBound(0, qRound(panel.value("y", 0.0).toDouble() * source.height()), source.height() - height);
+            chains << QStringLiteral("[p%1]crop=%2:%3:%4:%5,scale=%6:%7:force_original_aspect_ratio=increase:flags=lanczos,crop=%6:%7,setsar=1[s%1]")
+                          .arg(i).arg(width).arg(height).arg(left).arg(top).arg(output.width()).arg(heights[i]);
+        }
+        return QStringLiteral("[0:v]split=2[p0][p1];%1;%2;[s0][s1]vstack=inputs=2,format=yuv420p[v]").arg(chains.at(0), chains.at(1));
     }
     const auto crop = reframeCrop(source, aspectW, aspectH, options.value("zoom", 1.0).toDouble());
     auto keyframes = options.value("keyframes").toList();
