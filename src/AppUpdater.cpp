@@ -1,7 +1,7 @@
 #include "AppUpdater.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
-#include <QDate>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -97,14 +97,27 @@ QUrl AppUpdater::apiUrl() const
     return QUrl(configured.isEmpty() ? QStringLiteral("https://api.github.com/repos/al3ksh/Kadron/releases/latest") : configured);
 }
 
-void AppUpdater::checkDaily()
+void AppUpdater::checkAutomatically()
 {
-    QSettings settings;
-    const auto today = QDate::currentDate();
-    if (settings.value("updates/lastCheck").toDate() == today)
+    if (updateAvailable())
         return;
-    settings.setValue("updates/lastCheck", today);
+    QSettings settings;
+    const auto now = QDateTime::currentDateTimeUtc();
+    const auto last = settings.value("updates/lastAutoCheck").toDateTime();
+    if (last.isValid() && last.secsTo(now) >= 0 && last.secsTo(now) < 30 * 60)
+        return;
+    settings.setValue("updates/lastAutoCheck", now);
     startCheck(false);
+}
+
+void AppUpdater::startAutomaticChecks(int intervalMs)
+{
+    if (!m_autoTimer) {
+        m_autoTimer = new QTimer(this);
+        connect(m_autoTimer, &QTimer::timeout, this, &AppUpdater::checkAutomatically);
+    }
+    m_autoTimer->start(intervalMs);
+    checkAutomatically();
 }
 
 void AppUpdater::check()

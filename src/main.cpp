@@ -182,13 +182,13 @@ int main(int argc, char *argv[])
         instance.take(launch, false);
     instance.attach(mainWindow);
 
-    // Look for a new release shortly after startup, at most once a day.
+    // Look for a new release shortly after startup and every 4 hours after.
     // Screenshots only check against an explicit KADRON_UPDATE_URL.
     // Which GPU encoders actually work here; takes a few seconds, off the UI thread.
     if (screenshotPath.isEmpty())
         QTimer::singleShot(1500, &exporter, &ExportController::detectEncoders);
     if (screenshotPath.isEmpty() && !qEnvironmentVariableIsSet("KADRON_NO_UPDATE_CHECK"))
-        QTimer::singleShot(4000, &appUpdater, &AppUpdater::checkDaily);
+        QTimer::singleShot(4000, &appUpdater, [&appUpdater] { appUpdater.startAutomaticChecks(4 * 60 * 60 * 1000); });
     else if (!screenshotPath.isEmpty() && qEnvironmentVariableIsSet("KADRON_UPDATE_URL"))
         appUpdater.check();
     if (!screenshotPath.isEmpty()) {

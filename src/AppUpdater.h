@@ -2,6 +2,7 @@
 
 #include <QNetworkAccessManager>
 #include <QObject>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantMap>
 
@@ -46,8 +47,11 @@ public:
     static bool isNewer(const QString &candidate, const QString &current);
 
     Q_INVOKABLE void check();
-    // Checks at most once a day; used at startup.
-    Q_INVOKABLE void checkDaily();
+    // Quiet check at startup and every few hours while Kadron is open; skipped
+    // when the last one was under half an hour ago. Only a new version shows.
+    Q_INVOKABLE void checkAutomatically();
+    // Starts checkAutomatically now and repeats it every intervalMs.
+    void startAutomaticChecks(int intervalMs);
     // Downloads and verifies the installer; it runs when Kadron exits.
     Q_INVOKABLE void install();
     // Makes the pending installer start Kadron again; the caller closes the window.
@@ -63,6 +67,7 @@ private:
     QUrl apiUrl() const;
 
     QNetworkAccessManager m_network;
+    QTimer *m_autoTimer = nullptr;
     QVariantMap m_release;
     bool m_checking = false;
     bool m_downloading = false;
