@@ -204,6 +204,11 @@ int main(int argc, char *argv[])
                     QMetaObject::invokeMethod(popup, "open");
             });
         }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_CLOSE_PROJECT")) {
+            QTimer::singleShot(qEnvironmentVariableIntValue("KADRON_SCREENSHOT_CLOSE_PROJECT"), &app, [mainWindow] {
+                QMetaObject::invokeMethod(mainWindow, "applyClose");
+            });
+        }
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_CLOSE")) {
             QTimer::singleShot(400, &app, [mainWindow] {
                 if (auto *dialog = mainWindow->findChild<QObject *>("quitDialog"))

@@ -48,6 +48,18 @@ void EditorProject::restore(const Snapshot &state)
     emit changed();
 }
 
+void EditorProject::closeProject()
+{
+    m_clips.clear();
+    m_activeClipIndex = -1;
+    m_projectUrl.clear();
+    m_dirty = false;
+    m_probing.clear();
+    resetHistory();
+    clearError();
+    emit changed();
+}
+
 void EditorProject::resetHistory()
 {
     m_undo.clear();

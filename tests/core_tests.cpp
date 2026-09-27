@@ -93,6 +93,18 @@ void CoreTests::editHistory()
     // Importing starts a fresh history.
     QVERIFY(project.importMedia(media));
     QVERIFY(!project.canUndo());
+
+    // Closing empties the editor, so nothing points at the media any more.
+    project.setDurationMs(10000);
+    QVERIFY(project.splitAt(4000));
+    project.closeProject();
+    QVERIFY(!project.hasMedia());
+    QCOMPARE(project.clipCount(), 0);
+    QVERIFY(project.mediaUrl().isEmpty());
+    QVERIFY(project.projectUrl().isEmpty());
+    QVERIFY(!project.dirty());
+    QVERIFY(!project.canUndo());
+    QVERIFY(!project.canRedo());
 }
 
 void CoreTests::ytDlpDiagnostics()

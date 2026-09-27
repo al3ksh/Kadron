@@ -56,6 +56,8 @@ public:
     Q_INVOKABLE bool duplicateClip(int index);
     Q_INVOKABLE bool removeClip(int index);
     Q_INVOKABLE bool openProject(const QUrl &url);
+    // Back to an empty editor: no clips, no project file, no history.
+    Q_INVOKABLE void closeProject();
     Q_INVOKABLE bool saveProject(const QUrl &url = {});
     Q_INVOKABLE void setDurationMs(qint64 value);
     Q_INVOKABLE void setInMs(qint64 value);

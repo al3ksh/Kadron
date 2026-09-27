@@ -22,7 +22,8 @@ ApplicationWindow {
 
     property bool forceClose: false
     property bool closeAfterSave: false
-    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible
+    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible
+    property bool closeAfterSaveProject: false
     property string currentMediaKey: ""
     property int currentClipIndex: -1
     property string editSignature: ""
@@ -207,6 +208,33 @@ ApplicationWindow {
             root.uploadFile = ""
         }
     }
+    // Close the project and let go of its media, so the files can be moved or deleted.
+    function closeEditing() {
+        if (exporter.busy) {
+            root.notice = "Finish or cancel the export before closing the project"
+            return
+        }
+        // Work that was just exported is done: only unexported edits ask first.
+        if (editorProject.dirty && JSON.stringify(editorProject.clips) !== exportedClips) closeDialog.open()
+        else applyClose()
+    }
+    // The sequence as it was when the last export finished.
+    property string exportedClips: ""
+    Connections {
+        target: exporter
+        function onChanged() {
+            if (!exporter.busy && exporter.outputUrl.toString().length > 0 && !exporter.errorText)
+                root.exportedClips = JSON.stringify(editorProject.clips)
+        }
+    }
+    function applyClose() {
+        player.stop()
+        editorProject.closeProject()
+        exporter.resetResult()
+        exportedClips = ""
+        root.playerError = ""
+        root.notice = "Project closed · its files are free to move or delete"
+    }
     function requestOpen(url, isProject) {
         if (root.anyBusy) {
             root.notice = "Finish or cancel the current operation before opening another file"
@@ -289,6 +317,7 @@ ApplicationWindow {
     Shortcut { sequence: "O"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.setOutMs(player.position) }
     Shortcut { sequences: [StandardKey.Undo]; enabled: root.workspace === 0 && editorProject.canUndo && !exporter.busy; onActivated: editorProject.undo() }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; enabled: root.workspace === 0 && editorProject.canRedo && !exporter.busy; onActivated: editorProject.redo() }
+    Shortcut { sequence: "Ctrl+W"; enabled: root.workspace === 0 && editorProject.hasMedia && !root.dialogOpen; onActivated: root.closeEditing() }
     Shortcut { sequence: "Ctrl+K"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.splitAt(player.position) }
 
     FileDialog {
@@ -322,10 +351,12 @@ ApplicationWindow {
             if (editorProject.saveProject(selectedFile)) {
                 root.notice = "Project saved"
                 if (root.closeAfterSave) root.fadeAndClose()
+                else if (root.closeAfterSaveProject) root.applyClose()
             }
             root.closeAfterSave = false
+            root.closeAfterSaveProject = false
         }
-        onRejected: root.closeAfterSave = false
+        onRejected: { root.closeAfterSave = false; root.closeAfterSaveProject = false }
     }
     FileDialog {
         id: exportDialog
@@ -360,6 +391,30 @@ ApplicationWindow {
             }
         }
         EditorButton { text: "Keep editing"; subtle: true; onClicked: replaceDialog.close() }
+    }
+
+    StudioDialog {
+        id: closeDialog
+        objectName: "closeDialog"
+        heading: "Close this project?"
+        message: "It has unsaved changes. Save them first or close without saving."
+        iconName: "close"
+        warning: true
+        EditorButton {
+            text: "Save and close"
+            primary: true
+            onClicked: {
+                closeDialog.close()
+                if (editorProject.projectUrl.toString()) {
+                    if (editorProject.saveProject()) root.applyClose()
+                } else {
+                    root.closeAfterSaveProject = true
+                    saveDialog.open()
+                }
+            }
+        }
+        EditorButton { text: "Close without saving"; danger: true; onClicked: { closeDialog.close(); root.applyClose() } }
+        EditorButton { text: "Keep editing"; subtle: true; onClicked: closeDialog.close() }
     }
 
     StudioDialog {
@@ -576,6 +631,16 @@ ApplicationWindow {
                 EditorButton { text: "Open"; visible: root.workspace === 0; subtle: true; onClicked: openDialog.open() }
                 EditorButton { text: "Import"; visible: root.workspace === 0; onClicked: mediaDialog.open() }
                 EditorButton { text: "Save"; visible: root.workspace === 0; enabled: editorProject.hasMedia; onClicked: root.saveProject() }
+                EditorButton {
+                    objectName: "closeProjectButton"
+                    iconName: "close"
+                    subtle: true
+                    visible: root.workspace === 0 && editorProject.hasMedia
+                    enabled: !exporter.busy
+                    onClicked: root.closeEditing()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Close project (Ctrl+W)"
+                }
                 EditorButton { text: "Export MP4"; visible: root.workspace === 0; primary: true; enabled: editorProject.canExport && !exporter.busy && exporter.available; onClicked: exportDialog.open() }
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
