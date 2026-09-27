@@ -36,6 +36,9 @@ QtObject {
     readonly property color card: pick("#252b30", "#f0f3ee")
     readonly property color control: pick("#292f35", "#ffffff")
     readonly property color hover: pick("#2e363c", "#e8ece6")
+    // Hover colour at zero alpha: fades in without passing through dark
+    // ("transparent" is transparent black, so a fade from it dips darker first).
+    readonly property color hoverClear: Qt.rgba(hover.r, hover.g, hover.b, 0)
     readonly property color pressed: pick("#353d43", "#dfe4dc")
     readonly property color disabled: pick("#23282c", "#eceeea")
 

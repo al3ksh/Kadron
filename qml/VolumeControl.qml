@@ -35,7 +35,7 @@ RowLayout {
         }
         background: Rectangle {
             radius: Theme.radiusSmall
-            color: muteButton.down ? Theme.pressed : muteButton.hovered ? Theme.hover : "transparent"
+            color: muteButton.down ? Theme.pressed : muteButton.hovered ? Theme.hover : Theme.hoverClear
             border.width: muteButton.activeFocus ? 2 : 0
             border.color: Theme.accentFocus
         }

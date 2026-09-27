@@ -619,7 +619,7 @@ ApplicationWindow {
                         ToolTip.text: "Theme and accent"
                         onClicked: appearancePopup.opened ? appearancePopup.close() : appearancePopup.open()
                         contentItem: ToolIcon { name: "palette"; tint: appearanceButton.hovered || appearancePopup.opened ? Theme.text : Theme.textFaint }
-                        background: Rectangle { radius: Theme.radiusSmall; color: appearanceButton.hovered || appearancePopup.opened ? Theme.hover : "transparent" }
+                        background: Rectangle { radius: Theme.radiusSmall; color: appearanceButton.hovered || appearancePopup.opened ? Theme.hover : Theme.hoverClear }
                         AppearancePopup {
                             id: appearancePopup
                             objectName: "appearancePopup"
@@ -679,7 +679,7 @@ ApplicationWindow {
                             ToolTip.delay: 400
                             ToolTip.text: "Close project (Ctrl+W)"
                             contentItem: ToolIcon { name: "close"; strokeWidth: 1.8; tint: closeProjectButton.hovered ? Theme.text : Theme.textFaint }
-                            background: Rectangle { radius: 5; color: closeProjectButton.hovered ? Theme.hover : "transparent" }
+                            background: Rectangle { radius: 5; color: closeProjectButton.hovered ? Theme.hover : Theme.hoverClear }
                         }
                     }
                 }
@@ -732,7 +732,7 @@ ApplicationWindow {
                                         }
                                     }
                                     background: Rectangle {
-                                        color: fileAction.down ? Theme.pressed : fileAction.hovered ? Theme.hover : "transparent"
+                                        color: fileAction.down ? Theme.pressed : fileAction.hovered ? Theme.hover : Theme.hoverClear
                                         radius: Theme.radius - 1
                                         Behavior on color { ColorAnimation { duration: Theme.fadeFast } }
                                     }

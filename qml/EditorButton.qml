@@ -50,7 +50,7 @@ Button {
         radius: Theme.radius
         color: !control.enabled ? Theme.disabled
              : control.primary ? (control.down ? Theme.accentPressed : control.hovered ? Theme.accentHover : Theme.accent)
-             : control.subtle ? (control.hovered || control.down ? Theme.hover : "transparent")
+             : control.subtle ? (control.hovered || control.down ? Theme.hover : Theme.hoverClear)
              : control.down ? Theme.pressed : control.hovered ? Theme.hover : Theme.control
         border.width: control.activeFocus ? 2 : control.primary || control.subtle ? 0 : 1
         border.color: control.activeFocus ? Theme.accentFocus : Theme.lineStrong

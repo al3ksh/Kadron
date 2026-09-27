@@ -604,7 +604,7 @@ FocusScope {
                 font.pixelSize: 12
                 verticalAlignment: Text.AlignVCenter
             }
-            background: Rectangle { radius: Theme.radiusSmall; color: menuItem.highlighted ? Theme.hover : "transparent" }
+            background: Rectangle { radius: Theme.radiusSmall; color: menuItem.highlighted ? Theme.hover : Theme.hoverClear }
         }
         Action { text: "Split at playhead"; onTriggered: timeline.splitRequested() }
         Action { text: "Duplicate"; onTriggered: timeline.duplicateRequested(timeline.activeIndex) }
