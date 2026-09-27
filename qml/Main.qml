@@ -1249,6 +1249,9 @@ ApplicationWindow {
                                 text: root.activeAudio ? "From " + root.timecode(root.activeAudio.startMs) + " for " + root.timecode(root.activeAudio.lengthMs) : ""
                                 color: Theme.textFaint
                                 font.pixelSize: 11
+                                // Fill and wrap, so the text never widens the panel.
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
                             }
                             RowLayout {
                                 visible: root.activeAudio !== null
@@ -1287,6 +1290,8 @@ ApplicationWindow {
                                                          + (root.activeAudio.fadeInMs + root.activeAudio.fadeOutMs === 0 ? " · drag the dots at the top corners" : "") : ""
                                 color: Theme.textFaint
                                 font.pixelSize: 11
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
                             }
                             ToolCheck {
                                 objectName: "musicDuckCheck"
