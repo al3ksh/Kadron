@@ -210,7 +210,18 @@ void UiTests::timelineInteractions()
     QCOMPARE(place.count(), 2);
     QCOMPARE(place.last().at(1).toDouble(), 1000.0);
     QVERIFY(qAbs(place.last().at(3).toDouble() - 2500.0) < 20);
+    // The dot at the top-left corner drags a fade in.
+    QSignalSpy fade(timeline, signalOf(timeline, "audioFadeRequested(int,double,double)"));
     timeline->setProperty("audioIndex", 0);
+    QTest::mouseMove(&window, QPoint(107, 112));
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(107, 112));
+    QTest::mouseMove(&window, QPoint(130, 112));
+    QTest::mouseMove(&window, QPoint(157, 112));
+    QCOMPARE(timeline->property("audioFadeIndex").toInt(), 0);
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(157, 112));
+    QCOMPARE(fade.count(), 1);
+    QVERIFY(qAbs(fade.last().at(1).toDouble() - 500.0) < 20);
+    QCOMPARE(fade.last().at(2).toDouble(), 0.0);
     timeline->forceActiveFocus();
     QTest::keyClick(&window, Qt::Key_Delete);
     QCOMPARE(removeAudio.count(), 1);

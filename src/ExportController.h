@@ -58,6 +58,8 @@ public:
         qint64 inMs = 0;
         qint64 outMs = 0;
         double volume = 1.0;
+        qint64 fadeInMs = 0;
+        qint64 fadeOutMs = 0;
     };
     // Final pass over the encoded clips (inputs 0..n-1, or one joined file):
     // crossfades them when crossfadeMs > 0 and mixes in the audio track, one

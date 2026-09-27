@@ -1,5 +1,6 @@
 #include "EditorProject.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -8,10 +9,76 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QtGlobal>
+#include <limits>
 #include <QProcess>
 #include "MediaTools.h"
 
-EditorProject::EditorProject(QObject *parent) : QObject(parent) {}
+EditorProject::EditorProject(QObject *parent) : QObject(parent)
+{
+    m_autosave.setSingleShot(true);
+    m_autosave.setInterval(60 * 1000);
+    connect(&m_autosave, &QTimer::timeout, this, &EditorProject::autosaveNow);
+}
+
+void EditorProject::setRecoveryPath(const QString &path) { m_recoveryPath = path; }
+
+void EditorProject::autosaveNow()
+{
+    m_autosave.stop();
+    if (m_recoveryPath.isEmpty() || !m_dirty || !hasMedia())
+        return;
+    const QFileInfo info(m_recoveryPath);
+    QDir().mkpath(info.absolutePath());
+    auto object = QJsonDocument::fromJson(serialize(info.absolutePath())).object();
+    object.insert("origin", m_projectUrl.toLocalFile());
+    object.insert("savedAt", QDateTime::currentDateTime().toString(Qt::ISODate));
+    QSaveFile file(info.absoluteFilePath());
+    if (file.open(QIODevice::WriteOnly) && file.write(QJsonDocument(object).toJson(QJsonDocument::Compact)) >= 0)
+        file.commit();
+}
+
+QVariantMap EditorProject::recoveryInfo() const
+{
+    if (m_recoveryPath.isEmpty())
+        return {};
+    QFile file(m_recoveryPath);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    const auto object = QJsonDocument::fromJson(file.readAll()).object();
+    const auto clips = object.value("clips").toArray();
+    if (clips.isEmpty())
+        return {};
+    const auto origin = object.value("origin").toString();
+    return {
+        {"name", origin.isEmpty() ? QFileInfo(clips.first().toObject().value("media").toString()).fileName() : QFileInfo(origin).fileName()},
+        {"savedAt", QDateTime::fromString(object.value("savedAt").toString(), Qt::ISODate).toString("d MMM, HH:mm")},
+        {"clipCount", clips.size()}
+    };
+}
+
+bool EditorProject::restoreRecovery()
+{
+    if (m_recoveryPath.isEmpty() || !QFileInfo(m_recoveryPath).isFile())
+        return false;
+    QFile file(m_recoveryPath);
+    QString origin;
+    if (file.open(QIODevice::ReadOnly))
+        origin = QJsonDocument::fromJson(file.readAll()).object().value("origin").toString();
+    file.close();
+    if (!openProject(QUrl::fromLocalFile(m_recoveryPath)))
+        return false;
+    m_projectUrl = origin.isEmpty() ? QUrl() : QUrl::fromLocalFile(origin);
+    m_dirty = true;
+    emit changed();
+    return true;
+}
+
+void EditorProject::discardRecovery()
+{
+    m_autosave.stop();
+    if (!m_recoveryPath.isEmpty())
+        QFile::remove(m_recoveryPath);
+}
 
 const EditorProject::Clip *EditorProject::active() const
 {
@@ -54,7 +121,9 @@ QVariantList EditorProject::audioItems() const
             {"inMs", item.inMs},
             {"outMs", item.outMs},
             {"lengthMs", qMax<qint64>(0, item.outMs - item.inMs)},
-            {"volume", item.volume}
+            {"volume", item.volume},
+            {"fadeInMs", item.fadeInMs},
+            {"fadeOutMs", item.fadeOutMs}
         });
     }
     return result;
@@ -189,6 +258,9 @@ bool EditorProject::setAudioPlacement(int index, qint64 startMs, qint64 inMs, qi
     item.startMs = startMs;
     item.inMs = inMs;
     item.outMs = outMs;
+    // Fades never outgrow a shortened item.
+    item.fadeInMs = qMin(item.fadeInMs, outMs - inMs);
+    item.fadeOutMs = qMin(item.fadeOutMs, outMs - inMs - item.fadeInMs);
     clearError();
     markChanged();
     return true;
@@ -203,6 +275,22 @@ bool EditorProject::setAudioVolume(int index, double volume)
         m_mix.audio[index].volume = volume;
         markChanged();
     }
+    return true;
+}
+
+bool EditorProject::setAudioFades(int index, qint64 fadeInMs, qint64 fadeOutMs)
+{
+    if (index < 0 || index >= m_mix.audio.size())
+        return false;
+    auto &item = m_mix.audio[index];
+    const auto length = qMax<qint64>(0, item.outMs - item.inMs);
+    fadeInMs = qBound<qint64>(0, fadeInMs, length);
+    fadeOutMs = qBound<qint64>(0, fadeOutMs, length - fadeInMs);
+    if (item.fadeInMs == fadeInMs && item.fadeOutMs == fadeOutMs)
+        return true;
+    item.fadeInMs = fadeInMs;
+    item.fadeOutMs = fadeOutMs;
+    markChanged();
     return true;
 }
 
@@ -252,6 +340,7 @@ void EditorProject::closeProject()
     m_dirty = false;
     m_probing.clear();
     resetHistory();
+    discardRecovery();
     clearError();
     emit changed();
 }
@@ -342,6 +431,8 @@ void EditorProject::markChanged()
         m_undo.removeFirst();
     m_redo.clear();
     m_baseline = snapshot();
+    if (!m_recoveryPath.isEmpty() && !m_autosave.isActive())
+        m_autosave.start();
     emit changed();
 }
 
@@ -532,6 +623,10 @@ bool EditorProject::openProject(const QUrl &url)
         audio.inMs = qBound<qint64>(0, item.value("inMs").toVariant().toLongLong(), audio.durationMs);
         audio.outMs = qBound(audio.inMs, item.value("outMs").toVariant().toLongLong(), audio.durationMs);
         audio.volume = qBound(0.0, item.value("volume").toDouble(0.5), 2.0);
+        // Unknown until probed; the fades are kept as saved until then.
+        const auto length = audio.durationMs > 0 ? audio.outMs - audio.inMs : std::numeric_limits<qint64>::max() / 4;
+        audio.fadeInMs = qBound<qint64>(0, item.value("fadeInMs").toVariant().toLongLong(), length);
+        audio.fadeOutMs = qBound<qint64>(0, item.value("fadeOutMs").toVariant().toLongLong(), length - audio.fadeInMs);
         mix.audio.append(audio);
         if (mix.audio.size() > 1000)
             break;
@@ -558,10 +653,28 @@ bool EditorProject::saveProject(const QUrl &url)
         return false;
     }
     const auto targetInfo = QFileInfo(target.toLocalFile());
+    QSaveFile file(targetInfo.absoluteFilePath());
+    if (!file.open(QIODevice::WriteOnly)
+        || file.write(serialize(targetInfo.absolutePath())) < 0
+        || !file.commit()) {
+        setError(QStringLiteral("Could not save the project: %1").arg(file.errorString()));
+        return false;
+    }
+    m_projectUrl = QUrl::fromLocalFile(targetInfo.absoluteFilePath());
+    m_dirty = false;
+    discardRecovery();
+    clearError();
+    emit changed();
+    return true;
+}
+
+QByteArray EditorProject::serialize(const QString &directory) const
+{
+    const QDir base(directory);
     QJsonArray entries;
     for (const auto &clip : m_clips) {
         entries.append(QJsonObject{
-            {"media", QDir(targetInfo.absolutePath()).relativeFilePath(clip.mediaUrl.toLocalFile())},
+            {"media", base.relativeFilePath(clip.mediaUrl.toLocalFile())},
             {"durationMs", static_cast<double>(clip.durationMs)},
             {"inMs", static_cast<double>(clip.inMs)},
             {"outMs", static_cast<double>(clip.outMs)},
@@ -572,29 +685,20 @@ bool EditorProject::saveProject(const QUrl &url)
     QJsonArray audioEntries;
     for (const auto &item : m_mix.audio) {
         audioEntries.append(QJsonObject{
-            {"media", QDir(targetInfo.absolutePath()).relativeFilePath(item.mediaUrl.toLocalFile())},
+            {"media", base.relativeFilePath(item.mediaUrl.toLocalFile())},
             {"durationMs", static_cast<double>(item.durationMs)},
             {"startMs", static_cast<double>(item.startMs)},
             {"inMs", static_cast<double>(item.inMs)},
             {"outMs", static_cast<double>(item.outMs)},
-            {"volume", item.volume}
+            {"volume", item.volume},
+            {"fadeInMs", static_cast<double>(item.fadeInMs)},
+            {"fadeOutMs", static_cast<double>(item.fadeOutMs)}
         });
     }
     QJsonObject object{{"version", 4}, {"clips", entries}, {"activeIndex", m_activeClipIndex},
                        {"transition", m_mix.transition}, {"transitionMs", m_mix.transitionMs},
                        {"audio", audioEntries}, {"duck", m_mix.musicDuck}};
-    QSaveFile file(targetInfo.absoluteFilePath());
-    if (!file.open(QIODevice::WriteOnly)
-        || file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) < 0
-        || !file.commit()) {
-        setError(QStringLiteral("Could not save the project: %1").arg(file.errorString()));
-        return false;
-    }
-    m_projectUrl = QUrl::fromLocalFile(targetInfo.absoluteFilePath());
-    m_dirty = false;
-    clearError();
-    emit changed();
-    return true;
+    return QJsonDocument(object).toJson(QJsonDocument::Indented);
 }
 
 void EditorProject::setDurationMs(qint64 value)
@@ -750,6 +854,8 @@ void EditorProject::applyProbedDuration(const QUrl &url, qint64 durationMs)
             item.durationMs = durationMs;
             item.inMs = qBound<qint64>(0, item.inMs, durationMs);
             item.outMs = item.outMs <= item.inMs ? durationMs : qBound(item.inMs, item.outMs, durationMs);
+            item.fadeInMs = qMin(item.fadeInMs, item.outMs - item.inMs);
+            item.fadeOutMs = qMin(item.fadeOutMs, item.outMs - item.inMs - item.fadeInMs);
             filled = true;
         }
         return filled;

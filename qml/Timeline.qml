@@ -34,6 +34,7 @@ FocusScope {
     signal audioSelectRequested(int index)
     signal audioPlaceRequested(int index, real startMs, real inMs, real outMs)
     signal audioRemoveRequested(int index)
+    signal audioFadeRequested(int index, real fadeInMs, real fadeOutMs)
     signal audioAddRequested(real startMs)
     signal audioDropped(var urls, real startMs)
 
@@ -77,7 +78,7 @@ FocusScope {
     property bool trimLeading: false
     property real trimInMs: 0
     property real trimOutMs: 0
-    function cancelTrim() { trimIndex = -1; audioEditIndex = -1 }
+    function cancelTrim() { trimIndex = -1; audioEditIndex = -1; audioFadeIndex = -1; snapGuideMs = -1 }
 
     // Audio track edits are previewed the same way: startMs/inMs/outMs of the
     // item being moved or trimmed, committed on release.
@@ -85,6 +86,12 @@ FocusScope {
     property real audioEditStart: 0
     property real audioEditIn: 0
     property real audioEditOut: 0
+    // Fade handles being dragged on an audio item.
+    property int audioFadeIndex: -1
+    property real audioFadeIn: 0
+    property real audioFadeOut: 0
+    // Where the dragged audio item snapped, drawn as a guide (-1 when it didn't).
+    property real snapGuideMs: -1
     // Pulls a time to a nearby join, the playhead, the ends or another audio item.
     function snapMs(ms, skipIndex) {
         var reach = 8 / Math.max(pxPerMs, 0.0001)
@@ -571,7 +578,7 @@ FocusScope {
                 visible: timeline.clips.length > 0
                 y: track.y + track.height + 4
                 width: Math.max(3, timeline.totalMs * timeline.pxPerMs - 1)
-                height: 26
+                height: 34
                 radius: Theme.radiusSmall
                 color: laneDrop.containsDrag ? Theme.selectionFill : Theme.field
                 border.color: laneDrop.containsDrag ? Theme.accent : Theme.line
@@ -702,6 +709,7 @@ FocusScope {
                                 // Either end may catch a snap point.
                                 var head = timeline.snapMs(start, audioBlock.index)
                                 var tail = timeline.snapMs(start + length, audioBlock.index) - length
+                                timeline.snapGuideMs = head !== start ? head : tail !== start ? tail + length : -1
                                 start = head !== start ? head : tail !== start ? tail : start
                                 timeline.audioEditIn = audioBlock.item.inMs
                                 timeline.audioEditOut = audioBlock.item.outMs
@@ -710,6 +718,7 @@ FocusScope {
                             }
                             onReleased: function(mouse) {
                                 if (mouse.button !== Qt.LeftButton) return
+                                timeline.snapGuideMs = -1
                                 if (timeline.audioEditIndex === audioBlock.index) {
                                     timeline.audioEditIndex = -1
                                     if (timeline.audioEditStart !== audioBlock.item.startMs)
@@ -719,7 +728,7 @@ FocusScope {
                                     timeline.scrubFinished()
                                 }
                             }
-                            onCanceled: timeline.audioEditIndex = -1
+                            onCanceled: { timeline.audioEditIndex = -1; timeline.snapGuideMs = -1 }
                             ToolTip.visible: containsMouse && !pressed
                             ToolTip.delay: 700
                             ToolTip.text: audioBlock.item.name + " · starts at " + timeline.timeLabel(audioBlock.item.startMs, true) + " · drag to move, edges to trim"
@@ -755,23 +764,28 @@ FocusScope {
                                     var minimum = Math.min(100, item.durationMs)
                                     if (leading) {
                                         // The start moves with the in point so the rest stays in place.
-                                        var start = timeline.snapMs(item.startMs + delta, audioBlock.index)
+                                        var raw = item.startMs + delta
+                                        var start = timeline.snapMs(raw, audioBlock.index)
+                                        timeline.snapGuideMs = start !== raw ? start : -1
                                         var shift = Math.max(-item.inMs, -item.startMs, Math.min(item.lengthMs - minimum, start - item.startMs))
                                         timeline.audioEditIn = Math.round(item.inMs + shift)
                                         timeline.audioEditStart = Math.round(item.startMs + shift)
                                     } else {
-                                        var end = timeline.snapMs(item.startMs + item.lengthMs + delta, audioBlock.index)
+                                        var rawEnd = item.startMs + item.lengthMs + delta
+                                        var end = timeline.snapMs(rawEnd, audioBlock.index)
+                                        timeline.snapGuideMs = end !== rawEnd ? end : -1
                                         timeline.audioEditOut = Math.round(Math.max(item.inMs + minimum, Math.min(item.durationMs, item.inMs + end - item.startMs)))
                                     }
                                 }
                                 onReleased: {
+                                    timeline.snapGuideMs = -1
                                     if (timeline.audioEditIndex !== audioBlock.index) return
                                     timeline.audioEditIndex = -1
                                     var item = audioBlock.item
                                     if (timeline.audioEditStart !== item.startMs || timeline.audioEditIn !== item.inMs || timeline.audioEditOut !== item.outMs)
                                         timeline.audioPlaceRequested(audioBlock.index, timeline.audioEditStart, timeline.audioEditIn, timeline.audioEditOut)
                                 }
-                                onCanceled: timeline.audioEditIndex = -1
+                                onCanceled: { timeline.audioEditIndex = -1; timeline.snapGuideMs = -1 }
                                 Rectangle {
                                     anchors.verticalCenter: parent.verticalCenter
                                     x: audioEdge.leading ? 3 : parent.width - width - 3
@@ -784,8 +798,129 @@ FocusScope {
                                 }
                             }
                         }
+
+                        // Fades: the ramps are shaded, and a dot at each top
+                        // corner drags the fade longer or shorter.
+                        readonly property bool fading: timeline.audioFadeIndex === index
+                        readonly property real fadeInMs: fading ? timeline.audioFadeIn : item.fadeInMs || 0
+                        readonly property real fadeOutMs: fading ? timeline.audioFadeOut : item.fadeOutMs || 0
+                        Shape {
+                            id: fadeShape
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            z: 1
+                            preferredRendererType: Shape.CurveRenderer
+                            readonly property real inX: audioBlock.fadeInMs * timeline.pxPerMs
+                            readonly property real outX: width - audioBlock.fadeOutMs * timeline.pxPerMs
+                            ShapePath {
+                                strokeColor: Theme.accent
+                                strokeWidth: 1.5
+                                fillColor: Theme.scrim
+                                startX: 0; startY: fadeShape.height
+                                PathLine { x: 0; y: 0 }
+                                PathLine { x: Math.max(0, fadeShape.inX); y: 0 }
+                                PathLine { x: 0; y: fadeShape.height }
+                            }
+                            ShapePath {
+                                strokeColor: Theme.accent
+                                strokeWidth: 1.5
+                                fillColor: Theme.scrim
+                                startX: fadeShape.width; startY: fadeShape.height
+                                PathLine { x: fadeShape.width; y: 0 }
+                                PathLine { x: Math.min(fadeShape.width, fadeShape.outX); y: 0 }
+                                PathLine { x: fadeShape.width; y: fadeShape.height }
+                            }
+                        }
+                        Repeater {
+                            model: 2
+                            delegate: MouseArea {
+                                id: fadeHandle
+                                required property int index
+                                readonly property bool leading: index === 0
+                                readonly property real centerX: leading ? Math.max(6, audioBlock.fadeInMs * timeline.pxPerMs)
+                                                                        : Math.min(audioBlock.width - 6, audioBlock.width - audioBlock.fadeOutMs * timeline.pxPerMs)
+                                visible: audioBlock.width > 36 && (audioBlock.active || audioMouse.containsMouse || containsMouse || pressed
+                                                                   || (leading ? audioBlock.fadeInMs : audioBlock.fadeOutMs) > 0)
+                                x: centerX - width / 2
+                                y: 0
+                                z: 4
+                                width: 14
+                                height: 12
+                                hoverEnabled: true
+                                preventStealing: true
+                                cursorShape: Qt.SizeHorCursor
+                                property real pressX: 0
+                                onPressed: function(mouse) {
+                                    timeline.forceActiveFocus()
+                                    timeline.audioSelectRequested(audioBlock.index)
+                                    pressX = mapToItem(timeline, mouse.x, 0).x
+                                    timeline.audioFadeIn = audioBlock.item.fadeInMs || 0
+                                    timeline.audioFadeOut = audioBlock.item.fadeOutMs || 0
+                                    timeline.audioFadeIndex = audioBlock.index
+                                }
+                                onPositionChanged: function(mouse) {
+                                    if (!pressed || timeline.audioFadeIndex !== audioBlock.index) return
+                                    var item = audioBlock.item
+                                    var delta = (mapToItem(timeline, mouse.x, 0).x - pressX) / Math.max(timeline.pxPerMs, 0.0001)
+                                    if (leading)
+                                        timeline.audioFadeIn = Math.round(Math.max(0, Math.min(item.lengthMs - timeline.audioFadeOut, (item.fadeInMs || 0) + delta)))
+                                    else
+                                        timeline.audioFadeOut = Math.round(Math.max(0, Math.min(item.lengthMs - timeline.audioFadeIn, (item.fadeOutMs || 0) - delta)))
+                                }
+                                onReleased: {
+                                    if (timeline.audioFadeIndex !== audioBlock.index) return
+                                    timeline.audioFadeIndex = -1
+                                    if (timeline.audioFadeIn !== (audioBlock.item.fadeInMs || 0) || timeline.audioFadeOut !== (audioBlock.item.fadeOutMs || 0))
+                                        timeline.audioFadeRequested(audioBlock.index, timeline.audioFadeIn, timeline.audioFadeOut)
+                                }
+                                onCanceled: timeline.audioFadeIndex = -1
+                                ToolTip.visible: containsMouse && !pressed
+                                ToolTip.delay: 400
+                                ToolTip.text: (leading ? "Fade in" : "Fade out") + " · drag to change"
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: fadeHandle.pressed || fadeHandle.containsMouse ? 10 : 8
+                                    height: width
+                                    radius: width / 2
+                                    color: Theme.accent
+                                    border.color: Theme.accentInk
+                                    border.width: 1
+                                    Behavior on width { NumberAnimation { duration: Theme.fadeFast } }
+                                }
+                                Rectangle {
+                                    visible: fadeHandle.pressed
+                                    x: fadeHandle.leading ? parent.width + 2 : -width - 2
+                                    y: 0
+                                    width: fadeLabel.implicitWidth + 10
+                                    height: 16
+                                    radius: 4
+                                    color: Theme.accent
+                                    Text {
+                                        id: fadeLabel
+                                        anchors.centerIn: parent
+                                        text: ((fadeHandle.leading ? timeline.audioFadeIn : timeline.audioFadeOut) / 1000).toFixed(1) + " s"
+                                        color: Theme.accentInk
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 10
+                                        font.weight: Font.DemiBold
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+            }
+
+            // Snap guide while an audio item is dragged onto a join, the playhead or another item.
+            Rectangle {
+                visible: timeline.snapGuideMs >= 0
+                x: Math.round(timeline.snapGuideMs * timeline.pxPerMs) - 1
+                y: ruler.height
+                z: 9
+                width: 2
+                height: parent.height - ruler.height
+                color: Theme.accent
+                opacity: 0.85
             }
 
             // Pointer-following guide over the track.

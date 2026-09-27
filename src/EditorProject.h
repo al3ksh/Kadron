@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <QVector>
@@ -88,6 +89,8 @@ public:
     // Where the item starts on the sequence and which part of the file plays.
     Q_INVOKABLE bool setAudioPlacement(int index, qint64 startMs, qint64 inMs, qint64 outMs);
     Q_INVOKABLE bool setAudioVolume(int index, double volume);
+    // Fade lengths at the item's start and end; together at most its length.
+    Q_INVOKABLE bool setAudioFades(int index, qint64 fadeInMs, qint64 fadeOutMs);
     Q_INVOKABLE bool removeAudio(int index);
     Q_INVOKABLE void setMusicDuck(bool value);
     Q_INVOKABLE bool openProject(const QUrl &url);
@@ -101,6 +104,17 @@ public:
     Q_INVOKABLE void clearError();
     Q_INVOKABLE bool undo();
     Q_INVOKABLE bool redo();
+
+    // Crash recovery: unsaved work is copied to recoveryPath a minute after
+    // an edit. A normal exit, a save or closing the project removes the copy,
+    // so one that is still there at startup is from a crash.
+    void setRecoveryPath(const QString &path);
+    Q_INVOKABLE void autosaveNow();
+    // {name, savedAt, clipCount} of the copy left behind, or empty.
+    Q_INVOKABLE QVariantMap recoveryInfo() const;
+    // Opens the copy as unsaved work (keeping the original project's path).
+    Q_INVOKABLE bool restoreRecovery();
+    Q_INVOKABLE void discardRecovery();
 
 signals:
     void changed();
@@ -122,6 +136,8 @@ private:
         qint64 inMs = 0;
         qint64 outMs = 0;
         double volume = 0.5;
+        qint64 fadeInMs = 0;
+        qint64 fadeOutMs = 0;
     };
     struct Mix {
         QString transition = QStringLiteral("cut");
@@ -147,6 +163,8 @@ private:
     void resetHistory();
     void probeDurations();
     void applyProbedDuration(const QUrl &url, qint64 durationMs);
+    // The project as JSON, with media paths relative to directory.
+    QByteArray serialize(const QString &directory) const;
 
     QVector<Clip> m_clips;
     int m_activeClipIndex = -1;
@@ -159,4 +177,6 @@ private:
     QVector<Snapshot> m_undo;
     QVector<Snapshot> m_redo;
     Snapshot m_baseline;
+    QString m_recoveryPath;
+    QTimer m_autosave;
 };

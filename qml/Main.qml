@@ -22,7 +22,7 @@ ApplicationWindow {
 
     property bool forceClose: false
     property bool closeAfterSave: false
-    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible
+    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible
     property bool closeAfterSaveProject: false
     property string currentMediaKey: ""
     property int currentClipIndex: -1
@@ -46,13 +46,31 @@ ApplicationWindow {
     property real audioVolumeDrag: -1
     // The selected audio track item, and the one under the playhead for the preview.
     readonly property var activeAudio: editorProject.activeAudioIndex >= 0 ? editorProject.audioItems[editorProject.activeAudioIndex] || null : null
-    readonly property int audioAtPlayhead: {
-        var items = editorProject.audioItems
+    // Two preview players, so two overlapping items are both heard. A slot
+    // keeps its item while it plays on, so nothing reloads mid-sound.
+    property var audioSlots: [-1, -1]
+    function audioIndicesAt(ms) {
+        var items = editorProject.audioItems, found = []
         for (var i = items.length - 1; i >= 0; i--)
-            if (sequencePositionMs >= items[i].startMs && sequencePositionMs < items[i].startMs + items[i].lengthMs) return i
-        return -1
+            if (ms >= items[i].startMs && ms < items[i].startMs + items[i].lengthMs) found.push(i)
+        return found
     }
-    readonly property var playingAudio: audioAtPlayhead >= 0 ? editorProject.audioItems[audioAtPlayhead] : null
+    function slotItem(slot) {
+        var index = audioSlots[slot]
+        return index >= 0 ? editorProject.audioItems[index] || null : null
+    }
+    // Item volume shaped by its fades, and lowered under the clip's own sound.
+    function audioGain(slot) {
+        var item = slotItem(slot)
+        if (!item) return 0
+        var index = audioSlots[slot]
+        var level = audioVolumeDrag >= 0 && index === editorProject.activeAudioIndex ? audioVolumeDrag : item.volume
+        var t = sequencePositionMs - item.startMs
+        if (item.fadeInMs > 0 && t < item.fadeInMs) level *= Math.sin(Math.max(0, t) / item.fadeInMs * Math.PI / 2)
+        var left = item.lengthMs - t
+        if (item.fadeOutMs > 0 && left < item.fadeOutMs) level *= Math.sin(Math.max(0, left) / item.fadeOutMs * Math.PI / 2)
+        return Math.min(1, level) * (editorProject.musicDuck && clipGain > 0 ? 0.4 : 1)
+    }
     // Where "Add audio" puts the chosen file on the sequence.
     property real audioAddMs: 0
     readonly property real clipGain: !activeClip ? 1 : activeClip.muted ? 0 : Math.min(1, clipVolumeDrag >= 0 ? clipVolumeDrag : activeClip.volume)
@@ -77,15 +95,41 @@ ApplicationWindow {
     // Keeps the audio track preview in step with the sequence while it plays.
     function syncMusic() {
         var playing = player.playbackState === MediaPlayer.PlayingState || (sequencePlaying && sequenceAdvancing)
-        if (!playing || !playingAudio || musicPlayer.duration <= 0) {
-            if (musicPlayer.playbackState === MediaPlayer.PlayingState) musicPlayer.pause()
+        if (playing) {
+            var here = audioIndicesAt(sequencePositionMs)
+            var slots = audioSlots.slice()
+            for (var s = 0; s < 2; s++) if (here.indexOf(slots[s]) < 0) slots[s] = -1
+            for (var k = 0; k < here.length; k++) {
+                if (slots.indexOf(here[k]) >= 0) continue
+                var free = slots.indexOf(-1)
+                if (free >= 0) slots[free] = here[k]
+            }
+            if (slots[0] !== audioSlots[0] || slots[1] !== audioSlots[1]) audioSlots = slots
+        }
+        syncAudioPlayer(audioPlayerA, 0, playing)
+        syncAudioPlayer(audioPlayerB, 1, playing)
+    }
+    function syncAudioPlayer(target, slot, playing) {
+        var item = slotItem(slot)
+        if (!playing || !item || target.duration <= 0) {
+            if (target.playbackState === MediaPlayer.PlayingState) target.pause()
             return
         }
-        var target = playingAudio.inMs + sequencePositionMs - playingAudio.startMs
-        if (musicPlayer.playbackState !== MediaPlayer.PlayingState) {
-            musicPlayer.position = target
-            musicPlayer.play()
-        } else if (Math.abs(musicPlayer.position - target) > 400) musicPlayer.position = target
+        var position = item.inMs + sequencePositionMs - item.startMs
+        if (target.playbackState !== MediaPlayer.PlayingState) {
+            target.position = position
+            target.play()
+        } else if (Math.abs(target.position - position) > 400) target.position = position
+    }
+    // A crash left unsaved work behind: offer it once, after the intro.
+    property bool recoveryOffered: false
+    property var recovery: ({})
+    function offerRecovery() {
+        if (recoveryOffered) return
+        recoveryOffered = true
+        recovery = editorProject.recoveryInfo()
+        if (recovery.name && !editorProject.hasMedia) recoveryDialog.open()
+        else if (recovery.name) editorProject.discardRecovery()
     }
     property int inspectorMode: 0
     property int workspace: 0
@@ -105,6 +149,7 @@ ApplicationWindow {
     }
     onInspectorModeChanged: inspectorEnter.restart()
     function revealAfterIntro() {
+        recoveryTimer.start()
         if (workspace === 0) editorEnter.restart()
         else if (workspace === 10) imagesEnter.restart()
         else if (workspace === 11) reframeEnter.restart()
@@ -337,7 +382,11 @@ ApplicationWindow {
         } else applyOpen(url, isProject)
     }
 
-    Component.onCompleted: syncRangeFields()
+    Component.onCompleted: {
+        syncRangeFields()
+        if (!startupIntroActive) recoveryTimer.start()
+    }
+    Timer { id: recoveryTimer; interval: 700; onTriggered: root.offerRecovery() }
     function stopAllWork() {
         exporter.cancel()
         toolsClient.cancel()
@@ -494,6 +543,33 @@ ApplicationWindow {
     }
 
     StudioDialog {
+        id: recoveryDialog
+        objectName: "recoveryDialog"
+        heading: "Restore unsaved work?"
+        message: "Kadron closed before " + (root.recovery.name || "a project") + " was saved. A copy from " + (root.recovery.savedAt || "earlier")
+                 + " has " + (root.recovery.clipCount || 0) + (root.recovery.clipCount === 1 ? " clip." : " clips.")
+        iconName: "undo"
+        EditorButton {
+            text: "Restore"
+            iconName: "undo"
+            primary: true
+            onClicked: {
+                recoveryDialog.close()
+                root.workspace = 0
+                if (editorProject.restoreRecovery()) root.notice = "Unsaved work restored · save it to keep it"
+            }
+        }
+        EditorButton {
+            text: "Discard"
+            danger: true
+            onClicked: {
+                recoveryDialog.close()
+                editorProject.discardRecovery()
+            }
+        }
+    }
+
+    StudioDialog {
         id: closeDialog
         objectName: "closeDialog"
         heading: "Close this project?"
@@ -576,19 +652,20 @@ ApplicationWindow {
         }
     }
 
-    // Music preview: follows the sequence; ducking is approximated by
+    // Audio track preview: follows the sequence; ducking is approximated by
     // lowering it whenever the active clip has sound.
     MediaPlayer {
-        id: musicPlayer
+        id: audioPlayerA
         objectName: "musicPlayer"
-        source: root.playingAudio ? root.playingAudio.url : ""
-        onSourceChanged: root.syncMusic()
+        source: root.slotItem(0) ? root.slotItem(0).url : ""
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia) root.syncMusic()
-        audioOutput: AudioOutput {
-            volume: !root.playingAudio ? 0 : editorVolume.effectiveVolume
-                    * Math.min(1, root.audioVolumeDrag >= 0 && root.audioAtPlayhead === editorProject.activeAudioIndex ? root.audioVolumeDrag : root.playingAudio.volume)
-                    * (editorProject.musicDuck && root.clipGain > 0 ? 0.4 : 1)
-        }
+        audioOutput: AudioOutput { volume: editorVolume.effectiveVolume * root.audioGain(0) }
+    }
+    MediaPlayer {
+        id: audioPlayerB
+        source: root.slotItem(1) ? root.slotItem(1).url : ""
+        onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia) root.syncMusic()
+        audioOutput: AudioOutput { volume: editorVolume.effectiveVolume * root.audioGain(1) }
     }
     Timer {
         interval: 250
@@ -965,10 +1042,12 @@ ApplicationWindow {
                     anchors.bottomMargin: 15
                     clip: true
                     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                    // Always shown when the settings run past the bottom, so it is
+                    // clear there is more below.
                     ScrollBar.vertical: ScrollBar {
                         width: 7
-                        policy: ScrollBar.AsNeeded
-                            contentItem: Rectangle { implicitWidth: 5; radius: 2; color: Theme.scrollThumb }
+                        policy: inspectorScroll.contentHeight > inspectorScroll.availableHeight + 1 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                        contentItem: Rectangle { implicitWidth: 5; radius: 2; color: Theme.scrollThumb }
                     }
                     ColumnLayout {
                     width: inspectorScroll.availableWidth - 7
@@ -1202,6 +1281,13 @@ ApplicationWindow {
                                     horizontalAlignment: Text.AlignRight
                                 }
                             }
+                            Text {
+                                visible: root.activeAudio !== null
+                                text: root.activeAudio ? "Fade in " + (root.activeAudio.fadeInMs / 1000).toFixed(1) + " s · fade out " + (root.activeAudio.fadeOutMs / 1000).toFixed(1) + " s"
+                                                         + (root.activeAudio.fadeInMs + root.activeAudio.fadeOutMs === 0 ? " · drag the dots at the top corners" : "") : ""
+                                color: Theme.textFaint
+                                font.pixelSize: 11
+                            }
                             ToolCheck {
                                 objectName: "musicDuckCheck"
                                 visible: editorProject.audioCount > 0
@@ -1423,6 +1509,7 @@ ApplicationWindow {
                     audioIndex: editorProject.activeAudioIndex
                     onAudioSelectRequested: function(index) { editorProject.selectAudio(index) }
                     onAudioPlaceRequested: function(index, startMs, inMs, outMs) { editorProject.setAudioPlacement(index, startMs, inMs, outMs) }
+                    onAudioFadeRequested: function(index, fadeInMs, fadeOutMs) { editorProject.setAudioFades(index, fadeInMs, fadeOutMs) }
                     onAudioRemoveRequested: function(index) { editorProject.removeAudio(index) }
                     onAudioAddRequested: function(startMs) {
                         root.audioAddMs = startMs

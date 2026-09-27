@@ -29,6 +29,7 @@
 #include <QScreen>
 #include <QTemporaryDir>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTextStream>
 
 Q_IMPORT_QML_PLUGIN(KadronPlugin)
@@ -87,6 +88,10 @@ int main(int argc, char *argv[])
         return 0;
 
     EditorProject project;
+    // Screenshot runs never leave or pick up a crash-recovery copy.
+    if (!qEnvironmentVariableIsSet("KADRON_SCREENSHOT"))
+        project.setRecoveryPath(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/recovery.kadr");
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &project, &EditorProject::discardRecovery);
     ExportController exporter;
     ThumbnailStrip thumbnails;
     ToolsClient toolsClient;

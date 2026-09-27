@@ -576,8 +576,29 @@ void CoreTests::sequenceExport()
     QVERIFY(project.removeAudio(1));
     QCOMPARE(project.audioCount(), 1);
     QCOMPARE(project.activeAudioIndex(), -1);
+    QVERIFY(project.setAudioFades(0, 300, 400));
+    QVERIFY(project.setAudioFades(0, 300, 5000));
+    QCOMPARE(project.audioItems().at(0).toMap().value("fadeOutMs").toLongLong(), 800);
+    QVERIFY(project.setAudioFades(0, 300, 400));
+
+    // Unsaved work is copied aside; a later session can restore it, and a save removes it.
+    const auto recoveryPath = directory.path() + "/recovery/recovery.kadr";
+    project.setRecoveryPath(recoveryPath);
+    project.autosaveNow();
+    QVERIFY(QFileInfo(recoveryPath).isFile());
+    EditorProject recovered;
+    recovered.setRecoveryPath(recoveryPath);
+    QCOMPARE(recovered.recoveryInfo().value("clipCount").toInt(), project.clipCount());
+    QVERIFY(recovered.restoreRecovery());
+    QVERIFY(recovered.dirty());
+    QCOMPARE(recovered.clips(), project.clips());
+    QCOMPARE(recovered.audioItems(), project.audioItems());
+    QVERIFY(recovered.projectUrl().isEmpty());
+
     const auto projectPath = directory.path() + "/mix.kadr";
     QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
+    QVERIFY(!QFileInfo(recoveryPath).exists());
+    QVERIFY(recovered.recoveryInfo().isEmpty());
     EditorProject reopened;
     QVERIFY(reopened.openProject(QUrl::fromLocalFile(projectPath)));
     QCOMPARE(reopened.transition(), QString("crossfade"));
@@ -588,6 +609,8 @@ void CoreTests::sequenceExport()
     QCOMPARE(reopenedAudio.value("inMs").toLongLong(), 100);
     QCOMPARE(reopenedAudio.value("outMs").toLongLong(), 1200);
     QCOMPARE(reopenedAudio.value("volume").toDouble(), 0.8);
+    QCOMPARE(reopenedAudio.value("fadeInMs").toLongLong(), 300);
+    QCOMPARE(reopenedAudio.value("fadeOutMs").toLongLong(), 400);
     QCOMPARE(reopened.clips().at(0).toMap().value("volume").toDouble(), 1.5);
     QCOMPARE(reopened.clips().at(1).toMap().value("muted").toBool(), true);
 

@@ -186,10 +186,15 @@ QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossf
         for (int j = 0; j < beds.size(); ++j) {
             const auto &bed = beds.at(j);
             const auto length = bed.outMs - bed.inMs;
+            // At least a few ms at each end so a cut never clicks.
+            const auto fadeIn = qBound<qint64>(20, bed.fadeInMs, length / 2);
+            const auto fadeOut = qBound<qint64>(20, bed.fadeOutMs, length / 2);
             parts << QStringLiteral("[%1:a]atrim=start=%2:end=%3,asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,"
-                                    "volume=%4,afade=t=in:d=0.02,afade=t=out:st=%5:d=0.02,adelay=delays=%6:all=1[bed%7]")
-                         .arg(firstAudioInput + j).arg(seconds(bed.inMs), seconds(bed.outMs), QString::number(bed.volume, 'f', 3),
-                                                       seconds(qMax<qint64>(0, length - 20)), QString::number(bed.startMs)).arg(j);
+                                    "volume=%4,afade=t=in:d=%5:curve=hsin,afade=t=out:st=%6:d=%7:curve=hsin,adelay=delays=%8:all=1[bed%9]")
+                         .arg(firstAudioInput + j)
+                         .arg(seconds(bed.inMs), seconds(bed.outMs), QString::number(bed.volume, 'f', 3), seconds(fadeIn),
+                              seconds(qMax<qint64>(0, length - fadeOut)), seconds(fadeOut), QString::number(bed.startMs))
+                         .arg(j);
             inputs += QStringLiteral("[bed%1]").arg(j);
             crossesEnd = crossesEnd || bed.startMs + length > total;
         }
@@ -353,7 +358,8 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
             return false;
         }
         AudioBed bed{qMax<qint64>(0, item.value("startMs").toLongLong()), qMax<qint64>(0, item.value("inMs").toLongLong()),
-                     item.value("outMs").toLongLong(), qBound(0.0, item.value("volume", 1.0).toDouble(), 2.0)};
+                     item.value("outMs").toLongLong(), qBound(0.0, item.value("volume", 1.0).toDouble(), 2.0),
+                     qMax<qint64>(0, item.value("fadeInMs").toLongLong()), qMax<qint64>(0, item.value("fadeOutMs").toLongLong())};
         if (bed.outMs - bed.inMs < 20)
             continue;
         if (transition == "crossfade") {
