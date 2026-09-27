@@ -84,12 +84,32 @@ Item {
         for (var i = pageModel.count - 1; i >= 0; i--) if (pageModel.get(i).selected) pageModel.remove(i)
         pdfEdited = true
     }
-    function openPagePreview(page, rotation) {
-        pagePreview.page = page
-        pagePreview.pageRotation = rotation
-        pagePreview.image = localPdf.pageImages[page - 1] || ""
+    // The large preview shows one card of the board; it can step through the
+    // cards and rotate or remove the one it shows.
+    function openPagePreview(index) {
+        showPreviewAt(index)
         pagePreview.open()
-        localPdf.renderPreview(page)
+    }
+    function showPreviewAt(index) {
+        if (index < 0 || index >= pageModel.count) return
+        var item = pageModel.get(index)
+        pagePreview.index = index
+        pagePreview.page = item.page
+        pagePreview.pageRotation = item.rotation
+        pagePreview.image = localPdf.pageImages[item.page - 1] || ""
+        localPdf.renderPreview(item.page)
+    }
+    function rotatePage(index, angle) {
+        pageModel.setProperty(index, "rotation", pageModel.get(index).rotation + angle)
+        pdfEdited = true
+        if (pagePreview.opened && pagePreview.index === index) pagePreview.pageRotation = pageModel.get(index).rotation
+    }
+    function removePage(index) {
+        if (pageModel.count <= 1) return
+        pageModel.remove(index)
+        pdfEdited = true
+        countSelected()
+        if (pagePreview.opened) showPreviewAt(Math.min(index, pageModel.count - 1))
     }
     function openPdfSave() {
         var base = pdfFiles.length > 0 ? decodeURIComponent(filename(pdfFiles[0])).replace(/\.[^.]+$/, "") : "document"
@@ -343,6 +363,7 @@ Item {
     }
     Popup {
         id: pagePreview
+        property int index: 0
         property int page: 1
         property int pageRotation: 0
         property url image
@@ -356,18 +377,78 @@ Item {
         enter: Transition { ParallelAnimation { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.reveal } SnapSpring { property: "scale"; from: 0.94; to: 1 } } }
         exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.fadeFast } }
         background: Rectangle { color: Theme.card; radius: Theme.radiusLarge; border.color: Theme.lineStrong }
-        contentItem: Item {
-            Image {
-                anchors.centerIn: parent
-                readonly property bool sideways: ((pagePreview.pageRotation % 180) + 180) % 180 === 90
-                width: sideways ? parent.height : parent.width
-                height: sideways ? parent.width : parent.height - 30
-                source: pagePreview.image
-                fillMode: Image.PreserveAspectFit
-                rotation: pagePreview.pageRotation
-                asynchronous: true
+        Shortcut { enabled: pagePreview.opened; sequences: [StandardKey.MoveToPreviousChar, "PgUp"]; onActivated: toolsPage.showPreviewAt(pagePreview.index - 1) }
+        Shortcut { enabled: pagePreview.opened; sequences: [StandardKey.MoveToNextChar, "PgDown"]; onActivated: toolsPage.showPreviewAt(pagePreview.index + 1) }
+        Shortcut { enabled: pagePreview.opened; sequence: "R"; onActivated: toolsPage.rotatePage(pagePreview.index, 90) }
+        Shortcut { enabled: pagePreview.opened; sequence: "Shift+R"; onActivated: toolsPage.rotatePage(pagePreview.index, -90) }
+        Shortcut { enabled: pagePreview.opened; sequence: StandardKey.Delete; onActivated: toolsPage.removePage(pagePreview.index) }
+        contentItem: ColumnLayout {
+            spacing: 10
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                Image {
+                    anchors.centerIn: parent
+                    readonly property bool sideways: ((pagePreview.pageRotation % 180) + 180) % 180 === 90
+                    width: sideways ? parent.height : parent.width
+                    height: sideways ? parent.width : parent.height
+                    source: pagePreview.image
+                    fillMode: Image.PreserveAspectFit
+                    rotation: pagePreview.pageRotation
+                    Behavior on rotation { SnapSpring { epsilon: 0.2 } }
+                    asynchronous: true
+                }
+                // Previous and next, over the page edges.
+                Repeater {
+                    model: [[-1, "Previous page (←)"], [1, "Next page (→)"]]
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool available: modelData[0] < 0 ? pagePreview.index > 0 : pagePreview.index < pageModel.count - 1
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: modelData[0] < 0 ? 8 : parent.width - width - 8
+                        width: 40
+                        height: 40
+                        radius: 20
+                        visible: available
+                        color: stepMouse.containsMouse ? Theme.pressed : Theme.chipScrim
+                        ToolIcon { anchors.centerIn: parent; width: 18; height: 18; name: "chevron"; rotation: parent.modelData[0] < 0 ? 90 : -90; tint: "#f1f4ef" }
+                        MouseArea {
+                            id: stepMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: toolsPage.showPreviewAt(pagePreview.index + parent.modelData[0])
+                        }
+                        ToolTip.visible: stepMouse.containsMouse
+                        ToolTip.delay: 400
+                        ToolTip.text: modelData[1]
+                    }
+                }
             }
-            Text { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; text: "Page " + pagePreview.page + " · Esc to close"; color: Theme.textMuted; font.pixelSize: 12 }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                Text {
+                    objectName: "pagePreviewLabel"
+                    text: "Page " + (pagePreview.index + 1) + " of " + pageModel.count
+                          + (pagePreview.page !== pagePreview.index + 1 ? "  ·  page " + pagePreview.page + " of the original" : "")
+                    color: Theme.text
+                    font.pixelSize: 13
+                    font.weight: Font.DemiBold
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "←/→ pages · R rotate · Del remove · Esc close"
+                    color: Theme.textFaint
+                    font.pixelSize: 11
+                    elide: Text.ElideRight
+                    horizontalAlignment: Text.AlignRight
+                }
+                EditorButton { iconName: "rotateLeft"; subtle: true; onClicked: toolsPage.rotatePage(pagePreview.index, -90); ToolTip.visible: hovered; ToolTip.text: "Rotate left (Shift+R)" }
+                EditorButton { iconName: "rotateRight"; subtle: true; onClicked: toolsPage.rotatePage(pagePreview.index, 90); ToolTip.visible: hovered; ToolTip.text: "Rotate right (R)" }
+                EditorButton { iconName: "trash"; danger: true; subtle: true; enabled: pageModel.count > 1; onClicked: toolsPage.removePage(pagePreview.index); ToolTip.visible: hovered; ToolTip.text: "Remove this page (Del)" }
+            }
         }
     }
     FileDialog {
@@ -1047,6 +1128,8 @@ Item {
                                     font.pixelSize: 11
                                     font.weight: Font.DemiBold
                                 }
+                                // Unlike cardMouse, stays hovered while the pointer is on the page buttons.
+                                HoverHandler { id: cardHover }
                                 MouseArea {
                                     id: cardMouse
                                     anchors.fill: parent
@@ -1054,7 +1137,7 @@ Item {
                                     drag.target: pageCard
                                     cursorShape: pageCard.dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
                                     onClicked: pageModel.setProperty(slot.index, "selected", !slot.selected)
-                                    onDoubleClicked: toolsPage.openPagePreview(slot.page, slot.rotation)
+                                    onDoubleClicked: toolsPage.openPagePreview(slot.index)
                                     onReleased: pageCard.Drag.drop()
                                 }
                                 // Per-page actions on hover.
@@ -1063,29 +1146,29 @@ Item {
                                     anchors.right: parent.right
                                     anchors.margins: 6
                                     spacing: 2
-                                    opacity: cardMouse.containsMouse && !pageCard.dragging ? 1 : 0
+                                    opacity: cardHover.hovered && !pageCard.dragging ? 1 : 0
                                     Behavior on opacity { NumberAnimation { duration: Theme.fadeFast } }
                                     Repeater {
-                                        model: [["rotateLeft", -90], ["rotateRight", 90], ["trash", 0]]
+                                        model: [["rotateLeft", -90, "Rotate left"], ["rotateRight", 90, "Rotate right"], ["zoom", 0, "View larger"], ["trash", 0, "Remove page"]]
                                         delegate: Rectangle {
                                             required property var modelData
                                             width: 26
                                             height: 26
                                             radius: 7
-                                            color: actionMouse.containsMouse ? Theme.pressed : Theme.chipScrim
-                                            ToolIcon { anchors.centerIn: parent; width: 15; height: 15; name: parent.modelData[0]; tint: parent.modelData[0] === "trash" ? Theme.danger : Theme.text }
+                                            color: actionMouse.containsMouse ? (modelData[0] === "trash" ? Theme.dangerStrong : Theme.pressed) : Theme.chipScrim
+                                            ToolTip.visible: actionMouse.containsMouse
+                                            ToolTip.delay: 400
+                                            ToolTip.text: modelData[2]
+                                            ToolIcon { anchors.centerIn: parent; width: 15; height: 15; name: parent.modelData[0]; tint: parent.modelData[0] === "trash" && !actionMouse.containsMouse ? Theme.danger : "#f1f4ef" }
                                             MouseArea {
                                                 id: actionMouse
                                                 anchors.fill: parent
                                                 hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: {
-                                                    if (parent.modelData[0] === "trash") {
-                                                        if (pageModel.count > 1) { pageModel.remove(slot.index); toolsPage.pdfEdited = true }
-                                                    } else {
-                                                        pageModel.setProperty(slot.index, "rotation", slot.rotation + parent.modelData[1])
-                                                        toolsPage.pdfEdited = true
-                                                    }
+                                                    if (parent.modelData[0] === "trash") toolsPage.removePage(slot.index)
+                                                    else if (parent.modelData[0] === "zoom") toolsPage.openPagePreview(slot.index)
+                                                    else toolsPage.rotatePage(slot.index, parent.modelData[1])
                                                 }
                                             }
                                         }

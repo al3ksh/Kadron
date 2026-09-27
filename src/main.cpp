@@ -248,6 +248,14 @@ int main(int argc, char *argv[])
                     QMetaObject::invokeMethod(tools, "takePdfFiles", Q_ARG(QVariant, QVariant(files)));
                 }
             });
+            // Opens the large page view once the pages are rendered.
+            if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_PDF_PREVIEW")) {
+                const auto index = qEnvironmentVariableIntValue("KADRON_SCREENSHOT_PDF_PREVIEW");
+                QTimer::singleShot(2500, &app, [mainWindow, index] {
+                    if (auto *tools = mainWindow->findChild<QObject *>("toolsArea"))
+                        QMetaObject::invokeMethod(tools, "openPagePreview", Q_ARG(QVariant, index));
+                });
+            }
         }
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_FILES")) {
             QVariantList files;
