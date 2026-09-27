@@ -28,11 +28,12 @@ class EditorProject final : public QObject
     // How clips meet: "cut", "fade" (through black) or "crossfade".
     Q_PROPERTY(QString transition READ transition NOTIFY changed)
     Q_PROPERTY(int transitionMs READ transitionMs NOTIFY changed)
-    // A music track under the whole sequence, looped and faded out at the end.
-    Q_PROPERTY(QUrl musicUrl READ musicUrl NOTIFY changed)
-    Q_PROPERTY(QString musicName READ musicName NOTIFY changed)
-    Q_PROPERTY(double musicVolume READ musicVolume NOTIFY changed)
-    // Lower the music while the clips have sound (speech).
+    // The audio track under the clips: music or sounds, each placed at a
+    // sequence time and trimmed like a clip.
+    Q_PROPERTY(QVariantList audioItems READ audioItems NOTIFY changed)
+    Q_PROPERTY(int audioCount READ audioCount NOTIFY changed)
+    Q_PROPERTY(int activeAudioIndex READ activeAudioIndex NOTIFY changed)
+    // Lower the audio track while the clips have sound (speech).
     Q_PROPERTY(bool musicDuck READ musicDuck NOTIFY changed)
     // Whether an export needs the full sequence pipeline rather than a plain trim.
     Q_PROPERTY(bool mixed READ mixed NOTIFY changed)
@@ -58,9 +59,9 @@ public:
     QString errorText() const;
     QString transition() const;
     int transitionMs() const;
-    QUrl musicUrl() const;
-    QString musicName() const;
-    double musicVolume() const;
+    QVariantList audioItems() const;
+    int audioCount() const;
+    int activeAudioIndex() const;
     bool musicDuck() const;
     bool mixed() const;
     // Transition and music settings for ExportController::startSequence.
@@ -80,9 +81,14 @@ public:
     Q_INVOKABLE bool setClipMuted(int index, bool muted);
     Q_INVOKABLE bool setTransition(const QString &kind);
     Q_INVOKABLE void setTransitionMs(int value);
-    Q_INVOKABLE bool setMusic(const QUrl &url);
-    Q_INVOKABLE void clearMusic();
-    Q_INVOKABLE void setMusicVolume(double value);
+    // Adds a file to the audio track at startMs and selects it; returns its index or -1.
+    Q_INVOKABLE int addAudio(const QUrl &url, qint64 startMs);
+    // -1 clears the selection.
+    Q_INVOKABLE bool selectAudio(int index);
+    // Where the item starts on the sequence and which part of the file plays.
+    Q_INVOKABLE bool setAudioPlacement(int index, qint64 startMs, qint64 inMs, qint64 outMs);
+    Q_INVOKABLE bool setAudioVolume(int index, double volume);
+    Q_INVOKABLE bool removeAudio(int index);
     Q_INVOKABLE void setMusicDuck(bool value);
     Q_INVOKABLE bool openProject(const QUrl &url);
     // Back to an empty editor: no clips, no project file, no history.
@@ -109,11 +115,18 @@ private:
         double volume = 1.0;
         bool muted = false;
     };
+    struct AudioItem {
+        QUrl mediaUrl;
+        qint64 durationMs = 0;
+        qint64 startMs = 0;
+        qint64 inMs = 0;
+        qint64 outMs = 0;
+        double volume = 0.5;
+    };
     struct Mix {
         QString transition = QStringLiteral("cut");
         int transitionMs = 500;
-        QUrl musicUrl;
-        double musicVolume = 0.35;
+        QVector<AudioItem> audio;
         bool musicDuck = true;
     };
     const Clip *active() const;
@@ -137,6 +150,7 @@ private:
 
     QVector<Clip> m_clips;
     int m_activeClipIndex = -1;
+    int m_activeAudioIndex = -1;
     Mix m_mix;
     QUrl m_projectUrl;
     bool m_dirty = false;

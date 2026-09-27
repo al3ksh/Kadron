@@ -145,8 +145,8 @@ QSize ExportController::canvasFor(int width, int height)
     return {qMax(2, qRound(width * ratio / 2) * 2), qMax(2, qRound(height * ratio / 2) * 2)};
 }
 
-QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int musicInput,
-                                     double musicVolume, bool duck)
+QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int firstAudioInput,
+                                     const QVector<AudioBed> &beds, bool duck)
 {
     const auto seconds = [](qint64 milliseconds) { return QString::number(milliseconds / 1000.0, 'f', 3); };
     QStringList parts;
@@ -164,7 +164,7 @@ QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossf
         for (int i = 1; i < count; ++i) {
             const bool last = i + 1 == count;
             const auto nextVideo = last ? QStringLiteral("[v]") : QStringLiteral("[v%1]").arg(i);
-            const auto nextAudio = last ? (musicInput < 0 ? QStringLiteral("[a]") : QStringLiteral("[joined]"))
+            const auto nextAudio = last ? (beds.isEmpty() ? QStringLiteral("[a]") : QStringLiteral("[joined]"))
                                         : QStringLiteral("[a%1]").arg(i);
             // Eased rather than linear: the blend starts and settles gently.
             // The sound crossfades at equal power, with no dip in the middle.
@@ -178,13 +178,30 @@ QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossf
         }
         total = joined;
     }
-    if (musicInput >= 0) {
-        // Looped music cut to the video, eased in and faded out over the last seconds.
-        const auto fadeOut = qMin<qint64>(2000, total / 3);
-        parts << QStringLiteral("[%1:a]atrim=duration=%2,asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,"
-                                "volume=%3,afade=t=in:d=0.3,afade=t=out:st=%4:d=%5:curve=hsin[music]")
-                     .arg(musicInput).arg(seconds(total), QString::number(musicVolume, 'f', 3),
-                                          seconds(total - fadeOut), seconds(fadeOut));
+    if (!beds.isEmpty()) {
+        // Each bed is cut to its range, de-clicked at both ends and delayed to
+        // its place; together they make one track as long as the video.
+        QString inputs;
+        bool crossesEnd = false;
+        for (int j = 0; j < beds.size(); ++j) {
+            const auto &bed = beds.at(j);
+            const auto length = bed.outMs - bed.inMs;
+            parts << QStringLiteral("[%1:a]atrim=start=%2:end=%3,asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,"
+                                    "volume=%4,afade=t=in:d=0.02,afade=t=out:st=%5:d=0.02,adelay=delays=%6:all=1[bed%7]")
+                         .arg(firstAudioInput + j).arg(seconds(bed.inMs), seconds(bed.outMs), QString::number(bed.volume, 'f', 3),
+                                                       seconds(qMax<qint64>(0, length - 20)), QString::number(bed.startMs)).arg(j);
+            inputs += QStringLiteral("[bed%1]").arg(j);
+            crossesEnd = crossesEnd || bed.startMs + length > total;
+        }
+        if (beds.size() > 1)
+            parts << QStringLiteral("%1amix=inputs=%2:duration=longest:normalize=0[bus]").arg(inputs).arg(beds.size());
+        const auto bus = beds.size() > 1 ? QStringLiteral("[bus]") : inputs;
+        // Sound still playing when the video ends fades out instead of cutting off.
+        const auto fadeOut = qMin<qint64>(1500, total / 3);
+        parts << QStringLiteral("%1apad,atrim=duration=%2%3[music]")
+                     .arg(bus, seconds(total), crossesEnd ? QStringLiteral(",afade=t=out:st=%1:d=%2:curve=hsin")
+                                                                .arg(seconds(total - fadeOut), seconds(fadeOut))
+                                                          : QString());
         if (duck) {
             // The clips' own sound pushes the music down while it plays.
             parts << QStringLiteral("%1asplit=2[voice][key]").arg(audio);
@@ -311,12 +328,6 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
         segments.append(segment);
         totalMs += out - in;
     }
-    const auto musicUrl = options.value("musicUrl").toUrl();
-    const auto musicPath = musicUrl.isLocalFile() ? QFileInfo(musicUrl.toLocalFile()).absoluteFilePath() : QString();
-    if (!musicUrl.isEmpty() && (musicPath.isEmpty() || !QFileInfo(musicPath).isFile())) {
-        fail(QStringLiteral("The music file is missing."));
-        return false;
-    }
     auto transition = options.value("transition", "cut").toString();
     auto transitionMs = qBound(100, options.value("transitionMs", 500).toInt(), 3000);
     if (transition == "crossfade") {
@@ -328,6 +339,37 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
     }
     if (segments.size() < 2 || transitionMs < 100 || (transition != "fade" && transition != "crossfade"))
         transition = QStringLiteral("cut");
+    // Audio track positions are in sequence time; crossfades pull every clip
+    // after a join earlier by the overlap, and the track moves with them.
+    const auto finalMs = totalMs - (transition == "crossfade" ? (segments.size() - 1) * transitionMs : 0);
+    QStringList audioPaths;
+    QVector<AudioBed> audioBeds;
+    for (const auto &entry : options.value("audio").toList()) {
+        const auto item = entry.toMap();
+        const auto url = item.value("url").toUrl();
+        const QFileInfo info(url.toLocalFile());
+        if (!url.isLocalFile() || !info.isFile()) {
+            fail(QStringLiteral("An audio track file is missing: %1").arg(url.toLocalFile()));
+            return false;
+        }
+        AudioBed bed{qMax<qint64>(0, item.value("startMs").toLongLong()), qMax<qint64>(0, item.value("inMs").toLongLong()),
+                     item.value("outMs").toLongLong(), qBound(0.0, item.value("volume", 1.0).toDouble(), 2.0)};
+        if (bed.outMs - bed.inMs < 20)
+            continue;
+        if (transition == "crossfade") {
+            qint64 clipStart = 0;
+            int joins = 0;
+            for (int i = 1; i < segments.size(); ++i) {
+                clipStart += segments.at(i - 1).outMs - segments.at(i - 1).inMs;
+                if (bed.startMs >= clipStart) joins = i;
+            }
+            bed.startMs = qMax<qint64>(0, bed.startMs - joins * transitionMs);
+        }
+        if (bed.startMs >= finalMs - 20)
+            continue;
+        audioPaths << info.absoluteFilePath();
+        audioBeds << bed;
+    }
     auto directory = std::make_unique<QTemporaryDir>(outputInfo.absolutePath() + "/.kadron-sequence-XXXXXX");
     if (!directory->isValid()) {
         fail(QStringLiteral("Could not create temporary export files beside the output."));
@@ -342,11 +384,11 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
     m_rangeMs = totalMs;
     m_transition = transition;
     m_transitionMs = transitionMs;
-    m_musicPath = musicPath;
-    m_musicVolume = qBound(0.0, options.value("musicVolume", 0.35).toDouble(), 1.0);
+    m_audioPaths = audioPaths;
+    m_audioBeds = audioBeds;
     m_musicDuck = options.value("musicDuck", true).toBool();
     m_encodeShare = transition == "crossfade" ? 50 : 90;
-    m_finalMs = totalMs - (transition == "crossfade" ? (segments.size() - 1) * transitionMs : 0);
+    m_finalMs = finalMs;
     m_completedMs = 0;
     m_segmentIndex = 0;
     m_canvasWidth = 0;
@@ -494,7 +536,7 @@ void ExportController::concatSegments()
     m_process.start(m_ffmpeg, {
         "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1",
         "-safe", "0", "-f", "concat", "-i", listPath,
-        "-c", "copy", "-movflags", "+faststart", "-y", m_musicPath.isEmpty() ? m_partialPath : joinedPath()
+        "-c", "copy", "-movflags", "+faststart", "-y", m_audioBeds.isEmpty() ? m_partialPath : joinedPath()
     });
 }
 
@@ -502,7 +544,7 @@ void ExportController::concatSegments()
 void ExportController::startFinal()
 {
     m_phase = Phase::Final;
-    m_stage = m_musicPath.isEmpty() ? QStringLiteral("Joining clips") : QStringLiteral("Mixing music");
+    m_stage = m_audioBeds.isEmpty() ? QStringLiteral("Joining clips") : QStringLiteral("Mixing the audio track");
     m_errorBuffer.clear();
     m_progressBuffer.clear();
     const bool crossfade = m_transition == "crossfade";
@@ -517,10 +559,10 @@ void ExportController::startFinal()
         args << "-i" << joinedPath();
         lengths = {m_finalMs};
     }
-    const int musicInput = m_musicPath.isEmpty() ? -1 : (crossfade ? m_segments.size() : 1);
-    if (musicInput >= 0)
-        args << "-stream_loop" << "-1" << "-i" << m_musicPath;
-    args << "-filter_complex" << mixFilter(lengths, crossfade ? m_transitionMs : 0, musicInput, m_musicVolume, m_musicDuck);
+    const int firstAudioInput = crossfade ? m_segments.size() : 1;
+    for (const auto &path : std::as_const(m_audioPaths))
+        args << "-i" << path;
+    args << "-filter_complex" << mixFilter(lengths, crossfade ? m_transitionMs : 0, firstAudioInput, m_audioBeds, m_musicDuck);
     if (crossfade)
         args << "-map" << "[v]" << videoCodecArgs(m_activeEncoder, false) << "-r" << "30";
     else
@@ -663,7 +705,7 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
     if (exitStatus != QProcess::NormalExit || exitCode != 0
         || !(m_phase == Phase::Encode
              ? QFileInfo(segmentPath(m_segmentIndex)).size() > 0
-             : m_phase == Phase::Concat && !m_musicPath.isEmpty() ? QFileInfo(joinedPath()).size() > 0
+             : m_phase == Phase::Concat && !m_audioBeds.isEmpty() ? QFileInfo(joinedPath()).size() > 0
              : QFileInfo(m_partialPath).isFile() && QFileInfo(m_partialPath).size() > 0)) {
         const bool reencodes = m_phase == Phase::Single || m_phase == Phase::Encode
             || (m_phase == Phase::Final && m_transition == "crossfade");
@@ -692,7 +734,7 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
         encodeNext();
         return;
     }
-    if (m_phase == Phase::Concat && !m_musicPath.isEmpty()) {
+    if (m_phase == Phase::Concat && !m_audioBeds.isEmpty()) {
         startFinal();
         return;
     }

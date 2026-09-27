@@ -15,9 +15,11 @@ FocusScope {
     property bool playing: false
     property var thumbnailSource: null
     property real zoom: 1
-    // Marks on the joins when clips fade or crossfade, and a lane for music.
+    // Marks on the joins when clips fade or crossfade.
     property string transition: "cut"
-    property string musicName: ""
+    // The audio track under the clips: items placed at a sequence time.
+    property var audioItems: []
+    property int audioIndex: -1
 
     signal scrubRequested(real sequenceMs)
     signal scrubFinished()
@@ -29,6 +31,11 @@ FocusScope {
     signal splitRequested()
     signal duplicateRequested(int index)
     signal removeRequested(int index)
+    signal audioSelectRequested(int index)
+    signal audioPlaceRequested(int index, real startMs, real inMs, real outMs)
+    signal audioRemoveRequested(int index)
+    signal audioAddRequested(real startMs)
+    signal audioDropped(var urls, real startMs)
 
     readonly property real totalMs: {
         var total = 0
@@ -70,7 +77,31 @@ FocusScope {
     property bool trimLeading: false
     property real trimInMs: 0
     property real trimOutMs: 0
-    function cancelTrim() { trimIndex = -1 }
+    function cancelTrim() { trimIndex = -1; audioEditIndex = -1 }
+
+    // Audio track edits are previewed the same way: startMs/inMs/outMs of the
+    // item being moved or trimmed, committed on release.
+    property int audioEditIndex: -1
+    property real audioEditStart: 0
+    property real audioEditIn: 0
+    property real audioEditOut: 0
+    // Pulls a time to a nearby join, the playhead, the ends or another audio item.
+    function snapMs(ms, skipIndex) {
+        var reach = 8 / Math.max(pxPerMs, 0.0001)
+        var points = [0, totalMs, playheadMs].concat(starts)
+        for (var i = 0; i < audioItems.length; i++) {
+            if (i === skipIndex) continue
+            points.push(audioItems[i].startMs, audioItems[i].startMs + audioItems[i].lengthMs)
+        }
+        var best = ms, distance = reach
+        for (var k = 0; k < points.length; k++) {
+            if (Math.abs(points[k] - ms) < distance) {
+                distance = Math.abs(points[k] - ms)
+                best = points[k]
+            }
+        }
+        return best
+    }
 
     // The drawn playhead eases toward the requested position unless playback
     // is driving it, so scrubbing reads as one continuous motion.
@@ -126,7 +157,8 @@ FocusScope {
         else if (event.key === Qt.Key_Right) timeline.scrubRequested(Math.min(totalMs, playheadMs + step))
         else if (event.key === Qt.Key_Home) timeline.scrubRequested(0)
         else if (event.key === Qt.Key_End) timeline.scrubRequested(totalMs)
-        else if (event.key === Qt.Key_Escape && trimIndex >= 0) { cancelTrim(); event.accepted = true; return }
+        else if (event.key === Qt.Key_Escape && (trimIndex >= 0 || audioEditIndex >= 0)) { cancelTrim(); event.accepted = true; return }
+        else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && audioIndex >= 0) timeline.audioRemoveRequested(audioIndex)
         else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && clips.length > 1) timeline.removeRequested(activeIndex)
         else return
         if (event.key !== Qt.Key_Delete && event.key !== Qt.Key_Backspace) timeline.scrubFinished()
@@ -213,7 +245,7 @@ FocusScope {
                 id: track
                 y: ruler.height + 6
                 width: parent.width
-                height: parent.height - y - (timeline.musicName ? musicLane.height + 4 : 0)
+                height: parent.height - y - (audioLane.visible ? audioLane.height + 4 : 0)
 
                 Repeater {
                     model: timeline.clips.length
@@ -274,6 +306,14 @@ FocusScope {
                                 width: parent.width
                                 height: block.audioOnly ? parent.height : 26
                                 color: block.active ? Theme.waveActive : Theme.field
+                                // Silence reads as a flat line rather than an empty lane.
+                                Rectangle {
+                                    width: parent.width
+                                    height: 1
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    color: Theme.waveInk
+                                    opacity: block.clip.muted ? 0.12 : 0.3
+                                }
                                 Image {
                                     x: -block.clip.inMs * timeline.pxPerMs
                                     width: block.clip.durationMs * timeline.pxPerMs
@@ -523,29 +563,227 @@ FocusScope {
                 }
             }
 
-            // Music under the sequence.
+            // Audio track: music and sounds placed anywhere under the clips.
+            // Anything past the end of the video is cut off, so the lane is too.
             Rectangle {
-                id: musicLane
-                visible: timeline.musicName.length > 0
+                id: audioLane
+                objectName: "audioLane"
+                visible: timeline.clips.length > 0
                 y: track.y + track.height + 4
                 width: Math.max(3, timeline.totalMs * timeline.pxPerMs - 1)
-                height: 20
+                height: 26
                 radius: Theme.radiusSmall
-                color: Theme.field
-                border.color: Theme.lineStrong
+                color: laneDrop.containsDrag ? Theme.selectionFill : Theme.field
+                border.color: laneDrop.containsDrag ? Theme.accent : Theme.line
                 clip: true
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
+                    onPressed: timeline.forceActiveFocus()
+                    onClicked: function(mouse) {
+                        timeline.audioSelectRequested(-1)
+                        timeline.scrubRequested(timeline.msAt(mouse.x))
+                        timeline.scrubFinished()
+                    }
+                    onDoubleClicked: function(mouse) { timeline.audioAddRequested(timeline.msAt(mouse.x)) }
+                }
+                DropArea {
+                    id: laneDrop
+                    anchors.fill: parent
+                    keys: ["text/uri-list"]
+                    onDropped: function(drop) {
+                        if (drop.urls.length > 0) timeline.audioDropped(drop.urls, timeline.msAt(drop.x))
+                        drop.accept()
+                    }
+                }
                 Row {
-                    x: Math.max(6, flick.contentX + 6)
+                    visible: timeline.audioItems.length === 0
+                    x: Math.max(8, flick.contentX + 8)
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 6
-                    ToolIcon { name: "music"; tint: Theme.accent; width: 13; height: 13; anchors.verticalCenter: parent.verticalCenter }
+                    ToolIcon { name: "music"; tint: Theme.textFaint; width: 12; height: 12; anchors.verticalCenter: parent.verticalCenter }
                     Text {
-                        text: timeline.musicName
-                        color: Theme.textSoft
+                        text: "Audio track · drop music or sounds here, or double-click to add"
+                        color: Theme.textFaint
                         font.family: Theme.fontFamily
                         font.pixelSize: 10
-                        font.weight: Font.DemiBold
                         anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+
+                Repeater {
+                    model: timeline.audioItems.length
+                    delegate: Item {
+                        id: audioBlock
+                        required property int index
+                        readonly property var item: timeline.audioItems[index] || ({ url: "", name: "", durationMs: 0, startMs: 0, inMs: 0, outMs: 0, lengthMs: 0, volume: 1 })
+                        readonly property bool editing: timeline.audioEditIndex === index
+                        readonly property real startMs: editing ? timeline.audioEditStart : item.startMs
+                        readonly property real inMs: editing ? timeline.audioEditIn : item.inMs
+                        readonly property real outMs: editing ? timeline.audioEditOut : item.outMs
+                        readonly property bool active: timeline.audioIndex === index
+                        readonly property string waveform: timeline.thumbnailSource && timeline.thumbnailSource.revision >= 0 ? timeline.thumbnailSource.waveformFor(item.url) : ""
+                        x: startMs * timeline.pxPerMs
+                        z: editing ? 3 : active ? 2 : 1
+                        width: Math.max(3, (outMs - inMs) * timeline.pxPerMs)
+                        height: audioLane.height
+
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            radius: 4
+                            color: audioBlock.active ? Theme.waveActive : Theme.accentWash
+                            border.width: audioBlock.active ? 2 : 1
+                            border.color: audioBlock.active ? Theme.accent : audioMouse.containsMouse ? Theme.accent : Theme.accentEdge
+                            clip: true
+                            Rectangle {
+                                visible: audioBlock.waveform.length === 0
+                                width: parent.width
+                                height: 1
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: Theme.waveInk
+                                opacity: 0.3
+                            }
+                            Image {
+                                x: -audioBlock.inMs * timeline.pxPerMs
+                                width: audioBlock.item.durationMs * timeline.pxPerMs
+                                height: parent.height - 4
+                                y: 2
+                                source: audioBlock.waveform
+                                fillMode: Image.Stretch
+                                opacity: audioBlock.active ? 0.6 : 0.35
+                                layer.enabled: !Theme.dark
+                                layer.effect: MultiEffect { colorization: 1; colorizationColor: Theme.waveInk }
+                            }
+                            Row {
+                                x: 5
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 4
+                                visible: audioBlock.width > 40
+                                ToolIcon { name: "music"; tint: Theme.accent; width: 11; height: 11; anchors.verticalCenter: parent.verticalCenter }
+                                Text {
+                                    width: Math.max(0, audioBlock.width - 30)
+                                    text: audioBlock.item.name + "  " + Math.round(audioBlock.item.volume * 100) + "%"
+                                    color: audioBlock.active ? Theme.accentSoft : Theme.textSoft
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 10
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+                        }
+
+                        // Body: drag to move along the sequence.
+                        MouseArea {
+                            id: audioMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            preventStealing: true
+                            cursorShape: audioBlock.editing ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                            property real pressX: 0
+                            property bool moved: false
+                            onPressed: function(mouse) {
+                                timeline.forceActiveFocus()
+                                pressX = mapToItem(timeline, mouse.x, 0).x
+                                moved = false
+                                timeline.audioSelectRequested(audioBlock.index)
+                                if (mouse.button === Qt.RightButton) audioMenu.popup()
+                            }
+                            onPositionChanged: function(mouse) {
+                                if (!pressed || !(pressedButtons & Qt.LeftButton)) return
+                                var offset = mapToItem(timeline, mouse.x, 0).x - pressX
+                                if (!moved && Math.abs(offset) < 5) return
+                                moved = true
+                                var length = audioBlock.item.lengthMs
+                                var start = Math.max(0, audioBlock.item.startMs + offset / Math.max(timeline.pxPerMs, 0.0001))
+                                // Either end may catch a snap point.
+                                var head = timeline.snapMs(start, audioBlock.index)
+                                var tail = timeline.snapMs(start + length, audioBlock.index) - length
+                                start = head !== start ? head : tail !== start ? tail : start
+                                timeline.audioEditIn = audioBlock.item.inMs
+                                timeline.audioEditOut = audioBlock.item.outMs
+                                timeline.audioEditStart = Math.round(Math.max(0, Math.min(Math.max(0, timeline.totalMs - 100), start)))
+                                timeline.audioEditIndex = audioBlock.index
+                            }
+                            onReleased: function(mouse) {
+                                if (mouse.button !== Qt.LeftButton) return
+                                if (timeline.audioEditIndex === audioBlock.index) {
+                                    timeline.audioEditIndex = -1
+                                    if (timeline.audioEditStart !== audioBlock.item.startMs)
+                                        timeline.audioPlaceRequested(audioBlock.index, timeline.audioEditStart, audioBlock.item.inMs, audioBlock.item.outMs)
+                                } else if (!moved) {
+                                    timeline.scrubRequested(audioBlock.item.startMs + mouse.x / Math.max(timeline.pxPerMs, 0.0001))
+                                    timeline.scrubFinished()
+                                }
+                            }
+                            onCanceled: timeline.audioEditIndex = -1
+                            ToolTip.visible: containsMouse && !pressed
+                            ToolTip.delay: 700
+                            ToolTip.text: audioBlock.item.name + " · starts at " + timeline.timeLabel(audioBlock.item.startMs, true) + " · drag to move, edges to trim"
+                        }
+
+                        // Edges trim the part of the file that plays.
+                        Repeater {
+                            model: 2
+                            delegate: MouseArea {
+                                id: audioEdge
+                                required property int index
+                                readonly property bool leading: index === 0
+                                x: leading ? 0 : audioBlock.width - width
+                                width: Math.min(10, audioBlock.width / 3)
+                                height: audioBlock.height
+                                hoverEnabled: true
+                                preventStealing: true
+                                cursorShape: Qt.SizeHorCursor
+                                property real pressX: 0
+                                onPressed: function(mouse) {
+                                    timeline.forceActiveFocus()
+                                    timeline.audioSelectRequested(audioBlock.index)
+                                    pressX = mapToItem(timeline, mouse.x, 0).x
+                                    timeline.audioEditStart = audioBlock.item.startMs
+                                    timeline.audioEditIn = audioBlock.item.inMs
+                                    timeline.audioEditOut = audioBlock.item.outMs
+                                    timeline.audioEditIndex = audioBlock.index
+                                }
+                                onPositionChanged: function(mouse) {
+                                    if (!pressed || timeline.audioEditIndex !== audioBlock.index) return
+                                    var item = audioBlock.item
+                                    var delta = (mapToItem(timeline, mouse.x, 0).x - pressX) / Math.max(timeline.pxPerMs, 0.0001)
+                                    var minimum = Math.min(100, item.durationMs)
+                                    if (leading) {
+                                        // The start moves with the in point so the rest stays in place.
+                                        var start = timeline.snapMs(item.startMs + delta, audioBlock.index)
+                                        var shift = Math.max(-item.inMs, -item.startMs, Math.min(item.lengthMs - minimum, start - item.startMs))
+                                        timeline.audioEditIn = Math.round(item.inMs + shift)
+                                        timeline.audioEditStart = Math.round(item.startMs + shift)
+                                    } else {
+                                        var end = timeline.snapMs(item.startMs + item.lengthMs + delta, audioBlock.index)
+                                        timeline.audioEditOut = Math.round(Math.max(item.inMs + minimum, Math.min(item.durationMs, item.inMs + end - item.startMs)))
+                                    }
+                                }
+                                onReleased: {
+                                    if (timeline.audioEditIndex !== audioBlock.index) return
+                                    timeline.audioEditIndex = -1
+                                    var item = audioBlock.item
+                                    if (timeline.audioEditStart !== item.startMs || timeline.audioEditIn !== item.inMs || timeline.audioEditOut !== item.outMs)
+                                        timeline.audioPlaceRequested(audioBlock.index, timeline.audioEditStart, timeline.audioEditIn, timeline.audioEditOut)
+                                }
+                                onCanceled: timeline.audioEditIndex = -1
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: audioEdge.leading ? 3 : parent.width - width - 3
+                                    width: 3
+                                    height: Math.min(14, audioBlock.height - 10)
+                                    radius: 2
+                                    color: audioEdge.pressed ? Theme.accent : Theme.text
+                                    opacity: audioEdge.pressed || audioEdge.containsMouse ? 1 : audioBlock.active ? 0.5 : 0
+                                    Behavior on opacity { NumberAnimation { duration: Theme.fadeFast } }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -658,5 +896,26 @@ FocusScope {
         Action { text: "Split at playhead"; onTriggered: timeline.splitRequested() }
         Action { text: "Duplicate"; onTriggered: timeline.duplicateRequested(timeline.activeIndex) }
         Action { text: "Remove"; enabled: timeline.clips.length > 1; onTriggered: timeline.removeRequested(timeline.activeIndex) }
+    }
+    Menu {
+        id: audioMenu
+        padding: 5
+        background: Rectangle { implicitWidth: 190; radius: Theme.radius; color: Theme.card; border.color: Theme.lineStrong }
+        enter: Transition { ParallelAnimation { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.fadeFast } SnapSpring { property: "scale"; from: 0.96; to: 1 } } }
+        delegate: MenuItem {
+            id: audioMenuItem
+            implicitHeight: 32
+            contentItem: Text {
+                leftPadding: 8
+                text: audioMenuItem.text
+                color: audioMenuItem.text === "Remove" ? Theme.danger : Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle { radius: Theme.radiusSmall; color: audioMenuItem.highlighted ? Theme.hover : Theme.hoverClear }
+        }
+        Action { text: "Move to playhead"; onTriggered: { var item = timeline.audioItems[timeline.audioIndex]; if (item) timeline.audioPlaceRequested(timeline.audioIndex, timeline.playheadMs, item.inMs, item.outMs) } }
+        Action { text: "Remove"; onTriggered: timeline.audioRemoveRequested(timeline.audioIndex) }
     }
 }

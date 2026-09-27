@@ -38,14 +38,31 @@ bool EditorProject::canRedo() const { return !m_redo.isEmpty(); }
 
 QString EditorProject::transition() const { return m_mix.transition; }
 int EditorProject::transitionMs() const { return m_mix.transitionMs; }
-QUrl EditorProject::musicUrl() const { return m_mix.musicUrl; }
-QString EditorProject::musicName() const { return QFileInfo(m_mix.musicUrl.toLocalFile()).fileName(); }
-double EditorProject::musicVolume() const { return m_mix.musicVolume; }
+int EditorProject::audioCount() const { return m_mix.audio.size(); }
+int EditorProject::activeAudioIndex() const { return m_activeAudioIndex; }
 bool EditorProject::musicDuck() const { return m_mix.musicDuck; }
+
+QVariantList EditorProject::audioItems() const
+{
+    QVariantList result;
+    for (const auto &item : m_mix.audio) {
+        result.append(QVariantMap{
+            {"url", item.mediaUrl},
+            {"name", QFileInfo(item.mediaUrl.toLocalFile()).fileName()},
+            {"durationMs", item.durationMs},
+            {"startMs", item.startMs},
+            {"inMs", item.inMs},
+            {"outMs", item.outMs},
+            {"lengthMs", qMax<qint64>(0, item.outMs - item.inMs)},
+            {"volume", item.volume}
+        });
+    }
+    return result;
+}
 
 bool EditorProject::mixed() const
 {
-    if (m_clips.size() != 1 || !m_mix.musicUrl.isEmpty())
+    if (m_clips.size() != 1 || !m_mix.audio.isEmpty())
         return true;
     const auto &clip = m_clips.first();
     return clip.muted || !qFuzzyCompare(clip.volume, 1.0);
@@ -56,8 +73,7 @@ QVariantMap EditorProject::exportOptions() const
     return {
         {"transition", m_mix.transition},
         {"transitionMs", m_mix.transitionMs},
-        {"musicUrl", m_mix.musicUrl},
-        {"musicVolume", m_mix.musicVolume},
+        {"audio", audioItems()},
         {"musicDuck", m_mix.musicDuck}
     };
 }
@@ -107,31 +123,100 @@ void EditorProject::setTransitionMs(int value)
     }
 }
 
-bool EditorProject::setMusic(const QUrl &url)
+int EditorProject::addAudio(const QUrl &url, qint64 startMs)
 {
     if (!validMedia(url))
+        return -1;
+    AudioItem item;
+    item.mediaUrl = QUrl::fromLocalFile(QFileInfo(url.toLocalFile()).absoluteFilePath());
+    item.startMs = qMax<qint64>(0, startMs);
+    for (const auto &existing : std::as_const(m_mix.audio)) {
+        if (existing.mediaUrl == item.mediaUrl && existing.durationMs > 0) {
+            item.durationMs = existing.durationMs;
+            item.outMs = existing.durationMs;
+            break;
+        }
+    }
+    if (item.durationMs <= 0) {
+        // Known at once, so several files dropped together can line up.
+        const auto ffprobe = ffprobeExecutable();
+        QProcess probe;
+        if (!ffprobe.isEmpty()) {
+            probe.start(ffprobe, {"-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", item.mediaUrl.toLocalFile()});
+            bool ok = false;
+            const auto seconds = probe.waitForFinished(5000) ? QString::fromUtf8(probe.readAllStandardOutput()).trimmed().section('\n', 0, 0).toDouble(&ok) : 0.0;
+            if (ok && seconds > 0) {
+                item.durationMs = qRound64(seconds * 1000.0);
+                item.outMs = item.durationMs;
+            }
+        }
+    }
+    m_mix.audio.append(item);
+    m_activeAudioIndex = m_mix.audio.size() - 1;
+    clearError();
+    markChanged();
+    probeDurations();
+    return m_activeAudioIndex;
+}
+
+bool EditorProject::selectAudio(int index)
+{
+    if (index < -1 || index >= m_mix.audio.size())
         return false;
-    m_mix.musicUrl = QUrl::fromLocalFile(QFileInfo(url.toLocalFile()).absoluteFilePath());
+    if (index != m_activeAudioIndex) {
+        m_activeAudioIndex = index;
+        emit changed();
+    }
+    return true;
+}
+
+bool EditorProject::setAudioPlacement(int index, qint64 startMs, qint64 inMs, qint64 outMs)
+{
+    if (index < 0 || index >= m_mix.audio.size())
+        return false;
+    auto &item = m_mix.audio[index];
+    startMs = qMax<qint64>(0, startMs);
+    if (item.durationMs > 0) {
+        const auto minimum = qMin<qint64>(100, item.durationMs);
+        inMs = qBound<qint64>(0, inMs, item.durationMs - minimum);
+        outMs = qBound<qint64>(inMs + minimum, outMs, item.durationMs);
+    } else {
+        inMs = item.inMs;
+        outMs = item.outMs;
+    }
+    if (item.startMs == startMs && item.inMs == inMs && item.outMs == outMs)
+        return true;
+    item.startMs = startMs;
+    item.inMs = inMs;
+    item.outMs = outMs;
     clearError();
     markChanged();
     return true;
 }
 
-void EditorProject::clearMusic()
+bool EditorProject::setAudioVolume(int index, double volume)
 {
-    if (m_mix.musicUrl.isEmpty())
-        return;
-    m_mix.musicUrl.clear();
-    markChanged();
-}
-
-void EditorProject::setMusicVolume(double value)
-{
-    value = qBound(0.0, value, 1.0);
-    if (!qFuzzyCompare(m_mix.musicVolume + 1, value + 1)) {
-        m_mix.musicVolume = value;
+    if (index < 0 || index >= m_mix.audio.size())
+        return false;
+    volume = qBound(0.0, volume, 2.0);
+    if (!qFuzzyCompare(m_mix.audio[index].volume + 1, volume + 1)) {
+        m_mix.audio[index].volume = volume;
         markChanged();
     }
+    return true;
+}
+
+bool EditorProject::removeAudio(int index)
+{
+    if (index < 0 || index >= m_mix.audio.size())
+        return false;
+    m_mix.audio.removeAt(index);
+    if (m_activeAudioIndex >= m_mix.audio.size() || m_activeAudioIndex == index)
+        m_activeAudioIndex = -1;
+    else if (m_activeAudioIndex > index)
+        --m_activeAudioIndex;
+    markChanged();
+    return true;
 }
 
 void EditorProject::setMusicDuck(bool value)
@@ -149,6 +234,8 @@ void EditorProject::restore(const Snapshot &state)
     m_clips = state.clips;
     m_activeClipIndex = state.activeIndex;
     m_mix = state.mix;
+    if (m_activeAudioIndex >= m_mix.audio.size())
+        m_activeAudioIndex = -1;
     m_baseline = state;
     m_dirty = true;
     clearError();
@@ -159,6 +246,7 @@ void EditorProject::closeProject()
 {
     m_clips.clear();
     m_activeClipIndex = -1;
+    m_activeAudioIndex = -1;
     m_mix = {};
     m_projectUrl.clear();
     m_dirty = false;
@@ -224,8 +312,10 @@ bool EditorProject::canExport() const
 {
     if (m_clips.isEmpty())
         return false;
-    if (!m_mix.musicUrl.isEmpty() && !QFileInfo(m_mix.musicUrl.toLocalFile()).isFile())
-        return false;
+    for (const auto &item : m_mix.audio) {
+        if (!QFileInfo(item.mediaUrl.toLocalFile()).isFile() || item.durationMs <= 0 || item.outMs - item.inMs < 100)
+            return false;
+    }
     for (const auto &clip : m_clips) {
         if (!QFileInfo(clip.mediaUrl.toLocalFile()).isFile()
             || clip.durationMs <= 0 || clip.outMs - clip.inMs < 100 || clip.outMs > clip.durationMs)
@@ -270,6 +360,7 @@ bool EditorProject::importMedia(const QUrl &url)
     clearError();
     m_clips = {{QUrl::fromLocalFile(QFileInfo(url.toLocalFile()).absoluteFilePath()), 0, 0, 0}};
     m_activeClipIndex = 0;
+    m_activeAudioIndex = -1;
     m_mix = {};
     m_projectUrl = QUrl();
     markChanged();
@@ -370,7 +461,7 @@ bool EditorProject::openProject(const QUrl &url)
     const auto object = document.object();
     const auto version = object.value("version").toInt();
     if (parseError.error != QJsonParseError::NoError || !document.isObject()
-        || version < 1 || version > 3) {
+        || version < 1 || version > 4) {
         setError(QStringLiteral("This is not a supported Kadron project."));
         return false;
     }
@@ -418,21 +509,38 @@ bool EditorProject::openProject(const QUrl &url)
     if (kind == "fade" || kind == "crossfade")
         mix.transition = kind;
     mix.transitionMs = qBound(100, object.value("transitionMs").toInt(500), 3000);
+    QJsonArray audioEntries = object.value("audio").toArray();
+    mix.musicDuck = object.value("duck").toBool(true);
+    // Version 3 had one music file under the whole sequence.
     const auto music = object.value("music").toObject();
     if (!music.isEmpty()) {
-        const auto musicPath = QDir(projectFile.absolutePath()).absoluteFilePath(music.value("media").toString());
-        if (music.value("media").toString().isEmpty() || !QFileInfo(musicPath).isFile()) {
-            setError(QStringLiteral("Music is missing: %1").arg(musicPath));
+        audioEntries = {QJsonObject{{"media", music.value("media")}, {"volume", music.value("volume").toDouble(0.35)}}};
+        mix.musicDuck = music.value("duck").toBool(true);
+    }
+    for (const auto &entry : std::as_const(audioEntries)) {
+        const auto item = entry.toObject();
+        const auto relative = item.value("media").toString();
+        const auto audioPath = QDir(projectFile.absolutePath()).absoluteFilePath(relative);
+        if (relative.isEmpty() || !QFileInfo(audioPath).isFile()) {
+            setError(QStringLiteral("Audio is missing: %1").arg(audioPath));
             return false;
         }
-        mix.musicUrl = QUrl::fromLocalFile(QFileInfo(musicPath).absoluteFilePath());
-        mix.musicVolume = qBound(0.0, music.value("volume").toDouble(0.35), 1.0);
-        mix.musicDuck = music.value("duck").toBool(true);
+        AudioItem audio;
+        audio.mediaUrl = QUrl::fromLocalFile(QFileInfo(audioPath).absoluteFilePath());
+        audio.durationMs = qMax<qint64>(0, item.value("durationMs").toVariant().toLongLong());
+        audio.startMs = qMax<qint64>(0, item.value("startMs").toVariant().toLongLong());
+        audio.inMs = qBound<qint64>(0, item.value("inMs").toVariant().toLongLong(), audio.durationMs);
+        audio.outMs = qBound(audio.inMs, item.value("outMs").toVariant().toLongLong(), audio.durationMs);
+        audio.volume = qBound(0.0, item.value("volume").toDouble(0.5), 2.0);
+        mix.audio.append(audio);
+        if (mix.audio.size() > 1000)
+            break;
     }
 
     m_clips = parsedClips;
     m_mix = mix;
     m_activeClipIndex = qBound(0, object.value("activeIndex").toInt(), m_clips.size() - 1);
+    m_activeAudioIndex = -1;
     m_projectUrl = QUrl::fromLocalFile(projectFile.absoluteFilePath());
     m_dirty = false;
     resetHistory();
@@ -461,15 +569,20 @@ bool EditorProject::saveProject(const QUrl &url)
             {"muted", clip.muted}
         });
     }
-    QJsonObject object{{"version", 3}, {"clips", entries}, {"activeIndex", m_activeClipIndex},
-                       {"transition", m_mix.transition}, {"transitionMs", m_mix.transitionMs}};
-    if (!m_mix.musicUrl.isEmpty()) {
-        object.insert("music", QJsonObject{
-            {"media", QDir(targetInfo.absolutePath()).relativeFilePath(m_mix.musicUrl.toLocalFile())},
-            {"volume", m_mix.musicVolume},
-            {"duck", m_mix.musicDuck}
+    QJsonArray audioEntries;
+    for (const auto &item : m_mix.audio) {
+        audioEntries.append(QJsonObject{
+            {"media", QDir(targetInfo.absolutePath()).relativeFilePath(item.mediaUrl.toLocalFile())},
+            {"durationMs", static_cast<double>(item.durationMs)},
+            {"startMs", static_cast<double>(item.startMs)},
+            {"inMs", static_cast<double>(item.inMs)},
+            {"outMs", static_cast<double>(item.outMs)},
+            {"volume", item.volume}
         });
     }
+    QJsonObject object{{"version", 4}, {"clips", entries}, {"activeIndex", m_activeClipIndex},
+                       {"transition", m_mix.transition}, {"transitionMs", m_mix.transitionMs},
+                       {"audio", audioEntries}, {"duck", m_mix.musicDuck}};
     QSaveFile file(targetInfo.absoluteFilePath());
     if (!file.open(QIODevice::WriteOnly)
         || file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) < 0
@@ -589,10 +702,14 @@ void EditorProject::probeDurations()
     const auto ffprobe = ffprobeExecutable();
     if (ffprobe.isEmpty())
         return;
-    for (const auto &clip : std::as_const(m_clips)) {
-        if (clip.durationMs > 0 || m_probing.contains(clip.mediaUrl))
+    QList<QUrl> pending;
+    for (const auto &clip : std::as_const(m_clips))
+        if (clip.durationMs <= 0) pending << clip.mediaUrl;
+    for (const auto &item : std::as_const(m_mix.audio))
+        if (item.durationMs <= 0) pending << item.mediaUrl;
+    for (const auto &url : std::as_const(pending)) {
+        if (m_probing.contains(url))
             continue;
-        const auto url = clip.mediaUrl;
         m_probing.insert(url);
         auto *process = new QProcess(this);
         connect(process, &QProcess::finished, this, [this, process, url](int code, QProcess::ExitStatus status) {
@@ -625,6 +742,19 @@ void EditorProject::applyProbedDuration(const QUrl &url, qint64 durationMs)
         clip.outMs = clip.outMs <= clip.inMs ? durationMs : qBound(clip.inMs, clip.outMs, durationMs);
         touched = true;
     }
+    const auto fillAudio = [url, durationMs](QVector<AudioItem> &items) {
+        bool filled = false;
+        for (auto &item : items) {
+            if (item.mediaUrl != url || item.durationMs > 0)
+                continue;
+            item.durationMs = durationMs;
+            item.inMs = qBound<qint64>(0, item.inMs, durationMs);
+            item.outMs = item.outMs <= item.inMs ? durationMs : qBound(item.inMs, item.outMs, durationMs);
+            filled = true;
+        }
+        return filled;
+    };
+    touched = fillAudio(m_mix.audio) || touched;
     if (touched) {
         // Durations are facts about the media, not edits: fold them into history.
         m_baseline = snapshot();
@@ -635,6 +765,9 @@ void EditorProject::applyProbedDuration(const QUrl &url, qint64 durationMs)
                         clip.durationMs = durationMs;
                         clip.outMs = clip.outMs <= clip.inMs ? durationMs : qMin(clip.outMs, durationMs);
                     }
+        for (auto *stack : {&m_undo, &m_redo})
+            for (auto &state : *stack)
+                fillAudio(state.mix.audio);
         emit changed();
     }
 }

@@ -540,11 +540,16 @@ void CoreTests::sequenceExport()
     QCOMPARE(ExportController::canvasFor(2160, 3840), QSize(1080, 1920));
     QCOMPARE(ExportController::canvasFor(3840, 2160), QSize(1920, 1080));
     QCOMPARE(ExportController::canvasFor(320, 180), QSize(320, 180));
-    const auto crossfadeFilter = ExportController::mixFilter({1000, 2000}, 400, -1, 0.3, true);
+    const auto crossfadeFilter = ExportController::mixFilter({1000, 2000}, 400, 2, {}, true);
     QVERIFY2(crossfadeFilter.contains(":duration=0.400:offset=0.600[v]"), qPrintable(crossfadeFilter));
     QVERIFY2(crossfadeFilter.contains("acrossfade=d=0.400:c1=qsin:c2=qsin[a]"), qPrintable(crossfadeFilter));
-    const auto musicFilter = ExportController::mixFilter({3000}, 0, 1, 0.3, true);
-    QVERIFY2(musicFilter.contains("atrim=duration=3.000") && musicFilter.contains("sidechaincompress"), qPrintable(musicFilter));
+    const auto musicFilter = ExportController::mixFilter({3000}, 0, 1, {{500, 200, 1200, 0.3}, {2500, 0, 1500, 1.0}}, true);
+    QVERIFY2(musicFilter.contains("[1:a]atrim=start=0.200:end=1.200") && musicFilter.contains("adelay=delays=500:all=1[bed0]")
+             && musicFilter.contains("[2:a]atrim=start=0.000:end=1.500") && musicFilter.contains("amix=inputs=2:duration=longest")
+             && musicFilter.contains("apad,atrim=duration=3.000,afade=t=out:st=2.000:d=1.000")
+             && musicFilter.contains("sidechaincompress"), qPrintable(musicFilter));
+    const auto innerFilter = ExportController::mixFilter({3000}, 0, 1, {{0, 0, 1000, 1.0}}, false);
+    QVERIFY2(innerFilter.contains("[bed0]apad,atrim=duration=3.000[music]"), qPrintable(innerFilter));
 
     // Clip volume, a crossfade and ducked music; the project keeps them.
     const auto musicPath = directory.path() + "/music.wav";
@@ -556,20 +561,33 @@ void CoreTests::sequenceExport()
     QVERIFY(project.setClipMuted(1, true));
     QVERIFY(project.setTransition("crossfade"));
     QVERIFY(!project.setTransition("wipe"));
-    QVERIFY(project.setMusic(QUrl::fromLocalFile(musicPath)));
-    project.setMusicVolume(0.5);
+    QCOMPARE(project.addAudio(QUrl::fromLocalFile(musicPath), 1000), 0);
+    QCOMPARE(project.activeAudioIndex(), 0);
+    QTRY_VERIFY_WITH_TIMEOUT(project.audioItems().at(0).toMap().value("durationMs").toLongLong() > 1400, 10000);
+    QCOMPARE(project.audioItems().at(0).toMap().value("outMs").toLongLong(), project.audioItems().at(0).toMap().value("durationMs").toLongLong());
+    QVERIFY(project.setAudioPlacement(0, 200, 100, 1200));
+    QVERIFY(project.setAudioVolume(0, 0.8));
     QVERIFY(project.mixed());
     QCOMPARE(project.clips().at(1).toMap().value("muted").toBool(), true);
     QVERIFY(project.undo());
-    QCOMPARE(project.musicVolume(), 0.35);
+    QCOMPARE(project.audioItems().at(0).toMap().value("volume").toDouble(), 0.5);
     QVERIFY(project.redo());
+    QCOMPARE(project.addAudio(QUrl::fromLocalFile(musicPath), 2000), 1);
+    QVERIFY(project.removeAudio(1));
+    QCOMPARE(project.audioCount(), 1);
+    QCOMPARE(project.activeAudioIndex(), -1);
     const auto projectPath = directory.path() + "/mix.kadr";
     QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
     EditorProject reopened;
     QVERIFY(reopened.openProject(QUrl::fromLocalFile(projectPath)));
     QCOMPARE(reopened.transition(), QString("crossfade"));
-    QCOMPARE(reopened.musicName(), QString("music.wav"));
-    QCOMPARE(reopened.musicVolume(), 0.5);
+    QCOMPARE(reopened.audioCount(), 1);
+    const auto reopenedAudio = reopened.audioItems().at(0).toMap();
+    QCOMPARE(reopenedAudio.value("name").toString(), QString("music.wav"));
+    QCOMPARE(reopenedAudio.value("startMs").toLongLong(), 200);
+    QCOMPARE(reopenedAudio.value("inMs").toLongLong(), 100);
+    QCOMPARE(reopenedAudio.value("outMs").toLongLong(), 1200);
+    QCOMPARE(reopenedAudio.value("volume").toDouble(), 0.8);
     QCOMPARE(reopened.clips().at(0).toMap().value("volume").toDouble(), 1.5);
     QCOMPARE(reopened.clips().at(1).toMap().value("muted").toBool(), true);
 
@@ -585,7 +603,7 @@ void CoreTests::sequenceExport()
 
     // Fade through black keeps the full length; one muted clip stays silent.
     QVERIFY(project.setTransition("fade"));
-    project.clearMusic();
+    QVERIFY(project.removeAudio(0));
     const auto fadedPath = directory.path() + "/faded.mp4";
     QVERIFY(exporter.startSequence(project.clips(), QUrl::fromLocalFile(fadedPath), project.exportOptions()));
     QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
@@ -617,6 +635,26 @@ void CoreTests::sequenceExport()
     QVERIFY(meter.waitForFinished(30000));
     const auto report = QString::fromUtf8(meter.readAllStandardError());
     QVERIFY2(report.contains("max_volume: -91") || report.contains("max_volume: -inf"), qPrintable(report.right(400)));
+
+    // A sound placed at 1 s on the audio track is silent before and heard after.
+    QCOMPARE(single.addAudio(QUrl::fromLocalFile(musicPath), 1000), 0);
+    QTRY_VERIFY_WITH_TIMEOUT(single.canExport(), 10000);
+    QVERIFY(single.setAudioVolume(0, 1.0));
+    const auto placedPath = directory.path() + "/placed.mp4";
+    QVERIFY(exporter.startSequence(single.clips(), QUrl::fromLocalFile(placedPath), single.exportOptions()));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    const auto peak = [&](const QString &from, const QString &length) {
+        QProcess level;
+        level.start(ffmpeg, {"-hide_banner", "-nostdin", "-ss", from, "-t", length, "-i", placedPath, "-af", "volumedetect", "-f", "null", "-"});
+        level.waitForFinished(30000);
+        const auto text = QString::fromUtf8(level.readAllStandardError());
+        const auto value = text.section("max_volume:", 1).section("dB", 0, 0).trimmed();
+        return value == "-inf" ? -200.0 : value.toDouble();
+    };
+    const auto before = peak("0.1", "0.7");
+    const auto after = peak("1.2", "0.6");
+    QVERIFY2(before < -60 && after > -30, qPrintable(QString("before %1 dB, after %2 dB").arg(before).arg(after)));
 }
 
 void CoreTests::remoteWorkflow()

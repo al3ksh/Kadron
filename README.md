@@ -21,7 +21,7 @@
 - Drag blocks to reorder them, split at the playhead, and undo or redo any edit.
 - Scrubbing lands on the exact frame, and playback runs across the whole sequence.
 - Set each clip's volume (up to 200%) or mute it, and let clips meet with a cut, a fade through black or a crossfade.
-- Put music under the whole sequence: it loops to the end, fades out, and can duck under the clips' own sound.
+- Lay music and sounds on the audio track under the clips: drop in as many files as you like, drag each to where it should play and trim its edges. Each has its own volume, the track can duck under the clips' own sound, and anything still playing at the end fades out.
 - Export the sequence as MP4 on the GPU (NVIDIA NVENC, Intel Quick Sync or AMD AMF, whichever works on your machine) or on the CPU. If the GPU encoder fails mid-export, Kadron finishes on the CPU. Projects are saved as `.kadr` files.
 - Preview volume is shared by the editor and the tools, and remembered.
 

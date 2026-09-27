@@ -189,6 +189,34 @@ void UiTests::timelineInteractions()
     QTest::keyClick(&window, Qt::Key_Right);
     QVERIFY(qAbs(scrub.last().first().toDouble() - 5000.0) < 1);
 
+    // The audio track sits under the clips: bodies move, edges trim, Delete removes.
+    QSignalSpy place(timeline, signalOf(timeline, "audioPlaceRequested(int,double,double,double)"));
+    QSignalSpy removeAudio(timeline, signalOf(timeline, "audioRemoveRequested(int)"));
+    timeline->setProperty("audioItems", QVariantList{QVariantMap{
+        {"url", QUrl("file:///song.wav")}, {"name", "song.wav"}, {"durationMs", 4000}, {"startMs", 1000},
+        {"inMs", 0}, {"outMs", 2000}, {"lengthMs", 2000}, {"volume", 0.5}}});
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(200, 127));
+    QTest::mouseMove(&window, QPoint(230, 127));
+    QTest::mouseMove(&window, QPoint(300, 127));
+    QCOMPARE(timeline->property("audioEditIndex").toInt(), 0);
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(300, 127));
+    QCOMPARE(place.count(), 1);
+    QVERIFY(qAbs(place.last().at(1).toDouble() - 2000.0) < 20);
+    QCOMPARE(place.last().at(3).toDouble(), 2000.0);
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(296, 127));
+    QTest::mouseMove(&window, QPoint(320, 127));
+    QTest::mouseMove(&window, QPoint(346, 127));
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(346, 127));
+    QCOMPARE(place.count(), 2);
+    QCOMPARE(place.last().at(1).toDouble(), 1000.0);
+    QVERIFY(qAbs(place.last().at(3).toDouble() - 2500.0) < 20);
+    timeline->setProperty("audioIndex", 0);
+    timeline->forceActiveFocus();
+    QTest::keyClick(&window, Qt::Key_Delete);
+    QCOMPARE(removeAudio.count(), 1);
+    QCOMPARE(removeAudio.last().first().toInt(), 0);
+    timeline->setProperty("audioIndex", -1);
+
     // Ctrl + wheel zooms around the pointer.
     QWheelEvent wheel(QPointF(400, 100), window.mapToGlobal(QPointF(400, 100)), {}, QPoint(0, 120),
                       Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);

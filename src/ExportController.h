@@ -51,16 +51,25 @@ public:
     // Sequence frame size for a first clip of this size: at most 1920 on the
     // long side and 1080 on the short one, so portrait stays 1080x1920.
     static QSize canvasFor(int width, int height);
+    // One file on the audio track: the part inMs..outMs of it plays from
+    // startMs of the exported video.
+    struct AudioBed {
+        qint64 startMs = 0;
+        qint64 inMs = 0;
+        qint64 outMs = 0;
+        double volume = 1.0;
+    };
     // Final pass over the encoded clips (inputs 0..n-1, or one joined file):
-    // crossfades them when crossfadeMs > 0 and mixes in music from input
-    // musicInput when it is >= 0. Outputs [a], and [v] when crossfading.
-    static QString mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int musicInput,
-                             double musicVolume, bool duck);
+    // crossfades them when crossfadeMs > 0 and mixes in the audio track, one
+    // input per bed from firstAudioInput. Outputs [a], and [v] when crossfading.
+    static QString mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int firstAudioInput,
+                             const QVector<AudioBed> &beds, bool duck);
 
     Q_INVOKABLE void detectEncoders();
     Q_INVOKABLE bool start(const QUrl &source, const QUrl &destination, qint64 inMs, qint64 outMs);
-    // options: transition ("cut", "fade", "crossfade"), transitionMs, and
-    // musicUrl, musicVolume (0-1), musicDuck for a music bed.
+    // options: transition ("cut", "fade", "crossfade"), transitionMs, audio
+    // (a list of {url, startMs, inMs, outMs, volume} in sequence time) and
+    // musicDuck to lower the audio track under the clips' own sound.
     Q_INVOKABLE bool startSequence(const QVariantList &clips, const QUrl &destination,
                                    const QVariantMap &options = {});
     Q_INVOKABLE void cancel();
@@ -113,8 +122,8 @@ private:
     // Sequence options.
     QString m_transition;
     int m_transitionMs = 0;
-    QString m_musicPath;
-    double m_musicVolume = 0.35;
+    QStringList m_audioPaths;
+    QVector<AudioBed> m_audioBeds;
     bool m_musicDuck = true;
     // Share of the progress bar the clip encodes take; the rest is the final pass.
     int m_encodeShare = 90;

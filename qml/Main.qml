@@ -43,7 +43,18 @@ ApplicationWindow {
     readonly property var activeClip: editorProject.activeClipIndex >= 0 ? editorProject.clips[editorProject.activeClipIndex] || null : null
     property real clipVolumeDrag: -1
     property real transitionDrag: -1
-    property real musicVolumeDrag: -1
+    property real audioVolumeDrag: -1
+    // The selected audio track item, and the one under the playhead for the preview.
+    readonly property var activeAudio: editorProject.activeAudioIndex >= 0 ? editorProject.audioItems[editorProject.activeAudioIndex] || null : null
+    readonly property int audioAtPlayhead: {
+        var items = editorProject.audioItems
+        for (var i = items.length - 1; i >= 0; i--)
+            if (sequencePositionMs >= items[i].startMs && sequencePositionMs < items[i].startMs + items[i].lengthMs) return i
+        return -1
+    }
+    readonly property var playingAudio: audioAtPlayhead >= 0 ? editorProject.audioItems[audioAtPlayhead] : null
+    // Where "Add audio" puts the chosen file on the sequence.
+    property real audioAddMs: 0
     readonly property real clipGain: !activeClip ? 1 : activeClip.muted ? 0 : Math.min(1, clipVolumeDrag >= 0 ? clipVolumeDrag : activeClip.volume)
     // How dark the preview gets near a join: a fade through black goes all
     // the way, a crossfade is hinted with a light dip.
@@ -63,14 +74,14 @@ ApplicationWindow {
     }
     // Everything an export depends on, to tell when a result is stale.
     function editState() { return JSON.stringify([editorProject.clips, editorProject.exportOptions()]) }
-    // Keeps the music preview in step with the sequence while it plays.
+    // Keeps the audio track preview in step with the sequence while it plays.
     function syncMusic() {
         var playing = player.playbackState === MediaPlayer.PlayingState || (sequencePlaying && sequenceAdvancing)
-        if (!playing || musicPlayer.duration <= 0 || editorProject.musicUrl.toString().length === 0) {
+        if (!playing || !playingAudio || musicPlayer.duration <= 0) {
             if (musicPlayer.playbackState === MediaPlayer.PlayingState) musicPlayer.pause()
             return
         }
-        var target = sequencePositionMs % musicPlayer.duration
+        var target = playingAudio.inMs + sequencePositionMs - playingAudio.startMs
         if (musicPlayer.playbackState !== MediaPlayer.PlayingState) {
             musicPlayer.position = target
             musicPlayer.play()
@@ -123,6 +134,19 @@ ApplicationWindow {
         for (var i = 0; i < items.length; i++)
             parts.push(items[i].url.toString() + ":" + items[i].inMs + ":" + items[i].outMs + ":" + items[i].volume + ":" + items[i].muted)
         return parts.join("|") + JSON.stringify(editorProject.exportOptions())
+    }
+    // Files dropped or picked for the audio track go one after another from startMs.
+    function addAudioFiles(urls, startMs) {
+        var added = 0
+        for (var i = 0; i < urls.length; i++) {
+            var index = editorProject.addAudio(urls[i], startMs)
+            if (index < 0) continue
+            added++
+            var item = editorProject.audioItems[index]
+            startMs += item && item.lengthMs > 0 ? item.lengthMs : 0
+        }
+        if (added > 0) root.notice = added === 1 ? "Added to the audio track at " + root.timecode(editorProject.audioItems[editorProject.activeAudioIndex].startMs)
+                                                  : added + " files added to the audio track"
     }
     function addMedia(url) {
         if (exporter.busy) {
@@ -440,10 +464,10 @@ ApplicationWindow {
     }
     FileDialog {
         id: musicDialog
-        title: "Add music"
-        fileMode: FileDialog.OpenFile
+        title: "Add to the audio track"
+        fileMode: FileDialog.OpenFiles
         nameFilters: ["Audio files (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus)", "All files (*)"]
-        onAccepted: if (editorProject.setMusic(selectedFile)) root.notice = "Music added under the whole sequence"
+        onAccepted: root.addAudioFiles(selectedFiles, root.audioAddMs)
     }
     FileDialog {
         id: uploadDialog
@@ -557,17 +581,19 @@ ApplicationWindow {
     MediaPlayer {
         id: musicPlayer
         objectName: "musicPlayer"
-        source: editorProject.musicUrl
-        loops: MediaPlayer.Infinite
+        source: root.playingAudio ? root.playingAudio.url : ""
+        onSourceChanged: root.syncMusic()
+        onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia) root.syncMusic()
         audioOutput: AudioOutput {
-            volume: editorVolume.effectiveVolume * (root.musicVolumeDrag >= 0 ? root.musicVolumeDrag : editorProject.musicVolume)
+            volume: !root.playingAudio ? 0 : editorVolume.effectiveVolume
+                    * Math.min(1, root.audioVolumeDrag >= 0 && root.audioAtPlayhead === editorProject.activeAudioIndex ? root.audioVolumeDrag : root.playingAudio.volume)
                     * (editorProject.musicDuck && root.clipGain > 0 ? 0.4 : 1)
         }
     }
     Timer {
         interval: 250
         repeat: true
-        running: editorProject.musicUrl.toString().length > 0 && root.workspace === 0
+        running: editorProject.audioCount > 0 && root.workspace === 0
         onTriggered: root.syncMusic()
     }
 
@@ -1096,31 +1122,32 @@ ApplicationWindow {
                             }
                         }
 
-                        // Music under the whole sequence.
+                        // Audio track: music and sounds placed on the sequence.
                         ColumnLayout {
                             visible: editorProject.hasMedia
                             Layout.fillWidth: true
                             spacing: 6
-                            readonly property bool hasMusic: editorProject.musicUrl.toString().length > 0
                             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
-                            Text { text: "Music"; color: Theme.textMuted; font.pixelSize: 11 }
+                            Text { text: "Audio track"; color: Theme.textMuted; font.pixelSize: 11 }
                             EditorButton {
                                 objectName: "addMusicButton"
-                                visible: !parent.hasMusic
                                 Layout.fillWidth: true
-                                text: "Add music…"
+                                text: "Add audio at playhead…"
                                 iconName: "music"
                                 enabled: !exporter.busy
-                                onClicked: musicDialog.open()
+                                onClicked: {
+                                    root.audioAddMs = root.sequencePositionMs
+                                    musicDialog.open()
+                                }
                             }
                             RowLayout {
-                                visible: parent.hasMusic
+                                visible: root.activeAudio !== null
                                 Layout.fillWidth: true
                                 spacing: 4
                                 ToolIcon { name: "music"; tint: Theme.accent; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
                                 Text {
                                     objectName: "musicName"
-                                    text: editorProject.musicName
+                                    text: root.activeAudio ? root.activeAudio.name : ""
                                     color: Theme.text
                                     font.pixelSize: 12
                                     elide: Text.ElideMiddle
@@ -1128,49 +1155,46 @@ ApplicationWindow {
                                     Layout.leftMargin: 4
                                 }
                                 EditorButton {
-                                    iconName: "folder"
-                                    subtle: true
-                                    enabled: !exporter.busy
-                                    onClicked: musicDialog.open()
-                                    ToolTip.visible: hovered
-                                    ToolTip.delay: 500
-                                    ToolTip.text: "Choose another track"
-                                }
-                                EditorButton {
                                     objectName: "removeMusicButton"
                                     iconName: "close"
                                     subtle: true
                                     enabled: !exporter.busy
-                                    onClicked: editorProject.clearMusic()
+                                    onClicked: editorProject.removeAudio(editorProject.activeAudioIndex)
                                     ToolTip.visible: hovered
                                     ToolTip.delay: 500
-                                    ToolTip.text: "Remove the music"
+                                    ToolTip.text: "Remove from the audio track (Delete)"
                                 }
                             }
+                            Text {
+                                visible: root.activeAudio !== null
+                                text: root.activeAudio ? "From " + root.timecode(root.activeAudio.startMs) + " for " + root.timecode(root.activeAudio.lengthMs) : ""
+                                color: Theme.textFaint
+                                font.pixelSize: 11
+                            }
                             RowLayout {
-                                visible: parent.hasMusic
+                                visible: root.activeAudio !== null
                                 Layout.fillWidth: true
                                 spacing: 8
                                 ToolSlider {
                                     objectName: "musicVolumeSlider"
                                     Layout.fillWidth: true
                                     from: 0
-                                    to: 1
+                                    to: 2
                                     stepSize: 0.05
                                     enabled: !exporter.busy
-                                    value: editorProject.musicVolume
+                                    value: root.activeAudio ? root.activeAudio.volume : 0.5
                                     onMoved: {
-                                        if (pressed) root.musicVolumeDrag = value
-                                        else editorProject.setMusicVolume(value)
+                                        if (pressed) root.audioVolumeDrag = value
+                                        else editorProject.setAudioVolume(editorProject.activeAudioIndex, value)
                                     }
                                     onPressedChanged: {
-                                        if (pressed || root.musicVolumeDrag < 0) return
-                                        editorProject.setMusicVolume(root.musicVolumeDrag)
-                                        root.musicVolumeDrag = -1
+                                        if (pressed || root.audioVolumeDrag < 0) return
+                                        editorProject.setAudioVolume(editorProject.activeAudioIndex, root.audioVolumeDrag)
+                                        root.audioVolumeDrag = -1
                                     }
                                 }
                                 Text {
-                                    text: Math.round((root.musicVolumeDrag >= 0 ? root.musicVolumeDrag : editorProject.musicVolume) * 100) + "%"
+                                    text: root.activeAudio ? Math.round((root.audioVolumeDrag >= 0 ? root.audioVolumeDrag : root.activeAudio.volume) * 100) + "%" : ""
                                     color: Theme.text
                                     font.pixelSize: 12
                                     font.weight: Font.DemiBold
@@ -1180,16 +1204,17 @@ ApplicationWindow {
                             }
                             ToolCheck {
                                 objectName: "musicDuckCheck"
-                                visible: parent.hasMusic
+                                visible: editorProject.audioCount > 0
                                 text: "Quieter while someone speaks"
                                 enabled: !exporter.busy
                                 checked: editorProject.musicDuck
                                 onToggled: editorProject.setMusicDuck(checked)
                             }
                             Text {
-                                visible: parent.hasMusic
                                 Layout.fillWidth: true
-                                text: "Plays from the start, loops to the end of the video and fades out."
+                                text: editorProject.audioCount === 0
+                                      ? "Drop music or sounds on the audio track under the clips, or add them here."
+                                      : "Drag items on the audio track to move them and their edges to trim. Sound past the end of the video fades out."
                                 wrapMode: Text.WordWrap
                                 color: Theme.textFaint
                                 font.pixelSize: 10
@@ -1373,7 +1398,7 @@ ApplicationWindow {
                     spacing: 8
                     Text { text: "Timeline"; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold }
                     Text { text: editorProject.hasMedia ? editorProject.clipCount + (editorProject.clipCount === 1 ? " clip · " : " clips · ") + root.timecode(editorProject.sequenceDurationMs) : ""; color: Theme.accent; font.pixelSize: 11 }
-                    Text { text: editorProject.hasMedia ? "Drag edges to trim, drag clips to reorder, Ctrl + wheel to zoom" : "No clip loaded"; color: Theme.textFaint; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                    Text { text: editorProject.hasMedia ? "Drag edges to trim, drag clips to reorder, drop audio on the track below, Ctrl + wheel to zoom" : "No clip loaded"; color: Theme.textFaint; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
                     EditorButton { iconName: "undo"; subtle: true; enabled: editorProject.canUndo && !exporter.busy; onClicked: editorProject.undo(); ToolTip.visible: hovered; ToolTip.text: "Undo (Ctrl+Z)" }
                     EditorButton { iconName: "redo"; subtle: true; enabled: editorProject.canRedo && !exporter.busy; onClicked: editorProject.redo(); ToolTip.visible: hovered; ToolTip.text: "Redo (Ctrl+Shift+Z)" }
                     EditorButton { text: "Add clip"; iconName: "plus"; enabled: !exporter.busy; onClicked: addClipDialog.open() }
@@ -1394,12 +1419,22 @@ ApplicationWindow {
                     playing: player.playbackState === MediaPlayer.PlayingState
                     thumbnailSource: thumbnails
                     transition: editorProject.transition
-                    musicName: editorProject.musicName
+                    audioItems: editorProject.audioItems
+                    audioIndex: editorProject.activeAudioIndex
+                    onAudioSelectRequested: function(index) { editorProject.selectAudio(index) }
+                    onAudioPlaceRequested: function(index, startMs, inMs, outMs) { editorProject.setAudioPlacement(index, startMs, inMs, outMs) }
+                    onAudioRemoveRequested: function(index) { editorProject.removeAudio(index) }
+                    onAudioAddRequested: function(startMs) {
+                        root.audioAddMs = startMs
+                        musicDialog.open()
+                    }
+                    onAudioDropped: function(urls, startMs) { root.addAudioFiles(urls, startMs) }
                     onScrubRequested: function(ms) { root.beginScrub(ms) }
                     onScrubFinished: root.scrubbing = false
                     onSelectRequested: function(index) {
                         root.sequencePlaying = false
                         root.sequenceAdvancing = false
+                        editorProject.selectAudio(-1)
                         editorProject.selectClip(index)
                     }
                     onTrimRequested: function(index, inMs, outMs, previewMs) {
