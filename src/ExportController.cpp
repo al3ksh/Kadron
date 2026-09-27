@@ -166,9 +166,12 @@ QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossf
             const auto nextVideo = last ? QStringLiteral("[v]") : QStringLiteral("[v%1]").arg(i);
             const auto nextAudio = last ? (musicInput < 0 ? QStringLiteral("[a]") : QStringLiteral("[joined]"))
                                         : QStringLiteral("[a%1]").arg(i);
-            parts << QStringLiteral("%1[in%2]xfade=transition=fade:duration=%3:offset=%4%5")
+            // Eased rather than linear: the blend starts and settles gently.
+            // The sound crossfades at equal power, with no dip in the middle.
+            parts << QStringLiteral("%1[in%2]xfade=transition=custom:expr='st(0,P*P*(3-2*P));A*ld(0)+B*(1-ld(0))'"
+                                    ":duration=%3:offset=%4%5")
                          .arg(video).arg(i).arg(seconds(crossfadeMs), seconds(joined - crossfadeMs), nextVideo);
-            parts << QStringLiteral("%1[%2:a]acrossfade=d=%3%4").arg(audio).arg(i).arg(seconds(crossfadeMs), nextAudio);
+            parts << QStringLiteral("%1[%2:a]acrossfade=d=%3:c1=qsin:c2=qsin%4").arg(audio).arg(i).arg(seconds(crossfadeMs), nextAudio);
             video = nextVideo;
             audio = nextAudio;
             joined += lengthsMs.at(i) - crossfadeMs;
@@ -179,7 +182,7 @@ QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossf
         // Looped music cut to the video, eased in and faded out over the last seconds.
         const auto fadeOut = qMin<qint64>(2000, total / 3);
         parts << QStringLiteral("[%1:a]atrim=duration=%2,asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,"
-                                "volume=%3,afade=t=in:d=0.3,afade=t=out:st=%4:d=%5[music]")
+                                "volume=%3,afade=t=in:d=0.3,afade=t=out:st=%4:d=%5:curve=hsin[music]")
                      .arg(musicInput).arg(seconds(total), QString::number(musicVolume, 'f', 3),
                                           seconds(total - fadeOut), seconds(fadeOut));
         if (duck) {
@@ -421,13 +424,28 @@ void ExportController::encodeNext()
     const bool fadeIn = half > 0 && m_segmentIndex > 0;
     const bool fadeOut = half > 0 && m_segmentIndex + 1 < m_segments.size();
     QString videoFades, audioFades;
-    if (fadeIn) {
-        videoFades += QString(",fade=t=in:st=0:d=%1").arg(seconds(half));
-        audioFades += QString(",afade=t=in:st=0:d=%1").arg(seconds(half));
-    }
-    if (fadeOut) {
-        videoFades += QString(",fade=t=out:st=%1:d=%2").arg(seconds(lengthMs - half), seconds(half));
-        audioFades += QString(",afade=t=out:st=%1:d=%2").arg(seconds(lengthMs - half), seconds(half));
+    if (fadeIn || fadeOut) {
+        // An eased dip (smoothstep), only on the frames that fade: register 0
+        // holds the fade-in level and 1 the fade-out level.
+        QStringList levels, factors, windows;
+        if (fadeIn) {
+            levels << QString("st(0,clip(T/%1,0,1))").arg(seconds(half));
+            factors << "ld(0)*ld(0)*(3-2*ld(0))";
+            windows << QString("lt(t,%1)").arg(seconds(half));
+        }
+        if (fadeOut) {
+            levels << QString("st(1,clip((%1-T)/%2,0,1))").arg(seconds(lengthMs), seconds(half));
+            factors << "ld(1)*ld(1)*(3-2*ld(1))";
+            windows << QString("gte(t,%1)").arg(seconds(lengthMs - half));
+        }
+        const auto level = levels.join(';') + ';';
+        const auto factor = factors.join('*');
+        videoFades = QString(",geq=lum='%1 16+(lum(X,Y)-16)*%2':cb='%1 128+(cb(X,Y)-128)*%2':cr='%1 128+(cr(X,Y)-128)*%2'"
+                             ":enable='%3'").arg(level, factor, windows.join('+'));
+        if (fadeIn)
+            audioFades += QString(",afade=t=in:st=0:d=%1:curve=hsin").arg(seconds(half));
+        if (fadeOut)
+            audioFades += QString(",afade=t=out:st=%1:d=%2:curve=hsin").arg(seconds(lengthMs - half), seconds(half));
     }
     if (segment.hasVideo) {
         args << "-vf" << QString("scale=%1:%2:force_original_aspect_ratio=decrease,"

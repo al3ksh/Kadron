@@ -541,8 +541,8 @@ void CoreTests::sequenceExport()
     QCOMPARE(ExportController::canvasFor(3840, 2160), QSize(1920, 1080));
     QCOMPARE(ExportController::canvasFor(320, 180), QSize(320, 180));
     const auto crossfadeFilter = ExportController::mixFilter({1000, 2000}, 400, -1, 0.3, true);
-    QVERIFY2(crossfadeFilter.contains("xfade=transition=fade:duration=0.400:offset=0.600[v]"), qPrintable(crossfadeFilter));
-    QVERIFY2(crossfadeFilter.contains("acrossfade=d=0.400[a]"), qPrintable(crossfadeFilter));
+    QVERIFY2(crossfadeFilter.contains(":duration=0.400:offset=0.600[v]"), qPrintable(crossfadeFilter));
+    QVERIFY2(crossfadeFilter.contains("acrossfade=d=0.400:c1=qsin:c2=qsin[a]"), qPrintable(crossfadeFilter));
     const auto musicFilter = ExportController::mixFilter({3000}, 0, 1, 0.3, true);
     QVERIFY2(musicFilter.contains("atrim=duration=3.000") && musicFilter.contains("sidechaincompress"), qPrintable(musicFilter));
 
@@ -590,6 +590,18 @@ void CoreTests::sequenceExport()
     QVERIFY(exporter.startSequence(project.clips(), QUrl::fromLocalFile(fadedPath), project.exportOptions()));
     QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
     QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    // The frame at the first join (1.2 s) is black; mid-clip it is not.
+    const auto brightness = [&](const QString &at) {
+        QProcess stats;
+        stats.start(ffmpeg, {"-hide_banner", "-nostdin", "-ss", at, "-i", fadedPath, "-frames:v", "1",
+                             "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-f", "null", "-"});
+        stats.waitForFinished(30000);
+        const auto text = QString::fromUtf8(stats.readAllStandardError());
+        return text.section("YAVG=", 1).section('\n', 0, 0).trimmed().toDouble();
+    };
+    const auto joinLuma = brightness("1.19");
+    const auto midLuma = brightness("0.5");
+    QVERIFY2(joinLuma < 25 && midLuma > 60, qPrintable(QString("join %1, middle %2").arg(joinLuma).arg(midLuma)));
     EditorProject single;
     QVERIFY(single.importMedia(QUrl::fromLocalFile(videoPath)));
     single.setDurationMs(2000);

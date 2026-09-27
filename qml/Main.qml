@@ -56,7 +56,9 @@ ApplicationWindow {
         if (index > 0) distance = Math.min(distance, position)
         if (index < editorProject.clipCount - 1) distance = Math.min(distance, activeClip.lengthMs - position)
         if (distance >= half) return 0
-        var depth = 1 - Math.max(0, distance) / half
+        // Eased like the export (smoothstep).
+        var level = Math.max(0, distance) / half
+        var depth = 1 - level * level * (3 - 2 * level)
         return editorProject.transition === "fade" ? depth : depth * 0.35
     }
     // Everything an export depends on, to tell when a result is stale.
