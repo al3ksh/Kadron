@@ -108,6 +108,14 @@ Section "Open .kadr projects with Kadron" SecAssociate
     System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 SectionEnd
 
+; Cascading "Kadron" entry for video, audio, images and PDFs (under "Show more
+; options" on Windows 11). Updates keep it off if it was turned off in Kadron.
+Section "Kadron in Explorer's right-click menu" SecExplorerMenu
+    ReadRegStr $0 HKCU "Software\Kadron\Kadron\preferences" "explorerMenu"
+    StrCmp $0 "false" +2
+    ExecWait '"$INSTDIR\kadron.exe" --register-shell'
+SectionEnd
+
 Section /o "Desktop shortcut" SecDesktop
     CreateShortcut "$DESKTOP\Kadron.lnk" "$INSTDIR\kadron.exe"
 SectionEnd
@@ -123,6 +131,10 @@ FunctionEnd
 
 Section "Uninstall"
     !insertmacro EnsureClosed
+    ; The Explorer menu goes too, if it belongs to this install.
+    ReadRegStr $0 HKCU "Software\Classes\SystemFileAssociations\.mp4\shell\Kadron" "Icon"
+    StrCmp $0 '"$INSTDIR\kadron.exe",0' 0 +2
+        ExecWait '"$INSTDIR\kadron.exe" --unregister-shell'
     !include "${DIST}\uninstall-files.nsh"
     Delete "$INSTDIR\uninstall.exe"
     RMDir "$INSTDIR"

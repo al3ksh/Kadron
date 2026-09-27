@@ -9,6 +9,8 @@
 #include "LocalImageTools.h"
 #include "WindowChrome.h"
 #include "AppUpdater.h"
+#include "ShellIntegration.h"
+#include "SingleInstance.h"
 
 #include <QGuiApplication>
 #include <QStyleHints>
@@ -70,6 +72,20 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     app.styleHints()->setColorScheme(Qt::ColorScheme::Dark);
 
+    // The installer adds and removes the Explorer menu through these.
+    if (app.arguments().contains(QStringLiteral("--register-shell")))
+        return ShellIntegration::install(QCoreApplication::applicationFilePath()) ? 0 : 1;
+    if (app.arguments().contains(QStringLiteral("--unregister-shell"))) {
+        ShellIntegration::uninstall();
+        return 0;
+    }
+    // Files for a Kadron that is already open go to it; screenshot runs stay apart.
+    const auto launch = SingleInstance::parse(app.arguments());
+    SingleInstance instance;
+    if (!qEnvironmentVariableIsSet("KADRON_SCREENSHOT") && !instance.claim()
+        && !launch.files.isEmpty() && SingleInstance::forward(launch))
+        return 0;
+
     EditorProject project;
     ExportController exporter;
     ThumbnailStrip thumbnails;
@@ -80,6 +96,7 @@ int main(int argc, char *argv[])
     LocalQr localQr;
     LocalImageTools localImages;
     AppUpdater appUpdater;
+    ShellIntegration shellIntegration;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("editorProject", &project);
     engine.rootContext()->setContextProperty("exporter", &exporter);
@@ -91,6 +108,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("localQr", &localQr);
     engine.rootContext()->setContextProperty("localImages", &localImages);
     engine.rootContext()->setContextProperty("appUpdater", &appUpdater);
+    engine.rootContext()->setContextProperty("shellIntegration", &shellIntegration);
     engine.addImageProvider(QStringLiteral("qr"), new QrImageProvider(&localQr));
     QTemporaryDir screenshotSettings;
     const auto screenshotPath = qEnvironmentVariable("KADRON_SCREENSHOT");
@@ -158,14 +176,9 @@ int main(int argc, char *argv[])
         intro->setProperty("appReady", true);
     }
 
-    const auto arguments = app.arguments();
-    if (arguments.size() > 1 && !arguments.at(1).startsWith("--")) {
-        const auto input = QUrl::fromLocalFile(QFileInfo(arguments.at(1)).absoluteFilePath());
-        if (QFileInfo(arguments.at(1)).suffix().compare("kadr", Qt::CaseInsensitive) == 0)
-            project.openProject(input);
-        else
-            project.importMedia(input);
-    }
+    if (!launch.files.isEmpty())
+        instance.take(launch, false);
+    instance.attach(mainWindow);
 
     // Look for a new release shortly after startup, at most once a day.
     // Screenshots only check against an explicit KADRON_UPDATE_URL.

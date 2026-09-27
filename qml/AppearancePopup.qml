@@ -123,6 +123,15 @@ Popup {
             onToggled: Prefs.startupIntro = checked
         }
 
+        ToolCheck {
+            objectName: "explorerMenuCheck"
+            readonly property bool available: typeof shellIntegration !== "undefined" && shellIntegration.supported
+            visible: available
+            text: "Show Kadron in Explorer's right-click menu"
+            checked: available && shellIntegration.enabled
+            onToggled: shellIntegration.enabled = checked
+        }
+
         EditorButton {
             text: "Reset to Kadron defaults"
             subtle: true

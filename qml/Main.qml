@@ -235,6 +235,30 @@ ApplicationWindow {
         root.playerError = ""
         root.notice = "Project closed · its files are free to move or delete"
     }
+    // Files from Explorer's Kadron menu or the command line, batched per tool.
+    function openWith(tool, urls) {
+        if (!urls || urls.length === 0) return
+        if (tool === "project") {
+            workspace = 0
+            requestOpen(urls[0], true)
+        } else if (tool === "edit") {
+            workspace = 0
+            for (var i = 0; i < urls.length; i++) addMedia(urls[i])
+        } else if (tool === "images") {
+            workspace = 10
+            imagesArea.addFiles(urls)
+        } else if (tool === "pdf" || tool === "images-to-pdf") {
+            workspace = 5
+            toolsArea.setPdfMode(tool === "images-to-pdf" ? "images-to-pdf" : urls.length > 1 ? "merge" : "edit")
+            toolsArea.takePdfFiles(urls)
+        } else {
+            var sections = { audio: 2, compress: 3, gif: 4 }
+            if (sections[tool] === undefined) return
+            workspace = sections[tool]
+            toolsArea.acceptDrop([urls[0]])
+            if (urls.length > 1) notice = sectionTitle + " takes one file at a time · opened " + decodeURIComponent(urls[0].toString().split("/").pop())
+        }
+    }
     function requestOpen(url, isProject) {
         if (root.anyBusy) {
             root.notice = "Finish or cancel the current operation before opening another file"

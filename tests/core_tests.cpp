@@ -10,6 +10,7 @@
 #include "LocalDownload.h"
 #include "LocalQr.h"
 #include "LocalImageTools.h"
+#include "SingleInstance.h"
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -46,6 +47,7 @@ private slots:
     void hardwareEncoders();
     void pageRanges();
     void imageExif();
+    void launchArguments();
     void imageOperations();
 };
 
@@ -930,6 +932,20 @@ void CoreTests::appUpdates()
     QFile::remove(downloaded);
     QFile::remove(marker);
     qunsetenv("KADRON_UPDATE_URL");
+}
+
+void CoreTests::launchArguments()
+{
+    // Explorer's menu: one tool, one file per process.
+    auto request = SingleInstance::parse({ "kadron.exe", "--tool=images", "C:/photos/a.jpg" });
+    QCOMPARE(request.tool, QStringLiteral("images"));
+    QCOMPARE(request.files, QStringList { QStringLiteral("C:/photos/a.jpg") });
+    // A double-clicked project, a plain file, and flags that are not files.
+    QCOMPARE(SingleInstance::parse({ "kadron.exe", "C:/work/cut.KADR" }).tool, QStringLiteral("project"));
+    QCOMPARE(SingleInstance::parse({ "kadron.exe", "C:/work/clip.mp4" }).tool, QStringLiteral("edit"));
+    request = SingleInstance::parse({ "kadron.exe", "/relaunch", "--verbose" });
+    QVERIFY(request.files.isEmpty());
+    QVERIFY(request.tool.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(CoreTests)

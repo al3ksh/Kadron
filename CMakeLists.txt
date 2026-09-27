@@ -32,6 +32,10 @@ qt_add_executable(kadron
     src/LocalImageTools.h
     src/WindowChrome.cpp
     src/WindowChrome.h
+    src/ShellIntegration.cpp
+    src/ShellIntegration.h
+    src/SingleInstance.cpp
+    src/SingleInstance.h
     src/AppUpdater.cpp
     src/AppUpdater.h
 )
@@ -101,7 +105,7 @@ target_link_libraries(kadron PRIVATE
     Qt6::Concurrent
 )
 if(WIN32)
-    target_link_libraries(kadron PRIVATE dwmapi)
+    target_link_libraries(kadron PRIVATE dwmapi advapi32 shell32)
 endif()
 
 set_target_properties(kadron PROPERTIES
@@ -135,6 +139,8 @@ if(BUILD_TESTING)
         src/LocalQr.h
         src/LocalImageTools.cpp
         src/LocalImageTools.h
+        src/SingleInstance.cpp
+        src/SingleInstance.h
         src/AppUpdater.cpp
         src/AppUpdater.h
     )
