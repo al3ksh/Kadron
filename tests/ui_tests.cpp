@@ -34,6 +34,7 @@ private slots:
     void intro();
     void imagesWorkspace();
     void reframeWorkspace();
+    void fileBoardReorder();
 };
 
 // Components come from the same Kadron module the app ships; any QML warning
@@ -639,6 +640,50 @@ void UiTests::reframeWorkspace()
     page->setProperty("aspectW", 16);
     page->setProperty("aspectH", 9);
     QCOMPARE(page->property("mode").toString(), QStringLiteral("crop"));
+}
+
+// Dragging a card past its neighbours moves it there, also under a
+// tool-wide DropArea for files (as in ToolsWorkspace) that must let it through.
+void UiTests::fileBoardReorder()
+{
+    for (const auto &keys : {QByteArray("[\"text/uri-list\", \"text/plain\"]"), QByteArray()}) {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport Kadron\nItem {\n width: 700; height: 300\n"
+                          " property alias board: fileBoard\n"
+                          " FileBoard { id: fileBoard; anchors.fill: parent }\n"
+                          " DropArea { anchors.fill: parent; z: 10" + (keys.isEmpty() ? QByteArray() : "; keys: " + keys) + " }\n}\n",
+                          QUrl::fromLocalFile(QDir::tempPath() + "/kadron_board_test.qml"));
+        QTRY_VERIFY2(!component.isLoading(), "loading");
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> object(component.create());
+        QVERIFY2(object, qPrintable(component.errorString()));
+        auto *root = qobject_cast<QQuickItem *>(object.get());
+        auto *board = root->property("board").value<QQuickItem *>();
+        board->setProperty("files", QVariantList{QUrl("file:///a.pdf"), QUrl("file:///b.pdf"), QUrl("file:///c.pdf")});
+        QQuickWindow window;
+        window.setGeometry(50, 50, 700, 300);
+        root->setParentItem(window.contentItem());
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QSignalSpy reordered(board, signalOf(board, "reordered(QVariant)"));
+        // Cards are 168 px apart; drag the first to the third slot.
+        QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(84, 60));
+        for (int x = 90; x <= 84 + 2 * 168; x += 12) {
+            QTest::mouseMove(&window, QPoint(x, 60));
+            QTest::qWait(5);
+        }
+        QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(84 + 2 * 168, 60));
+        QTRY_VERIFY_WITH_TIMEOUT(reordered.count() > 0, 2000);
+        const auto order = reordered.last().first().toList();
+        // A DropArea without keys swallows the card's own drag: nothing moves.
+        if (keys.isEmpty()) {
+            QVERIFY(order.at(0).toString().endsWith("a.pdf"));
+            continue;
+        }
+        QVERIFY2(order.at(0).toString().endsWith("b.pdf") && order.at(2).toString().endsWith("a.pdf"),
+                 qPrintable(order.at(0).toString() + " " + order.at(1).toString() + " " + order.at(2).toString()));
+    }
 }
 
 #include "ui_tests.moc"

@@ -234,6 +234,9 @@ Item {
         id: pageDrop
         anchors.fill: parent
         z: 10
+        // Only files and links: it sits above the page and file cards, whose
+        // own drags must reach the slots underneath to reorder.
+        keys: ["text/uri-list", "text/plain"]
         enabled: toolsPage.fileSection || toolsPage.section === 1
         onDropped: function(drop) {
             if (toolsPage.section === 1) {
@@ -1069,6 +1072,7 @@ Item {
                             required property bool selected
                             width: pageGrid.cellWidth
                             height: pageGrid.cellHeight
+                            keys: ["kadron-page-card"]
                             onEntered: function(drag) {
                                 if (drag.source && drag.source.visualIndex !== slot.index) {
                                     pageModel.move(drag.source.visualIndex, slot.index, 1)
@@ -1093,6 +1097,7 @@ Item {
                                 Behavior on color { ColorAnimation { duration: Theme.fadeFast } }
                                 Drag.active: dragging
                                 Drag.source: pageCard
+                                Drag.keys: ["kadron-page-card"]
                                 Drag.hotSpot.x: width / 2
                                 Drag.hotSpot.y: height / 2
                                 states: State {
