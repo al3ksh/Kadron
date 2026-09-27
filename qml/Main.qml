@@ -44,13 +44,14 @@ ApplicationWindow {
     property url uploadFile: ""
     property url pendingOpenUrl: ""
     property bool pendingIsProject: false
-    readonly property string sectionTitle: ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code", "Clips", "Drop", "Shortener", "Images"][workspace]
-    // Workspaces 7-9 publish to the Tools server; 10 (Images) is local like 1-6.
+    readonly property string sectionTitle: ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code", "Clips", "Drop", "Shortener", "Images", "Reframe"][workspace]
+    // Workspaces 7-9 publish to the Tools server; 10 (Images) and 11 (Reframe) are local like 1-6.
     readonly property bool shareWorkspace: workspace >= 7 && workspace <= 9
-    readonly property bool anyBusy: exporter.busy || toolsClient.busy || localTools.busy || localDownload.busy || localPdf.busy || localQr.busy || localImages.busy
+    readonly property bool anyBusy: exporter.busy || toolsClient.busy || localTools.busy || localDownload.busy || localPdf.busy || localQr.busy || localImages.busy || localReframe.busy
     onWorkspaceChanged: {
         if (workspace === 0) editorEnter.restart()
         else if (workspace === 10) imagesEnter.restart()
+        else if (workspace === 11) reframeEnter.restart()
         else if (shareWorkspace) shareEnter.restart()
         else toolsEnter.restart()
     }
@@ -58,6 +59,7 @@ ApplicationWindow {
     function revealAfterIntro() {
         if (workspace === 0) editorEnter.restart()
         else if (workspace === 10) imagesEnter.restart()
+        else if (workspace === 11) reframeEnter.restart()
         else if (shareWorkspace) shareEnter.restart()
         else toolsEnter.restart()
     }
@@ -244,6 +246,9 @@ ApplicationWindow {
         } else if (tool === "edit") {
             workspace = 0
             for (var i = 0; i < urls.length; i++) addMedia(urls[i])
+        } else if (tool === "reframe") {
+            workspace = 11
+            if (!reframeArea.load(urls[0])) notice = localReframe.busy ? "Wait for the current reframe to finish" : "Reframe takes a video file"
         } else if (tool === "images") {
             workspace = 10
             imagesArea.addFiles(urls)
@@ -279,6 +284,8 @@ ApplicationWindow {
         localDownload.cancel()
         localPdf.cancel()
         localQr.cancel()
+        localImages.cancel()
+        localReframe.cancel()
     }
     // Every close fades the window out; the real close runs once the fade ends.
     function fadeAndClose() {
@@ -521,7 +528,7 @@ ApplicationWindow {
             // One shared highlight travels between rail items on a spring.
             Item {
                 id: navHighlight
-                readonly property Item target: [navEditor, navDownload, navAudio, navCompress, navGif, navPdf, navQr, navClips, navDrop, navShortener, navImages][root.workspace] || null
+                readonly property Item target: [navEditor, navDownload, navAudio, navCompress, navGif, navPdf, navQr, navClips, navDrop, navShortener, navImages, navReframe][root.workspace] || null
                 visible: target !== null
                 x: navColumn.x + (target ? target.x : 0)
                 y: navColumn.y + (target ? target.y : 0)
@@ -558,6 +565,7 @@ ApplicationWindow {
                 NavItem { id: navAudio; Layout.fillWidth: true; title: "Audio"; iconName: "audio"; active: root.workspace === 2; onClicked: root.workspace = 2 }
                 NavItem { id: navCompress; Layout.fillWidth: true; title: "Compress"; iconName: "compress"; active: root.workspace === 3; onClicked: root.workspace = 3 }
                 NavItem { id: navGif; Layout.fillWidth: true; title: "GIF Studio"; iconName: "gif"; active: root.workspace === 4; onClicked: root.workspace = 4 }
+                NavItem { id: navReframe; objectName: "navReframe"; Layout.fillWidth: true; title: "Reframe"; iconName: "reframe"; active: root.workspace === 11; onClicked: root.workspace = 11 }
                 NavItem { id: navImages; objectName: "navImages"; Layout.fillWidth: true; title: "Images"; iconName: "image"; active: root.workspace === 10; onClicked: root.workspace = 10 }
                 Item { Layout.preferredHeight: 20 }
                 Text { text: "UTILITIES"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
@@ -674,6 +682,7 @@ ApplicationWindow {
         RevealAnimation { id: toolsEnter; target: toolsArea; shift: toolsShift }
         RevealAnimation { id: shareEnter; target: shareArea; shift: shareShift }
         RevealAnimation { id: imagesEnter; target: imagesArea; shift: imagesShift }
+        RevealAnimation { id: reframeEnter; target: reframeArea; shift: reframeShift }
         RevealAnimation { id: inspectorEnter; target: inspectorScroll; shift: inspectorShift; distance: 6 }
 
         RowLayout {
@@ -1092,6 +1101,14 @@ ApplicationWindow {
             Layout.fillHeight: true
         }
 
+        ReframeWorkspace {
+            id: reframeArea
+            transform: Translate { id: reframeShift }
+            visible: root.workspace === 11
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 30
@@ -1101,9 +1118,9 @@ ApplicationWindow {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 14
                 spacing: 8
-                Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || localImages.errorText ? Theme.danger : root.anyBusy ? Theme.warning : Theme.accent }
+                Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || localImages.errorText || localReframe.errorText ? Theme.danger : root.anyBusy ? Theme.warning : Theme.accent }
                 Text {
-                    text: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || localImages.errorText || (exporter.busy ? exporter.stage + " " + exporter.progress + "%" : localTools.busy ? localTools.stage + " " + localTools.progress + "%" : localDownload.busy ? localDownload.stage + " " + localDownload.progress + "%" : localPdf.busy ? localPdf.stage : localQr.busy ? localQr.stage : localImages.busy ? localImages.stage : toolsClient.busy ? toolsClient.stage + " " + toolsClient.progress + "%" : root.notice || "Ready")
+                    text: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || localImages.errorText || localReframe.errorText || (exporter.busy ? exporter.stage + " " + exporter.progress + "%" : localTools.busy ? localTools.stage + " " + localTools.progress + "%" : localDownload.busy ? localDownload.stage + " " + localDownload.progress + "%" : localPdf.busy ? localPdf.stage : localQr.busy ? localQr.stage : localImages.busy ? localImages.stage : localReframe.busy ? localReframe.stage + " " + localReframe.progress + "%" : toolsClient.busy ? toolsClient.stage + " " + toolsClient.progress + "%" : root.notice || "Ready")
                     color: Theme.textSoft
                     font.pixelSize: 11
                     elide: Text.ElideRight

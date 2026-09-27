@@ -48,6 +48,7 @@ private slots:
     void pageRanges();
     void imageExif();
     void launchArguments();
+    void reframeVideo();
     void imageOperations();
 };
 
@@ -1161,6 +1162,55 @@ void CoreTests::imageOperations()
     QVERIFY(preview.value("bytes").toLongLong() > 0);
     QVERIFY(QFileInfo::exists(preview.value("before").toUrl().toLocalFile()));
     QVERIFY(QFileInfo::exists(preview.value("after").toUrl().toLocalFile()));
+}
+
+void CoreTests::reframeVideo()
+{
+    // Geometry: 16:9 to 9:16 keeps the full height; zoom narrows both sides.
+    QCOMPARE(LocalMediaTools::reframeOutput(9, 16), QSize(1080, 1920));
+    QCOMPARE(LocalMediaTools::reframeOutput(16, 9), QSize(1920, 1080));
+    QCOMPARE(LocalMediaTools::reframeCrop(QSize(1920, 1080), 9, 16, 1.0), QSize(606, 1080));
+    QCOMPARE(LocalMediaTools::reframeCrop(QSize(1920, 1080), 1, 1, 2.0), QSize(540, 540));
+    // One keyframe is a still position; two ease from one to the other.
+    const auto still = LocalMediaTools::reframeFilter(QSize(1920, 1080), {
+        { "mode", "crop" }, { "aspectW", 9 }, { "aspectH", 16 },
+        { "keyframes", QVariantList { QVariantMap { { "t", 0 }, { "x", 0.0 }, { "y", 0.5 } } } } });
+    QVERIFY2(still.contains("x='0.000'"), qPrintable(still));
+    const QVariantMap moving {
+        { "mode", "crop" }, { "aspectW", 9 }, { "aspectH", 16 },
+        { "keyframes", QVariantList { QVariantMap { { "t", 1.5 }, { "x", 1.0 }, { "y", 0.5 } },
+                                      QVariantMap { { "t", 0.2 }, { "x", 0.0 }, { "y", 0.5 } } } } };
+    const auto glide = LocalMediaTools::reframeFilter(QSize(1920, 1080), moving);
+    QVERIFY2(glide.contains("if(lt(t,1.500),0.000+(1314.000)*"), qPrintable(glide));
+
+    LocalMediaTools tools;
+    if (!tools.available()) QSKIP("FFmpeg is not installed");
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto source = directory.path() + "/wide.mp4";
+    QProcess generator;
+    generator.start(ffmpegExecutable(), {"-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=15",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+        "-t", "2", "-c:v", "libx264", "-c:a", "aac", "-shortest", source});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+
+    const auto cropped = directory.path() + "/vertical.mp4";
+    QVERIFY(tools.reframe(QUrl::fromLocalFile(source), QUrl::fromLocalFile(cropped), moving));
+    QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 60000);
+    QVERIFY2(tools.errorText().isEmpty(), qPrintable(tools.errorText()));
+    QCOMPARE(probeSize(cropped), QSize(1080, 1920));
+
+    auto blur = moving;
+    blur["mode"] = "blur";
+    blur["aspectW"] = 1;
+    blur["aspectH"] = 1;
+    const auto square = directory.path() + "/square.mp4";
+    QVERIFY(tools.reframe(QUrl::fromLocalFile(source), QUrl::fromLocalFile(square), blur));
+    QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 60000);
+    QVERIFY2(tools.errorText().isEmpty(), qPrintable(tools.errorText()));
+    QCOMPARE(probeSize(square), QSize(1080, 1080));
 }
 
 #include "core_tests.moc"

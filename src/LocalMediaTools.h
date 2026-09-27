@@ -2,7 +2,9 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QSize>
 #include <QUrl>
+#include <QVariantMap>
 
 class LocalMediaTools final : public QObject
 {
@@ -32,13 +34,25 @@ public:
                               int quality, double targetMB, int maxWidth, bool stripAudio);
     Q_INVOKABLE bool createGif(const QUrl &source, const QUrl &destination, double startSec,
                                double durationSec, int fps, int width, double targetMB);
+    // Turns a video into another shape. options: mode ("crop" follows the
+    // keyframed frame, "blur" fits the whole picture over a blurred copy),
+    // aspectW/aspectH, zoom (crop only, 1 = largest frame that fits) and
+    // keyframes: [{t: seconds, x, y}] with the frame centre normalized 0..1.
+    Q_INVOKABLE bool reframe(const QUrl &source, const QUrl &destination, const QVariantMap &options);
     Q_INVOKABLE void cancel();
+
+    // The export size for an aspect: 1080 on the short side.
+    Q_INVOKABLE static QSize reframeOutput(int aspectW, int aspectH);
+    // The crop in source pixels for an aspect and zoom.
+    Q_INVOKABLE static QSize reframeCrop(QSize source, int aspectW, int aspectH, double zoom);
+    // FFmpeg filter graph from [0:v] to [v].
+    static QString reframeFilter(QSize source, const QVariantMap &options);
 
 signals:
     void changed();
 
 private:
-    enum class Operation { None, Audio, Image, Video, Gif };
+    enum class Operation { None, Audio, Image, Video, Gif, Reframe };
     enum class Phase { Idle, Probe, Encode };
     bool begin(const QUrl &source, const QUrl &destination, Operation operation);
     void probe();
@@ -79,4 +93,6 @@ private:
     bool m_normalize = false;
     bool m_stripAudio = false;
     bool m_cancelled = false;
+    QVariantMap m_reframe;
+    QSize m_sourceSize;
 };

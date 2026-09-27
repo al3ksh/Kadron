@@ -14,9 +14,10 @@ QList<ShellIntegration::Group> ShellIntegration::groups()
     return {
         { { "mp4", "mov", "mkv", "webm", "avi", "m4v", "wmv", "mpg", "mpeg", "ts" },
           { { "1edit", "Edit in Kadron", "edit" },
-            { "2compress", "Compress", "compress" },
-            { "3gif", "Make a GIF", "gif" },
-            { "4audio", "Extract audio", "audio" } } },
+            { "2reframe", "Reframe for vertical", "reframe" },
+            { "3compress", "Compress", "compress" },
+            { "4gif", "Make a GIF", "gif" },
+            { "5audio", "Extract audio", "audio" } } },
         { { "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus" },
           { { "1audio", "Convert audio", "audio" } } },
         { { "jpg", "jpeg", "png", "webp", "heic", "heif", "avif", "bmp", "tif", "tiff" },

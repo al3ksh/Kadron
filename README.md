@@ -25,7 +25,7 @@
 
 **Appearance.** Dark, light, or follow Windows, with an accent color of your choice. Open it from the palette button at the bottom of the sidebar. The same panel turns the startup intro on or off.
 
-**Explorer menu.** Right-click a video, audio file, image or PDF and pick **Kadron** (on Windows 11 it sits under *Show more options*) to open it straight in the right tool: edit, compress, make a GIF, extract audio, resize images, combine images into a PDF or open PDF Tools. Select several files and they arrive together in one Kadron window. The installer adds the menu for your user only; turn it off or back on in the Appearance panel.
+**Explorer menu.** Right-click a video, audio file, image or PDF and pick **Kadron** (on Windows 11 it sits under *Show more options*) to open it straight in the right tool: edit, reframe for vertical, compress, make a GIF, extract audio, resize images, combine images into a PDF or open PDF Tools. Select several files and they arrive together in one Kadron window. The installer adds the menu for your user only; turn it off or back on in the Appearance panel.
 
 **Close project.** `Ctrl+W` or the ✕ next to the project name closes it and releases its media, so you can move or delete the source files while Kadron stays open.
 
@@ -36,6 +36,7 @@
 | Audio | Trim on the waveform, play the selection, then convert to MP3, WAV, FLAC or Opus, with optional loudness normalization |
 | GIF Studio | Choose a range on a filmstrip with a looping preview; set frame rate, width, and a size limit |
 | Compress | Shrink video or images, optionally to a target file size |
+| Reframe | Turn a landscape video into 9:16, 1:1, 4:5 or 16:9. Either a crop that follows the action (move the frame at different moments and it eases between those keyframes, with a live preview of the result) or the whole picture over a blurred copy of itself. Exports 1080p MP4 |
 | Images | Convert a batch of photos between JPG, PNG, WebP and AVIF (HEIC in), resize them, fit them under a file size, crop with aspect presets, rotate and flip; compare before and after. Shows the camera, date and GPS location a photo carries; saved copies have no metadata |
 | Download | Paste a link and get a preview (thumbnail, title, length) before downloading with yt-dlp; Kadron keeps its own copy of yt-dlp up to date |
 | PDF Tools | Edit pages visually (reorder, rotate, delete, preview); merge PDFs as cards showing each first page, in the order you drag them; pick pages to extract on thumbnails; turn images into a PDF |
@@ -94,7 +95,7 @@ cmake --build build -j 8
 ctest --test-dir build --output-on-failure
 ```
 
-Run `build/kadron.exe` with `C:\msys64\ucrt64\bin` on `PATH`. You can pass a media file or a `.kadr` project as the first argument, or `--tool=<edit|compress|gif|audio|images|images-to-pdf|pdf>` followed by files. `--register-shell` and `--unregister-shell` add or remove the Explorer menu for the current user. `KADRON_FFMPEG`, `KADRON_FFPROBE`, `KADRON_PDFTOPPM` (and similar variables) point Kadron at specific executables.
+Run `build/kadron.exe` with `C:\msys64\ucrt64\bin` on `PATH`. You can pass a media file or a `.kadr` project as the first argument, or `--tool=<edit|reframe|compress|gif|audio|images|images-to-pdf|pdf>` followed by files. `--register-shell` and `--unregister-shell` add or remove the Explorer menu for the current user. `KADRON_FFMPEG`, `KADRON_FFPROBE`, `KADRON_PDFTOPPM` (and similar variables) point Kadron at specific executables.
 
 `packaging/windows/package.sh` builds the installer and portable zip into `dist/`. [BUILDING.md](BUILDING.md) has more detail on both.
 

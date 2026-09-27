@@ -91,6 +91,7 @@ int main(int argc, char *argv[])
     ThumbnailStrip thumbnails;
     ToolsClient toolsClient;
     LocalMediaTools localTools;
+    LocalMediaTools localReframe;
     LocalDownload localDownload;
     LocalPdfTools localPdf;
     LocalQr localQr;
@@ -103,6 +104,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("thumbnails", &thumbnails);
     engine.rootContext()->setContextProperty("toolsClient", &toolsClient);
     engine.rootContext()->setContextProperty("localTools", &localTools);
+    engine.rootContext()->setContextProperty("localReframe", &localReframe);
     engine.rootContext()->setContextProperty("localDownload", &localDownload);
     engine.rootContext()->setContextProperty("localPdf", &localPdf);
     engine.rootContext()->setContextProperty("localQr", &localQr);
@@ -271,6 +273,16 @@ int main(int argc, char *argv[])
                     images->setProperty("resizeMode", qEnvironmentVariable("KADRON_SCREENSHOT_IMAGE_RESIZE"));
                 if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_IMAGE_ASPECT"))
                     QMetaObject::invokeMethod(images, "setAspect", Q_ARG(QVariant, qEnvironmentVariable("KADRON_SCREENSHOT_IMAGE_ASPECT")));
+            });
+        }
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_REFRAME_SOURCE")) {
+            const auto source = QUrl::fromLocalFile(QFileInfo(qEnvironmentVariable("KADRON_SCREENSHOT_REFRAME_SOURCE")).absoluteFilePath());
+            QTimer::singleShot(300, &app, [mainWindow, source] {
+                if (auto *reframe = mainWindow->findChild<QObject *>("reframeArea")) {
+                    QMetaObject::invokeMethod(reframe, "load", Q_ARG(QVariant, QVariant(source)));
+                    if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_REFRAME_MODE"))
+                        reframe->setProperty("mode", qEnvironmentVariable("KADRON_SCREENSHOT_REFRAME_MODE"));
+                }
             });
         }
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_GIF_SOURCE")) {

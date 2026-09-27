@@ -1,4 +1,5 @@
 #include "LocalImageTools.h"
+#include "LocalMediaTools.h"
 #include "MediaTools.h"
 
 #include <QMetaMethod>
@@ -32,6 +33,7 @@ private slots:
     void appearance();
     void intro();
     void imagesWorkspace();
+    void reframeWorkspace();
 };
 
 // Components come from the same Kadron module the app ships; any QML warning
@@ -544,4 +546,44 @@ void UiTests::imagesWorkspace()
 }
 
 QTEST_MAIN(UiTests)
+void UiTests::reframeWorkspace()
+{
+    LocalMediaTools tools;
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty("localReframe", &tools);
+    auto page = createFromModule(engine, "ReframeWorkspace");
+    QVERIFY(page);
+    const auto call = [&page](const char *method, QVariantList args) {
+        QVariant result;
+        switch (args.size()) {
+        case 1: QMetaObject::invokeMethod(page.get(), method, Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, args.at(0))); break;
+        default: QMetaObject::invokeMethod(page.get(), method, Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, args.at(0)), Q_ARG(QVariant, args.at(1))); break;
+        }
+        return result.toPointF();
+    };
+    // Without a video the picture counts as 16:9, so a 9:16 frame is 0.316 of its width.
+    QCOMPARE(page->property("outputSize").toSize(), QSize(1080, 1920));
+    QVERIFY(qAbs(call("clampCenter", { 0.0, 0.5 }).x() - 0.158203) < 0.001);
+
+    const QVariantList keys { QVariantMap { { "t", 0.0 }, { "x", 0.2 }, { "y", 0.5 } },
+                              QVariantMap { { "t", 2.0 }, { "x", 0.8 }, { "y", 0.5 } } };
+    page->setProperty("keyframes", keys);
+    QVERIFY(qAbs(call("centerAt", { -1.0 }).x() - 0.2) < 1e-6);
+    QVERIFY(qAbs(call("centerAt", { 1.0 }).x() - 0.5) < 1e-6);
+    // Smoothstep: a quarter of the way in time is 15.6% of the way across.
+    QVERIFY(qAbs(call("centerAt", { 0.5 }).x() - (0.2 + 0.6 * 0.15625)) < 1e-6);
+    QVERIFY(qAbs(call("centerAt", { 9.0 }).x() - 0.8) < 1e-6);
+
+    // Moving the frame at 0:00 updates that keyframe instead of adding one.
+    QMetaObject::invokeMethod(page.get(), "placeFrame", Q_ARG(QVariant, 0.4), Q_ARG(QVariant, 0.5));
+    const auto updated = page->property("keyframes").toList();
+    QCOMPARE(updated.size(), 2);
+    QVERIFY(qAbs(updated.first().toMap().value("x").toDouble() - 0.4) < 1e-6);
+
+    // Each shape has its own export size.
+    page->setProperty("aspectW", 4);
+    page->setProperty("aspectH", 5);
+    QCOMPARE(page->property("outputSize").toSize(), QSize(1080, 1350));
+}
+
 #include "ui_tests.moc"

@@ -4,6 +4,9 @@
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QUuid>
 #include <QtMath>
 
@@ -166,8 +169,118 @@ bool LocalMediaTools::createGif(const QUrl &source, const QUrl &destination, dou
     return true;
 }
 
+bool LocalMediaTools::reframe(const QUrl &source, const QUrl &destination, const QVariantMap &options)
+{
+    if (busy())
+        return false;
+    const auto mode = options.value("mode").toString();
+    if (QFileInfo(destination.toLocalFile()).suffix().toLower() != "mp4" || (mode != "crop" && mode != "blur")
+        || options.value("aspectW").toInt() <= 0 || options.value("aspectH").toInt() <= 0) {
+        fail(QStringLiteral("Choose an MP4 output and a shape."));
+        return false;
+    }
+    if (!begin(source, destination, Operation::Reframe))
+        return false;
+    m_format = "mp4";
+    m_reframe = options;
+    m_startSec = 0;
+    m_endSec = 0;
+    return true;
+}
+
+QSize LocalMediaTools::reframeOutput(int aspectW, int aspectH)
+{
+    const auto even = [](double value) { return qMax(2, qRound(value / 2) * 2); };
+    if (aspectW <= 0 || aspectH <= 0)
+        return {};
+    return aspectW <= aspectH ? QSize(1080, even(1080.0 * aspectH / aspectW))
+                              : QSize(even(1080.0 * aspectW / aspectH), 1080);
+}
+
+QSize LocalMediaTools::reframeCrop(QSize source, int aspectW, int aspectH, double zoom)
+{
+    const auto even = [](double value) { return qMax(2, int(value / 2) * 2); };
+    if (source.isEmpty() || aspectW <= 0 || aspectH <= 0)
+        return {};
+    const double ratio = double(aspectW) / aspectH;
+    zoom = qBound(1.0, zoom, 4.0);
+    double width = source.width(), height = source.height();
+    if (width / height > ratio)
+        width = height * ratio;
+    else
+        height = width / ratio;
+    return QSize(qMin(even(width / zoom), source.width()), qMin(even(height / zoom), source.height()));
+}
+
+// A value that eases between keyframes (smoothstep), as an FFmpeg expression of t.
+static QString glide(const QList<QPair<double, double>> &points)
+{
+    const auto number = [](double value) { return QString::number(value, 'f', 3); };
+    if (points.isEmpty())
+        return QStringLiteral("0");
+    auto expression = number(points.last().second);
+    for (int i = int(points.size()) - 2; i >= 0; --i) {
+        const auto [t0, v0] = points.at(i);
+        const auto [t1, v1] = points.at(i + 1);
+        // Holding still needs no easing.
+        if (qAbs(v1 - v0) < 0.5 && expression == number(v1)) {
+            expression = number(v0);
+            continue;
+        }
+        const auto u = QStringLiteral("clip((t-%1)/%2,0,1)").arg(number(t0), number(qMax(0.001, t1 - t0)));
+        const auto segment = QStringLiteral("%1+(%2)*%3*%3*(3-2*%3)").arg(number(v0), number(v1 - v0), u);
+        expression = QStringLiteral("if(lt(t,%1),%2,%3)").arg(number(t1), segment, expression);
+    }
+    return expression;
+}
+
+QString LocalMediaTools::reframeFilter(QSize source, const QVariantMap &options)
+{
+    const int aspectW = options.value("aspectW").toInt(), aspectH = options.value("aspectH").toInt();
+    const auto output = reframeOutput(aspectW, aspectH);
+    const auto W = QString::number(output.width()), H = QString::number(output.height());
+    if (options.value("mode").toString() == "blur") {
+        // The background is blurred small, so it stays cheap at 1080p.
+        const auto w4 = QString::number(output.width() / 4), h4 = QString::number(output.height() / 4);
+        return QStringLiteral("[0:v]split=2[bg][fg];"
+                              "[bg]scale=%3:%4:force_original_aspect_ratio=increase,crop=%3:%4,boxblur=10:2,"
+                              "scale=%1:%2,eq=brightness=-0.06[b];"
+                              "[fg]scale=%1:%2:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,setsar=1[f];"
+                              "[b][f]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]")
+            .arg(W, H, w4, h4);
+    }
+    const auto crop = reframeCrop(source, aspectW, aspectH, options.value("zoom", 1.0).toDouble());
+    auto keyframes = options.value("keyframes").toList();
+    std::sort(keyframes.begin(), keyframes.end(), [](const QVariant &a, const QVariant &b) {
+        return a.toMap().value("t").toDouble() < b.toMap().value("t").toDouble();
+    });
+    QList<QPair<double, double>> xs, ys;
+    for (const auto &entry : std::as_const(keyframes)) {
+        const auto key = entry.toMap();
+        const double t = qMax(0.0, key.value("t").toDouble());
+        const double left = key.value("x", 0.5).toDouble() * source.width() - crop.width() / 2.0;
+        const double top = key.value("y", 0.5).toDouble() * source.height() - crop.height() / 2.0;
+        xs << qMakePair(t, qBound(0.0, left, double(source.width() - crop.width())));
+        ys << qMakePair(t, qBound(0.0, top, double(source.height() - crop.height())));
+    }
+    if (xs.isEmpty()) {
+        xs << qMakePair(0.0, (source.width() - crop.width()) / 2.0);
+        ys << qMakePair(0.0, (source.height() - crop.height()) / 2.0);
+    }
+    return QStringLiteral("[0:v]crop=w=%1:h=%2:x='%3':y='%4',scale=%5:%6:flags=lanczos,setsar=1,format=yuv420p[v]")
+        .arg(QString::number(crop.width()), QString::number(crop.height()), glide(xs), glide(ys), W, H);
+}
+
 void LocalMediaTools::probe()
 {
+    if (m_operation == Operation::Reframe) {
+        m_process.start(m_ffprobe, {
+            "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "format=duration:stream=width,height:stream_side_data=rotation",
+            "-of", "json", m_sourcePath
+        });
+        return;
+    }
     m_process.start(m_ffprobe, {
         "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", m_sourcePath
@@ -213,6 +326,10 @@ QStringList LocalMediaTools::arguments() const
         }
         if (m_stripAudio) args << "-an";
         else args << "-c:a" << (m_format == "webm" ? "libopus" : "aac") << "-b:a" << "96k";
+    } else if (m_operation == Operation::Reframe) {
+        args << "-filter_complex" << reframeFilter(m_sourceSize, m_reframe) << "-map" << "[v]" << "-map" << "0:a?"
+             << "-c:v" << "libx264" << "-preset" << "medium" << "-crf" << "19" << "-movflags" << "+faststart"
+             << "-c:a" << "aac" << "-b:a" << "192k";
     } else if (m_operation == Operation::Gif) {
         if (m_gifDurationSec > 0)
             args << "-t" << QString::number(m_gifDurationSec, 'f', 3);
@@ -281,6 +398,23 @@ void LocalMediaTools::onFinished(int exitCode, QProcess::ExitStatus exitStatus)
             return;
         }
         bool valid = false;
+        if (m_operation == Operation::Reframe) {
+            const auto probe = QJsonDocument::fromJson(m_process.readAllStandardOutput()).object();
+            const auto stream = probe.value("streams").toArray().first().toObject();
+            m_sourceSize = QSize(stream.value("width").toInt(), stream.value("height").toInt());
+            // FFmpeg turns rotated phone videos upright, so the crop works on that frame.
+            for (const auto &side : stream.value("side_data_list").toArray())
+                if (qAbs(side.toObject().value("rotation").toInt()) % 180 == 90)
+                    m_sourceSize.transpose();
+            const auto seconds = probe.value("format").toObject().value("duration").toString().toDouble(&valid);
+            m_durationMs = valid && seconds > 0 ? qRound64(seconds * 1000) : 0;
+            if (m_sourceSize.isEmpty()) {
+                fail(QStringLiteral("This file has no video to reframe."));
+                return;
+            }
+            encode();
+            return;
+        }
         const auto seconds = QString::fromUtf8(m_process.readAllStandardOutput()).trimmed().toDouble(&valid);
         m_durationMs = valid && seconds > 0 ? qRound64(seconds * 1000) : 0;
         if (m_operation == Operation::Video && m_targetBytes > 0) {
