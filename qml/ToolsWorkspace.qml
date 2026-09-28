@@ -133,6 +133,50 @@ Item {
         if (link) downloadUrl.text = link
     }
     onSectionChanged: takeClipboardLink()
+    // Enter in the link field skips the save dialog: the file goes straight to
+    // Downloads under the title yt-dlp reports, waiting for the lookup if needed.
+    property bool quickPending: false
+    function quickDownload() {
+        var link = downloadUrl.text.trim()
+        if (localDownload.busy || !localDownload.available || !/^https?:\/\/\S+/i.test(link)) return
+        if (probeDelay.running || localDownload.probing) {
+            quickPending = true
+            return
+        }
+        quickPending = false
+        var info = localDownload.preview.url === link ? localDownload.preview : ({})
+        var folder = StandardPaths.writableLocation(StandardPaths.DownloadLocation).toString()
+        var base = folder + "/" + (info.fileName || "download")
+        var extension = "." + downloadExtension()
+        var target = base + extension
+        for (var n = 2; editorProject.fileExists(target); ++n)
+            target = base + " (" + n + ")" + extension
+        startDownload(target)
+    }
+    function startDownload(target) {
+        resultSection = "download"
+        localDownload.download(downloadUrl.text, downloadPreset.currentValue, target,
+                               Number(downloadStart.text), Number(downloadDuration.text),
+                               Number(downloadFps.text), Number(downloadWidth.text), Number(downloadTarget.text))
+    }
+    Connections {
+        target: localDownload
+        function onPreviewChanged() { if (toolsPage.quickPending && !localDownload.probing) toolsPage.quickDownload() }
+    }
+    // Ctrl+V anywhere on the Download page fills the link field; text fields
+    // keep their own paste.
+    Shortcut {
+        sequence: StandardKey.Paste
+        enabled: toolsPage.visible && toolsPage.section === 1 && !localDownload.busy
+                 && !(toolsPage.Window.activeFocusItem instanceof TextInput)
+        onActivated: toolsPage.pasteLink()
+    }
+    function pasteLink() {
+        downloadUrl.clear()
+        downloadUrl.paste()
+        downloadUrl.text = downloadUrl.text.trim()
+        downloadUrl.forceActiveFocus()
+    }
     onVisibleChanged: takeClipboardLink()
     readonly property bool downloadIsMedia: /\.(mp4|mkv|webm|mov|m4a|mp3|opus|ogg|wav|flac|aac)$/i.test(localDownload.outputUrl.toString())
     readonly property bool hasSource: sourceUrl.toString().length > 0
@@ -343,12 +387,7 @@ Item {
         id: downloadSave
         title: "Save download on this device"
         fileMode: FileDialog.SaveFile
-        onAccepted: {
-            toolsPage.resultSection = "download"
-            localDownload.download(downloadUrl.text, downloadPreset.currentValue, selectedFile,
-                                   Number(downloadStart.text), Number(downloadDuration.text),
-                                   Number(downloadFps.text), Number(downloadWidth.text), Number(downloadTarget.text))
-        }
+        onAccepted: toolsPage.startDownload(selectedFile)
     }
     FileDialog {
         id: pdfSave
@@ -628,22 +667,30 @@ Item {
                         id: downloadUrl
                         objectName: "downloadUrl"
                         Layout.fillWidth: true
-                        placeholderText: "Paste a link from YouTube, TikTok, Instagram, X, Vimeo…"
-                        onTextChanged: probeDelay.restart()
+                        placeholderText: "Paste a link from YouTube, TikTok, Instagram, X… and press Enter"
+                        onTextChanged: {
+                            toolsPage.quickPending = false
+                            probeDelay.restart()
+                        }
+                        onAccepted: toolsPage.quickDownload()
                     }
                     EditorButton {
                         text: "Paste"
                         iconName: "link"
                         enabled: !localDownload.busy
                         Layout.preferredHeight: downloadUrl.implicitHeight
-                        onClicked: {
-                            downloadUrl.clear()
-                            downloadUrl.paste()
-                            downloadUrl.text = downloadUrl.text.trim()
-                        }
+                        onClicked: toolsPage.pasteLink()
                     }
                 }
-                Timer { id: probeDelay; interval: 450; onTriggered: localDownload.probe(downloadUrl.text) }
+                Timer {
+                    id: probeDelay
+                    interval: 450
+                    onTriggered: {
+                        localDownload.probe(downloadUrl.text)
+                        // An unchanged link is not looked up again, so no preview signal follows.
+                        if (toolsPage.quickPending && !localDownload.probing) toolsPage.quickDownload()
+                    }
+                }
                 // What the link points to, looked up locally before downloading.
                 Rectangle {
                     id: linkPreview
