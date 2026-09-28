@@ -23,7 +23,7 @@ ApplicationWindow {
 
     property bool forceClose: false
     property bool closeAfterSave: false
-    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible || exportSheet.visible || settingsDialog.visible
+    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible || exportSheet.visible || settingsDialog.visible || commandPalette.visible
     property bool closeAfterSaveProject: false
     property string currentMediaKey: ""
     property int currentClipIndex: -1
@@ -558,6 +558,7 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Undo]; enabled: root.workspace === 0 && editorProject.canUndo && !exporter.busy; onActivated: editorProject.undo() }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; enabled: root.workspace === 0 && editorProject.canRedo && !exporter.busy; onActivated: editorProject.redo() }
     Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.visible ? settingsDialog.close() : settingsDialog.open() }
+    Shortcut { sequences: ["Ctrl+P", "Ctrl+Shift+P"]; onActivated: commandPalette.visible ? commandPalette.close() : commandPalette.show() }
     Shortcut { sequence: "Ctrl+W"; enabled: root.workspace === 0 && editorProject.hasMedia && !root.dialogOpen; onActivated: root.closeEditing() }
     // Frame steps, J/K/L and one-second jumps; the timeline keeps its own arrows while focused.
     readonly property bool keyboardSeek: workspace === 0 && editorProject.hasMedia && !dialogOpen && !exporter.busy
@@ -663,6 +664,50 @@ ApplicationWindow {
     SettingsDialog {
         id: settingsDialog
         objectName: "settingsDialog"
+    }
+
+    CommandPalette {
+        id: commandPalette
+        objectName: "commandPalette"
+        source: root.paletteCommands
+    }
+    function paletteCommands() {
+        var editing = editorProject.hasMedia && !exporter.busy
+        var commands = [
+            { title: "Open project…", group: "File", run: function() { openDialog.open() } },
+            { title: "Import media…", group: "File", keys: "Ctrl+O", run: function() { mediaDialog.open() } },
+            { title: "Save project", group: "File", keys: "Ctrl+S", enabled: editorProject.hasMedia, run: root.saveProject },
+            { title: "Export MP4…", group: "File", enabled: editorProject.canExport && !exporter.busy && exporter.available, run: function() { root.workspace = 0; exportSheet.open() } },
+            { title: "Close project", group: "File", keys: "Ctrl+W", enabled: editorProject.hasMedia, run: root.closeEditing },
+            { title: "Settings", group: "App", keys: "Ctrl+,", run: function() { settingsDialog.open() } },
+            { title: "About Kadron", group: "App", run: function() { settingsDialog.show(3) } }
+        ]
+        var pages = ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code", "Clips", "Drop", "Shortener", "Images", "Reframe"]
+        for (var i = 0; i < pages.length; ++i)
+            commands.push({ title: "Go to " + pages[i], group: "Page", run: (function(page) { return function() { root.workspace = page } })(i) })
+        var edit = [
+            ["Play / pause", "Space", root.togglePlayback],
+            ["Add clip…", "", function() { addClipDialog.open() }],
+            ["Split at playhead", "Ctrl+K", function() { editorProject.splitAt(player.position) }],
+            ["Mark in", "I", function() { editorProject.setInMs(player.position) }],
+            ["Mark out", "O", function() { editorProject.setOutMs(player.position) }],
+            ["Undo", "Ctrl+Z", function() { editorProject.undo() }],
+            ["Redo", "Ctrl+Y", function() { editorProject.redo() }],
+            ["Save frame as image…", "Ctrl+Shift+S", root.saveFrame],
+            ["Remove silence from clip", "", function() { editorProject.removeSilence(editorProject.activeClipIndex) }],
+            ["Previous / next frame", ", .", null],
+            ["Jump one second", "Shift+← →", null],
+            ["Back 5 s / pause / play", "J K L", null]
+        ]
+        for (var e = 0; e < edit.length; ++e)
+            commands.push({ title: edit[e][0], group: "Editor", keys: edit[e][1], enabled: editing,
+                            run: edit[e][2] ? (function(action) { return function() { root.workspace = 0; action() } })(edit[e][2]) : null })
+        for (var r = 0; r < root.recentFiles.length; ++r) {
+            var recent = root.recentFiles[r]
+            var name = decodeURIComponent(recent.url.toString().split("/").pop())
+            commands.push({ title: name, group: "Recent", run: (function(item) { return function() { root.workspace = 0; root.requestOpen(item.url, item.project) } })(recent) })
+        }
+        return commands
     }
 
     StudioDialog {

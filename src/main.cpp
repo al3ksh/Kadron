@@ -232,6 +232,17 @@ int main(int argc, char *argv[])
                     player->setProperty("position", position);
             });
         }
+        // KADRON_SCREENSHOT_PALETTE=<query> opens the command palette with that search.
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_PALETTE")) {
+            const auto query = qEnvironmentVariable("KADRON_SCREENSHOT_PALETTE");
+            QTimer::singleShot(400, &app, [mainWindow, query] {
+                if (auto *palette = mainWindow->findChild<QObject *>("commandPalette")) {
+                    QMetaObject::invokeMethod(palette, "show");
+                    if (auto *search = mainWindow->findChild<QObject *>("paletteSearch"))
+                        search->setProperty("text", query);
+                }
+            });
+        }
         // KADRON_SCREENSHOT_SETTINGS=<section> opens Settings on that section (0 = Appearance, 3 = About).
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_SETTINGS") || qEnvironmentVariableIsSet("KADRON_SCREENSHOT_APPEARANCE")) {
             const auto section = qEnvironmentVariableIntValue("KADRON_SCREENSHOT_SETTINGS");

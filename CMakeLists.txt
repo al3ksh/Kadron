@@ -86,6 +86,7 @@ qt_add_qml_module(kadron_ui
         qml/Prefs.qml
         qml/VolumeControl.qml
         qml/SettingsDialog.qml
+        qml/CommandPalette.qml
         qml/FileBoard.qml
         qml/PagePicker.qml
         qml/Intro.qml
