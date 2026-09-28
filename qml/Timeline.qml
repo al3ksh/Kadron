@@ -261,6 +261,8 @@ FocusScope {
                         required property int index
                         readonly property var clip: timeline.clips[index] || ({ url: "", name: "", durationMs: 0, inMs: 0, outMs: 0, lengthMs: 0 })
                         readonly property bool active: timeline.activeIndex === index
+                        // Source media per timeline pixel: a 2x clip packs twice the footage.
+                        readonly property real srcPxPerMs: timeline.pxPerMs / (clip.speed || 1)
                         readonly property bool dragged: timeline.dragIndex === index
                         readonly property bool audioOnly: /\.(mp3|wav|flac|m4a|ogg|opus|aac)$/i.test(clip.url.toString())
                         readonly property var frames: timeline.thumbnailSource && timeline.thumbnailSource.revision >= 0 ? timeline.thumbnailSource.framesFor(clip.url, clip.durationMs) : []
@@ -296,7 +298,7 @@ FocusScope {
                                     delegate: Image {
                                         required property int index
                                         readonly property int tile: film.firstTile + index
-                                        readonly property real sourceMs: block.clip.inMs + (tile + 0.5) * film.tileWidth / Math.max(timeline.pxPerMs, 0.0001)
+                                        readonly property real sourceMs: block.clip.inMs + (tile + 0.5) * film.tileWidth / Math.max(block.srcPxPerMs, 0.0001)
                                         x: tile * film.tileWidth
                                         width: film.tileWidth + 1
                                         height: film.height
@@ -322,8 +324,8 @@ FocusScope {
                                     opacity: block.clip.muted ? 0.12 : 0.3
                                 }
                                 Image {
-                                    x: -block.clip.inMs * timeline.pxPerMs
-                                    width: block.clip.durationMs * timeline.pxPerMs
+                                    x: -block.clip.inMs * block.srcPxPerMs
+                                    width: block.clip.durationMs * block.srcPxPerMs
                                     height: parent.height - 4
                                     y: 2
                                     source: block.waveform
@@ -356,7 +358,7 @@ FocusScope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     x: 6
                                     width: parent.width - 12
-                                    text: (block.index + 1).toString().padStart(2, "0") + "  " + block.clip.name + "  " + timeline.timeLabel(block.clip.lengthMs, true)
+                                    text: (block.index + 1).toString().padStart(2, "0") + "  " + block.clip.name + "  " + timeline.timeLabel(block.clip.lengthMs, true) + ((block.clip.speed || 1) !== 1 ? "  " + block.clip.speed + "×" : "")
                                           + (block.clip.muted ? "  · muted" : block.clip.volume !== undefined && Math.abs(block.clip.volume - 1) > 0.001 ? "  · " + Math.round(block.clip.volume * 100) + "%" : "")
                                     color: block.active ? Theme.accentSoft : Theme.textSoft
                                     font.family: Theme.fontFamily
@@ -412,8 +414,8 @@ FocusScope {
                         Item {
                             id: trimPreview
                             readonly property bool shown: timeline.trimIndex === block.index
-                            readonly property real inX: (timeline.trimInMs - block.clip.inMs) * timeline.pxPerMs
-                            readonly property real outX: (timeline.trimOutMs - block.clip.inMs) * timeline.pxPerMs
+                            readonly property real inX: (timeline.trimInMs - block.clip.inMs) * block.srcPxPerMs
+                            readonly property real outX: (timeline.trimOutMs - block.clip.inMs) * block.srcPxPerMs
                             readonly property real edgeX: timeline.trimLeading ? inX : outX
                             readonly property real deltaMs: timeline.trimLeading ? block.clip.inMs - timeline.trimInMs : timeline.trimOutMs - block.clip.outMs
                             visible: shown
@@ -487,7 +489,7 @@ FocusScope {
                                 }
                                 onPositionChanged: function(mouse) {
                                     if (!pressed || timeline.trimIndex !== block.index) return
-                                    var delta = (mapToItem(timeline, mouse.x, 0).x - pressX) / Math.max(timeline.pxPerMs, 0.0001)
+                                    var delta = (mapToItem(timeline, mouse.x, 0).x - pressX) / Math.max(block.srcPxPerMs, 0.0001)
                                     var minimum = Math.min(100, block.clip.durationMs)
                                     if (leading) {
                                         timeline.trimInMs = Math.round(Math.max(0, Math.min(block.clip.outMs - minimum, block.clip.inMs + delta)))

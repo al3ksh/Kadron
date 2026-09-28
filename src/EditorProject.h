@@ -38,6 +38,8 @@ class EditorProject final : public QObject
     Q_PROPERTY(bool musicDuck READ musicDuck NOTIFY changed)
     // Whether an export needs the full sequence pipeline rather than a plain trim.
     Q_PROPERTY(bool mixed READ mixed NOTIFY changed)
+    // True while quiet parts of a clip are being looked for.
+    Q_PROPERTY(bool findingSilence READ findingSilence NOTIFY findingSilenceChanged)
 
 public:
     explicit EditorProject(QObject *parent = nullptr);
@@ -80,6 +82,17 @@ public:
     // Clip volume, 0 to 2 (200%); muting keeps the level for unmuting.
     Q_INVOKABLE bool setClipVolume(int index, double volume);
     Q_INVOKABLE bool setClipMuted(int index, bool muted);
+    // Playback speed, 0.25x to 4x; the clip takes (out - in) / speed on the timeline.
+    Q_INVOKABLE bool setClipSpeed(int index, double speed);
+    // Replaces one clip with the given source ranges ({inMs, outMs}) as a single undo step.
+    Q_INVOKABLE bool replaceClipRanges(int index, const QVariantList &ranges);
+    // Cuts the quiet parts out of a clip (below thresholdDb for at least minMs), as one undo step.
+    Q_INVOKABLE bool removeSilence(int index, double thresholdDb = -35, int minMs = 600);
+    bool findingSilence() const { return m_findingSilence; }
+    // silencedetect output to {start, end} pairs in ms, shifted by offsetMs; an open silence ends at endMs.
+    static QList<QPair<qint64, qint64>> parseSilence(const QString &log, qint64 offsetMs, qint64 endMs);
+    // The parts of [inMs, outMs] to keep, leaving padMs of each quiet part.
+    static QVariantList keepRanges(qint64 inMs, qint64 outMs, const QList<QPair<qint64, qint64>> &silences, qint64 padMs = 150);
     Q_INVOKABLE bool setTransition(const QString &kind);
     Q_INVOKABLE void setTransitionMs(int value);
     // Adds a file to the audio track at startMs and selects it; returns its index or -1.
@@ -119,6 +132,9 @@ public:
 signals:
     void changed();
     void errorTextChanged();
+    void findingSilenceChanged();
+    // Reported after removeSilence: the clip's parts left and the time cut (0 when nothing was quiet).
+    void silenceRemoved(int parts, qint64 removedMs);
 
 private:
     struct Clip {
@@ -128,6 +144,8 @@ private:
         qint64 outMs = 0;
         double volume = 1.0;
         bool muted = false;
+        double speed = 1.0;
+        qint64 lengthMs() const { return qMax<qint64>(0, qRound64((outMs - inMs) / speed)); }
     };
     struct AudioItem {
         QUrl mediaUrl;
@@ -174,6 +192,7 @@ private:
     bool m_dirty = false;
     QString m_errorText;
     QSet<QUrl> m_probing;
+    bool m_findingSilence = false;
     QVector<Snapshot> m_undo;
     QVector<Snapshot> m_redo;
     Snapshot m_baseline;

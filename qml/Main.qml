@@ -177,7 +177,7 @@ ApplicationWindow {
         var parts = []
         var items = editorProject.clips
         for (var i = 0; i < items.length; i++)
-            parts.push(items[i].url.toString() + ":" + items[i].inMs + ":" + items[i].outMs + ":" + items[i].volume + ":" + items[i].muted)
+            parts.push(items[i].url.toString() + ":" + items[i].inMs + ":" + items[i].outMs + ":" + items[i].volume + ":" + items[i].muted + ":" + items[i].speed)
         return parts.join("|") + JSON.stringify(editorProject.exportOptions())
     }
     // Files dropped or picked for the audio track go one after another from startMs.
@@ -216,6 +216,16 @@ ApplicationWindow {
             player.play()
         }
     }
+    readonly property real activeSpeed: {
+        var clip = editorProject.clips[editorProject.activeClipIndex]
+        return clip && clip.speed ? clip.speed : 1
+    }
+    // Only touched while playing: setting playbackRate during load stops the FFmpeg backend from showing video.
+    onActiveSpeedChanged: applySpeed()
+    function applySpeed() {
+        if (player.playbackState !== MediaPlayer.PlayingState) return
+        if (player.playbackRate !== activeSpeed) player.playbackRate = activeSpeed
+    }
     function clipStartMs(index) {
         var items = editorProject.clips, total = 0
         for (var i = 0; i < index && i < items.length; i++) total += Math.max(0, items[i].lengthMs)
@@ -227,7 +237,7 @@ ApplicationWindow {
         if (index < 0) return 0
         var source = pendingCueIndex >= 0 && pendingSourceMs >= 0 ? pendingSourceMs : player.position
         var offset = Math.max(0, Math.min(editorProject.outMs - editorProject.inMs, source - editorProject.inMs))
-        return clipStartMs(index) + offset
+        return clipStartMs(index) + offset / activeSpeed
     }
     function seekSequence(ms) {
         var items = editorProject.clips
@@ -239,7 +249,7 @@ ApplicationWindow {
             start += length
         }
         var clip = items[index]
-        var source = Math.max(clip.inMs, Math.min(clip.outMs - 1, clip.inMs + ms - start))
+        var source = Math.max(clip.inMs, Math.min(clip.outMs - 1, clip.inMs + (ms - start) * (clip.speed || 1)))
         if (index !== editorProject.activeClipIndex || pendingCueIndex >= 0) {
             pendingSourceMs = source
             if (index !== editorProject.activeClipIndex) editorProject.selectClip(index)
@@ -430,6 +440,10 @@ ApplicationWindow {
 
     Connections {
         target: editorProject
+        function onSilenceRemoved(parts, removedMs) {
+            root.notice = removedMs > 0 ? "Removed " + (removedMs / 1000).toFixed(1) + " s of silence · " + parts + (parts === 1 ? " part" : " parts") + " left"
+                                        : "No silence long enough to cut"
+        }
         function onChanged() {
             root.syncRangeFields()
             var signature = root.sequenceSignature()
@@ -721,7 +735,7 @@ ApplicationWindow {
         source: editorProject.mediaUrl
         audioOutput: AudioOutput { volume: editorVolume.effectiveVolume * root.clipGain * (editorProject.transition === "fade" ? 1 - root.transitionDim : 1) }
         videoOutput: videoOutput
-        onPlaybackStateChanged: root.syncMusic()
+        onPlaybackStateChanged: { root.applySpeed(); root.syncMusic() }
         onDurationChanged: function(duration) { if (source.toString() === editorProject.mediaUrl.toString()) editorProject.setDurationMs(duration) }
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) root.finishCue()
         onPositionChanged: {
@@ -1177,7 +1191,7 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Text { text: "Selected duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
-                            Text { text: root.timecode(editorProject.outMs - editorProject.inMs); color: Theme.accentSoft; font.pixelSize: 17; font.weight: Font.DemiBold }
+                            Text { text: root.timecode((editorProject.outMs - editorProject.inMs) / root.activeSpeed); color: Theme.accentSoft; font.pixelSize: 17; font.weight: Font.DemiBold }
                         }
                         EditorButton {
                             Layout.fillWidth: true
@@ -1235,6 +1249,43 @@ ApplicationWindow {
                                     }
                                 }
                             }
+                        }
+
+                        // Clip speed.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 4
+                            spacing: 4
+                            Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 11 }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                Repeater {
+                                    model: [0.5, 1, 1.5, 2]
+                                    delegate: EditorButton {
+                                        required property real modelData
+                                        objectName: "clipSpeed" + modelData
+                                        Layout.fillWidth: true
+                                        text: modelData + "×"
+                                        primary: Math.abs(root.activeSpeed - modelData) < 0.01
+                                        subtle: !primary
+                                        enabled: editorProject.hasMedia && !exporter.busy
+                                        onClicked: editorProject.setClipSpeed(editorProject.activeClipIndex, modelData)
+                                    }
+                                }
+                            }
+                        }
+                        EditorButton {
+                            objectName: "removeSilenceButton"
+                            Layout.fillWidth: true
+                            text: editorProject.findingSilence ? "Listening for silence…" : "Remove silence"
+                            iconName: "audio"
+                            subtle: true
+                            enabled: editorProject.hasMedia && !exporter.busy && !editorProject.findingSilence && !(root.activeClip && root.activeClip.muted)
+                            onClicked: editorProject.removeSilence(editorProject.activeClipIndex)
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: "Cut parts quieter than -35 dB lasting over 0.6 s. Undo brings them back."
                         }
 
                         // How clips meet.

@@ -134,7 +134,7 @@ bool EditorProject::mixed() const
     if (m_clips.size() != 1 || !m_mix.audio.isEmpty())
         return true;
     const auto &clip = m_clips.first();
-    return clip.muted || !qFuzzyCompare(clip.volume, 1.0);
+    return clip.muted || !qFuzzyCompare(clip.volume, 1.0) || !qFuzzyCompare(clip.speed, 1.0);
 }
 
 QVariantMap EditorProject::exportOptions() const
@@ -169,6 +169,136 @@ bool EditorProject::setClipMuted(int index, bool muted)
         m_clips[index].muted = muted;
         markChanged();
     }
+    return true;
+}
+
+bool EditorProject::setClipSpeed(int index, double speed)
+{
+    if (index < 0 || index >= m_clips.size())
+        return false;
+    speed = qBound(0.25, speed, 4.0);
+    if (!qFuzzyCompare(m_clips[index].speed, speed)) {
+        m_clips[index].speed = speed;
+        markChanged();
+    }
+    return true;
+}
+
+bool EditorProject::replaceClipRanges(int index, const QVariantList &ranges)
+{
+    if (index < 0 || index >= m_clips.size() || ranges.isEmpty())
+        return false;
+    const auto source = m_clips.at(index);
+    QList<Clip> parts;
+    for (const auto &value : ranges) {
+        const auto range = value.toMap();
+        Clip part = source;
+        part.inMs = qBound<qint64>(0, range.value("inMs").toLongLong(), source.durationMs);
+        part.outMs = qBound<qint64>(part.inMs, range.value("outMs").toLongLong(), source.durationMs);
+        if (part.outMs - part.inMs >= 100)
+            parts.append(part);
+    }
+    if (parts.isEmpty())
+        return false;
+    m_clips.removeAt(index);
+    for (int i = 0; i < parts.size(); ++i)
+        m_clips.insert(index + i, parts.at(i));
+    m_activeClipIndex = index;
+    clearError();
+    markChanged();
+    return true;
+}
+
+QList<QPair<qint64, qint64>> EditorProject::parseSilence(const QString &log, qint64 offsetMs, qint64 endMs)
+{
+    QList<QPair<qint64, qint64>> result;
+    qint64 start = -1;
+    for (const auto &line : log.split(QLatin1Char('\n'))) {
+        const auto startAt = line.indexOf(QLatin1String("silence_start:"));
+        const auto endAt = line.indexOf(QLatin1String("silence_end:"));
+        if (startAt >= 0) {
+            start = offsetMs + qRound64(qMax(0.0, line.mid(startAt + 14).trimmed().section(' ', 0, 0).toDouble()) * 1000.0);
+        } else if (endAt >= 0 && start >= 0) {
+            const auto end = offsetMs + qRound64(line.mid(endAt + 12).trimmed().section(' ', 0, 0).toDouble() * 1000.0);
+            result.append({start, qMin(end, endMs)});
+            start = -1;
+        }
+    }
+    if (start >= 0 && start < endMs)
+        result.append({start, endMs});
+    return result;
+}
+
+QVariantList EditorProject::keepRanges(qint64 inMs, qint64 outMs, const QList<QPair<qint64, qint64>> &silences, qint64 padMs)
+{
+    QVariantList result;
+    auto cursor = inMs;
+    for (const auto &silence : silences) {
+        const auto cutFrom = qMax(cursor, silence.first + (silence.first <= inMs ? 0 : padMs));
+        const auto cutTo = qMin(outMs, silence.second - (silence.second >= outMs ? 0 : padMs));
+        if (cutTo - cutFrom < 100)
+            continue;
+        if (cutFrom - cursor >= 100)
+            result.append(QVariantMap{{"inMs", cursor}, {"outMs", cutFrom}});
+        cursor = cutTo;
+    }
+    if (outMs - cursor >= 100)
+        result.append(QVariantMap{{"inMs", cursor}, {"outMs", outMs}});
+    return result;
+}
+
+bool EditorProject::removeSilence(int index, double thresholdDb, int minMs)
+{
+    if (index < 0 || index >= m_clips.size() || m_findingSilence)
+        return false;
+    const auto ffmpeg = ffmpegExecutable();
+    if (ffmpeg.isEmpty()) {
+        setError(QStringLiteral("FFmpeg is needed to find silence."));
+        return false;
+    }
+    const auto clip = m_clips.at(index);
+    auto *process = new QProcess(this);
+    m_findingSilence = true;
+    emit findingSilenceChanged();
+    connect(process, &QProcess::finished, this, [this, process, index, clip](int code, QProcess::ExitStatus status) {
+        const auto log = QString::fromUtf8(process->readAllStandardError());
+        process->deleteLater();
+        m_findingSilence = false;
+        emit findingSilenceChanged();
+        // The clip may have been edited meanwhile; only cut what was measured.
+        if (index >= m_clips.size() || m_clips.at(index).mediaUrl != clip.mediaUrl
+            || m_clips.at(index).inMs != clip.inMs || m_clips.at(index).outMs != clip.outMs)
+            return;
+        if (code != 0 || status != QProcess::NormalExit) {
+            setError(QStringLiteral("Could not read the clip's audio."));
+            return;
+        }
+        const auto ranges = keepRanges(clip.inMs, clip.outMs, parseSilence(log, clip.inMs, clip.outMs));
+        qint64 kept = 0;
+        for (const auto &range : ranges)
+            kept += range.toMap().value("outMs").toLongLong() - range.toMap().value("inMs").toLongLong();
+        const auto removed = (clip.outMs - clip.inMs) - kept;
+        if (ranges.isEmpty() || removed < 100) {
+            emit silenceRemoved(0, 0);
+            return;
+        }
+        replaceClipRanges(index, ranges);
+        emit silenceRemoved(ranges.size(), removed);
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        process->deleteLater();
+        m_findingSilence = false;
+        emit findingSilenceChanged();
+        setError(QStringLiteral("FFmpeg could not be started."));
+    });
+    process->start(ffmpeg, {"-hide_banner", "-nostdin", "-vn",
+                            "-ss", QString::number(clip.inMs / 1000.0, 'f', 3),
+                            "-t", QString::number((clip.outMs - clip.inMs) / 1000.0, 'f', 3),
+                            "-i", clip.mediaUrl.toLocalFile(),
+                            "-af", QStringLiteral("silencedetect=noise=%1dB:d=%2").arg(thresholdDb).arg(minMs / 1000.0, 0, 'f', 2),
+                            "-f", "null", "-"});
     return true;
 }
 
@@ -381,9 +511,10 @@ QVariantList EditorProject::clips() const
             {"durationMs", clip.durationMs},
             {"inMs", clip.inMs},
             {"outMs", clip.outMs},
-            {"lengthMs", qMax<qint64>(0, clip.outMs - clip.inMs)},
+            {"lengthMs", clip.lengthMs()},
             {"volume", clip.volume},
-            {"muted", clip.muted}
+            {"muted", clip.muted},
+            {"speed", clip.speed}
         });
     }
     return result;
@@ -393,7 +524,7 @@ qint64 EditorProject::sequenceDurationMs() const
 {
     qint64 total = 0;
     for (const auto &clip : m_clips)
-        total += qMax<qint64>(0, clip.outMs - clip.inMs);
+        total += clip.lengthMs();
     return total;
 }
 
@@ -552,7 +683,7 @@ bool EditorProject::openProject(const QUrl &url)
     const auto object = document.object();
     const auto version = object.value("version").toInt();
     if (parseError.error != QJsonParseError::NoError || !document.isObject()
-        || version < 1 || version > 4) {
+        || version < 1 || version > 5) {
         setError(QStringLiteral("This is not a supported Kadron project."));
         return false;
     }
@@ -592,6 +723,7 @@ bool EditorProject::openProject(const QUrl &url)
         Clip clip{QUrl::fromLocalFile(QFileInfo(mediaPath).absoluteFilePath()), duration, in, out};
         clip.volume = qBound(0.0, item.value("volume").toDouble(1.0), 2.0);
         clip.muted = item.value("muted").toBool(false);
+        clip.speed = qBound(0.25, item.value("speed").toDouble(1.0), 4.0);
         parsedClips.append(clip);
     }
 
@@ -679,7 +811,8 @@ QByteArray EditorProject::serialize(const QString &directory) const
             {"inMs", static_cast<double>(clip.inMs)},
             {"outMs", static_cast<double>(clip.outMs)},
             {"volume", clip.volume},
-            {"muted", clip.muted}
+            {"muted", clip.muted},
+            {"speed", clip.speed}
         });
     }
     QJsonArray audioEntries;
@@ -695,7 +828,7 @@ QByteArray EditorProject::serialize(const QString &directory) const
             {"fadeOutMs", static_cast<double>(item.fadeOutMs)}
         });
     }
-    QJsonObject object{{"version", 4}, {"clips", entries}, {"activeIndex", m_activeClipIndex},
+    QJsonObject object{{"version", 5}, {"clips", entries}, {"activeIndex", m_activeClipIndex},
                        {"transition", m_mix.transition}, {"transitionMs", m_mix.transitionMs},
                        {"audio", audioEntries}, {"duck", m_mix.musicDuck}};
     return QJsonDocument(object).toJson(QJsonDocument::Indented);

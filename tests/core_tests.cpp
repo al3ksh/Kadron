@@ -36,6 +36,7 @@ private slots:
     void mediaExport();
     void sequenceExport();
     void exportPresets();
+    void clipSpeedAndSilence();
     void remoteWorkflow();
     void localMediaOperations();
     void remoteJobWorkflow();
@@ -759,6 +760,66 @@ void CoreTests::exportPresets()
     QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
     const auto fastLength = probe(fastPath, "format=duration").value(0).toDouble();
     QVERIFY2(fastLength > 0.8 && fastLength < 1.3, qPrintable(QString::number(fastLength)));
+}
+
+void CoreTests::clipSpeedAndSilence()
+{
+    // silencedetect lines and the parts that stay, with 150 ms left around each cut.
+    const auto log = QStringLiteral("[silencedetect @ 0x1] silence_start: 1.5\n"
+                                    "[silencedetect @ 0x1] silence_end: 3 | silence_duration: 1.5\n"
+                                    "[silencedetect @ 0x1] silence_start: 4.2\n");
+    const auto silences = EditorProject::parseSilence(log, 1000, 6000);
+    QCOMPARE(silences.size(), 2);
+    QCOMPARE(silences.at(0), qMakePair(qint64(2500), qint64(4000)));
+    QCOMPARE(silences.at(1), qMakePair(qint64(5200), qint64(6000)));
+    const auto kept = EditorProject::keepRanges(1000, 6000, silences);
+    QCOMPARE(kept.size(), 2);
+    QCOMPARE(kept.at(0).toMap().value("inMs").toLongLong(), 1000);
+    QCOMPARE(kept.at(0).toMap().value("outMs").toLongLong(), 2650);
+    QCOMPARE(kept.at(1).toMap().value("inMs").toLongLong(), 3850);
+    QCOMPARE(kept.at(1).toMap().value("outMs").toLongLong(), 5350);
+    QVERIFY(EditorProject::keepRanges(0, 3000, {{0, 3000}}).isEmpty());
+
+    const auto ffmpeg = qEnvironmentVariable("KADRON_FFMPEG", "ffmpeg");
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    // One second of tone, two of silence, one of tone.
+    const auto sourcePath = directory.path() + "/talk.mp4";
+    QProcess generator;
+    generator.start(ffmpeg, {
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=15:duration=4",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=4",
+        "-af", "volume=enable='between(t,1,3)':volume=0",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", sourcePath
+    });
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+
+    EditorProject project;
+    QVERIFY(project.importMedia(QUrl::fromLocalFile(sourcePath)));
+    project.setDurationMs(4000);
+    QVERIFY(project.setClipSpeed(0, 2.0));
+    QCOMPARE(project.sequenceDurationMs(), 2000);
+    QCOMPARE(project.clips().first().toMap().value("speed").toDouble(), 2.0);
+    QVERIFY(project.mixed());
+    const auto projectPath = directory.path() + "/fast.kadr";
+    QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
+    EditorProject reopened;
+    QVERIFY(reopened.openProject(QUrl::fromLocalFile(projectPath)));
+    QCOMPARE(reopened.clips().first().toMap().value("speed").toDouble(), 2.0);
+    QVERIFY(project.setClipSpeed(0, 1.0));
+
+    QSignalSpy removed(&project, &EditorProject::silenceRemoved);
+    QVERIFY(project.removeSilence(0));
+    QVERIFY(project.findingSilence());
+    QTRY_VERIFY_WITH_TIMEOUT(removed.size() == 1, 30000);
+    QVERIFY(!project.findingSilence());
+    QCOMPARE(project.clipCount(), 2);
+    const auto cut = removed.first().at(1).toLongLong();
+    QVERIFY2(cut > 1400 && cut < 2000, qPrintable(QString::number(cut)));
+    QVERIFY(project.undo());
+    QCOMPARE(project.clipCount(), 1);
 }
 
 void CoreTests::remoteWorkflow()
