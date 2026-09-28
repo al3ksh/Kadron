@@ -38,6 +38,8 @@ qt_add_executable(kadron
     src/SingleInstance.h
     src/AppUpdater.cpp
     src/AppUpdater.h
+    src/TrayIcon.cpp
+    src/TrayIcon.h
 )
 
 qt_add_resources(kadron "kadron_assets" PREFIX "/" FILES assets/kadron-mark.png)

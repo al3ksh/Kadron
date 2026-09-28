@@ -372,7 +372,7 @@ Dialog {
                         Hint { text: "Only asks GitHub for the newest release number. Nothing is downloaded until you choose to update." }
                         SectionLabel {
                             text: "WINDOWS"
-                            visible: explorerCheck.available
+                            visible: explorerCheck.available || trayCheck.available
                         }
                         ToolCheck {
                             id: explorerCheck
@@ -382,6 +382,19 @@ Dialog {
                             text: "Show Kadron in Explorer's right-click menu"
                             checked: available && shellIntegration.enabled
                             onToggled: shellIntegration.enabled = checked
+                        }
+                        ToolCheck {
+                            id: trayCheck
+                            objectName: "closeToTrayCheck"
+                            readonly property bool available: typeof trayIcon !== "undefined" && trayIcon.supported
+                            visible: available
+                            text: "Keep Kadron running in the tray when the window is closed"
+                            checked: Prefs.closeToTray
+                            onToggled: Prefs.closeToTray = checked
+                        }
+                        Hint {
+                            visible: trayCheck.available
+                            text: "Exports and downloads carry on in the background. Quit from the tray icon's menu."
                         }
                     }
 

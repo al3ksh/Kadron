@@ -422,9 +422,43 @@ ApplicationWindow {
             saveDialog.open()
         }
     }
+    // Set when the close should really quit rather than hide to the tray.
+    property bool quitting: false
+    readonly property bool trayAvailable: typeof trayIcon !== "undefined" && trayIcon.supported
+    function quitApp() {
+        quitting = true
+        if (!visible) show()
+        close()
+    }
+    function showFromTray() {
+        if (!visible) show()
+        else if (visibility === Window.Minimized) showNormal()
+        raise()
+        requestActivate()
+    }
+    function hideToTray() {
+        if (player.playbackState === MediaPlayer.PlayingState) player.pause()
+        hide()
+        if (!Prefs.trayHintShown) {
+            Prefs.trayHintShown = true
+            trayIcon.showMessage("Kadron is still running", "Click the tray icon to open it again. You can change this in Settings.")
+        }
+    }
+    Binding { target: root.trayAvailable ? trayIcon : null; property: "visible"; value: Prefs.closeToTray }
+    Connections {
+        target: root.trayAvailable ? trayIcon : null
+        function onActivated() { root.showFromTray() }
+        function onQuitRequested() { root.quitApp() }
+    }
     onClosing: function(event) {
         if (forceClose) return
         event.accepted = false
+        const quit = quitting
+        quitting = false
+        if (!quit && trayAvailable && Prefs.closeToTray) {
+            hideToTray()
+            return
+        }
         if (editorProject.dirty || root.anyBusy) quitDialog.open()
         else fadeAndClose()
     }
@@ -856,7 +890,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.bottomMargin: 12
                     updater: appUpdater
-                    onRestartRequested: root.close()
+                    onRestartRequested: root.quitApp()
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
                 RowLayout {

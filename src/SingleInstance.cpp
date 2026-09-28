@@ -71,8 +71,7 @@ bool SingleInstance::claim()
                     request.files << file.toString();
                 socket->write("ok\n");
                 socket->flush();
-                if (!request.files.isEmpty())
-                    take(request, true);
+                take(request, true);
             });
         }
     });
@@ -109,7 +108,9 @@ bool SingleInstance::forward(const Request &request)
 
 void SingleInstance::take(const Request &request, bool raise)
 {
-    m_pending << request;
+    // A launch without files only asks for the window.
+    if (!request.files.isEmpty())
+        m_pending << request;
     m_raise = m_raise || raise;
     m_batch.start();
 }
@@ -149,7 +150,10 @@ void SingleInstance::deliver()
     for (const auto &tool : std::as_const(order))
         QMetaObject::invokeMethod(m_window, "openWith", Q_ARG(QVariant, tool), Q_ARG(QVariant, QVariant(batches.value(tool))));
     if (std::exchange(m_raise, false)) {
-        if (m_window->visibility() == QWindow::Minimized)
+        // Hidden means closed to the tray; show() keeps a maximized window maximized.
+        if (!m_window->isVisible())
+            m_window->show();
+        else if (m_window->visibility() == QWindow::Minimized)
             m_window->showNormal();
         m_window->raise();
         m_window->requestActivate();

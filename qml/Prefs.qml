@@ -19,6 +19,10 @@ Settings {
     // Background checks for Kadron and yt-dlp releases (read by AppUpdater and LocalDownload).
     property bool autoUpdateCheck: true
 
+    // Closing the window hides Kadron to the tray instead of quitting.
+    property bool closeToTray: true
+    property bool trayHintShown: false
+
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"
     property bool exportLoudnorm: false

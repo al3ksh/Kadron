@@ -11,6 +11,7 @@
 #include "AppUpdater.h"
 #include "ShellIntegration.h"
 #include "SingleInstance.h"
+#include "TrayIcon.h"
 
 #include <QGuiApplication>
 #include <QStyleHints>
@@ -80,11 +81,12 @@ int main(int argc, char *argv[])
         ShellIntegration::uninstall();
         return 0;
     }
-    // Files for a Kadron that is already open go to it; screenshot runs stay apart.
+    // A Kadron that is already open (maybe hidden in the tray) takes the files,
+    // or just comes to the front; screenshot runs stay apart.
     const auto launch = SingleInstance::parse(app.arguments());
     SingleInstance instance;
     if (!qEnvironmentVariableIsSet("KADRON_SCREENSHOT") && !instance.claim()
-        && !launch.files.isEmpty() && SingleInstance::forward(launch))
+        && SingleInstance::forward(launch))
         return 0;
 
     EditorProject project;
@@ -103,6 +105,7 @@ int main(int argc, char *argv[])
     LocalImageTools localImages;
     AppUpdater appUpdater;
     ShellIntegration shellIntegration;
+    TrayIcon trayIcon;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("editorProject", &project);
     engine.rootContext()->setContextProperty("exporter", &exporter);
@@ -116,6 +119,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("localImages", &localImages);
     engine.rootContext()->setContextProperty("appUpdater", &appUpdater);
     engine.rootContext()->setContextProperty("shellIntegration", &shellIntegration);
+    engine.rootContext()->setContextProperty("trayIcon", &trayIcon);
     engine.addImageProvider(QStringLiteral("qr"), new QrImageProvider(&localQr));
     QTemporaryDir screenshotSettings;
     const auto screenshotPath = qEnvironmentVariable("KADRON_SCREENSHOT");
