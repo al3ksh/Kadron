@@ -328,9 +328,22 @@ ApplicationWindow {
         sequenceAdvancing = true
         editorProject.selectClip(editorProject.activeClipIndex + 1)
     }
+    readonly property var recentFiles: {
+        try {
+            var list = JSON.parse(Prefs.recentFiles)
+            return Array.isArray(list) ? list.filter(function(item) { return item && item.url && editorProject.fileExists(item.url) }) : []
+        } catch (error) { return [] }
+    }
+    function rememberRecent(url, isProject) {
+        var key = url.toString()
+        var list = recentFiles.filter(function(item) { return item.url !== key })
+        list.unshift({ url: key, project: isProject })
+        Prefs.recentFiles = JSON.stringify(list.slice(0, 6))
+    }
     function applyOpen(url, isProject) {
         var opened = isProject ? editorProject.openProject(url) : editorProject.importMedia(url)
         if (opened) {
+            root.rememberRecent(url, isProject)
             exporter.resetResult()
             root.playerError = ""
             root.notice = isProject ? "Project opened" : "Media imported"
@@ -592,6 +605,7 @@ ApplicationWindow {
         nameFilters: ["Kadron project (*.kadr)"]
         onAccepted: {
             if (editorProject.saveProject(selectedFile)) {
+                root.rememberRecent(selectedFile, true)
                 root.notice = "Project saved"
                 if (root.closeAfterSave) root.fadeAndClose()
                 else if (root.closeAfterSaveProject) root.applyClose()
@@ -1187,6 +1201,63 @@ ApplicationWindow {
                             text: "Import media"
                             primary: true
                             onClicked: mediaDialog.open()
+                        }
+                        // Recent projects and media, one click to pick up where you left off.
+                        Column {
+                            objectName: "recentList"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: !editorProject.hasMedia && root.recentFiles.length > 0
+                            width: 340
+                            spacing: 2
+                            topPadding: 14
+                            Text {
+                                text: "RECENT"
+                                color: Theme.textFaint
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 1.2
+                                leftPadding: 10
+                                bottomPadding: 4
+                            }
+                            Repeater {
+                                model: root.recentFiles.slice(0, 5)
+                                delegate: Rectangle {
+                                    id: recentRow
+                                    required property var modelData
+                                    required property int index
+                                    readonly property string path: decodeURIComponent(modelData.url.replace(/^file:\/\/\//, ""))
+                                    objectName: "recentFile" + index
+                                    width: parent.width
+                                    height: 34
+                                    radius: Theme.radiusSmall
+                                    color: recentMouse.containsMouse ? Theme.hover : Theme.hoverClear
+                                    ToolIcon {
+                                        x: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        name: recentRow.modelData.project ? "edit" : "file"
+                                        tint: recentMouse.containsMouse ? Theme.accent : Theme.textMuted
+                                    }
+                                    Text {
+                                        x: 38
+                                        width: parent.width - 48
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: recentRow.path.replace(/^.*\//, "")
+                                        color: recentMouse.containsMouse ? Theme.text : Theme.textSoft
+                                        font.pixelSize: 12
+                                        elide: Text.ElideMiddle
+                                    }
+                                    MouseArea {
+                                        id: recentMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.requestOpen(recentRow.modelData.url, recentRow.modelData.project)
+                                    }
+                                    ToolTip.visible: recentMouse.containsMouse
+                                    ToolTip.delay: 700
+                                    ToolTip.text: recentRow.path
+                                }
+                            }
                         }
                     }
                     Text {

@@ -136,6 +136,8 @@ int main(int argc, char *argv[])
                 prefs->setProperty("themeMode", qEnvironmentVariable("KADRON_SCREENSHOT_THEME"));
             if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_ACCENT"))
                 prefs->setProperty("accent", qEnvironmentVariable("KADRON_SCREENSHOT_ACCENT"));
+            if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_RECENT"))
+                prefs->setProperty("recentFiles", qEnvironmentVariable("KADRON_SCREENSHOT_RECENT"));
         }
     }
     // KADRON_SCREENSHOT_INTRO=<seconds> grabs that moment of the intro instead of the app.

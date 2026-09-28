@@ -23,6 +23,9 @@ Settings {
     property bool closeToTray: true
     property bool trayHintShown: false
 
+    // Projects and media opened lately, newest first: a JSON list of {url, project}.
+    property string recentFiles: "[]"
+
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"
     property bool exportLoudnorm: false
