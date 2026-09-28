@@ -1,5 +1,9 @@
 #include "TrayIcon.h"
 
+#include <QImage>
+#include <QPainter>
+#include <QPainterPath>
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <shellapi.h>
@@ -14,6 +18,33 @@ LRESULT CALLBACK trayWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
     if (auto *tray = reinterpret_cast<TrayIcon *>(GetWindowLongPtrW(window, GWLP_USERDATA)))
         return static_cast<LRESULT>(tray->handleMessage(message, wParam, lParam));
     return DefWindowProcW(window, message, wParam, lParam);
+}
+
+// The app icon is a dark tile that disappears on a dark taskbar and leaves
+// only the white bracket; the tray gets the mark on the lime accent instead.
+HICON trayIconHandle(int size)
+{
+    QImage image(size, size, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.scale(size / 256.0, size / 256.0);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0xc9, 0xf2, 0x7a));
+    painter.drawRoundedRect(QRectF(0, 0, 256, 256), 56, 56);
+    QPainterPath mark;
+    mark.moveTo(170, 50);
+    mark.lineTo(66, 50);
+    mark.lineTo(66, 206);
+    mark.lineTo(170, 206);
+    mark.moveTo(202, 58);
+    mark.lineTo(126, 128);
+    mark.lineTo(202, 198);
+    painter.setPen(QPen(QColor(0x17, 0x1b, 0x20), 28, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawPath(mark);
+    painter.end();
+    return image.toHICON();
 }
 
 void copyText(wchar_t *target, size_t capacity, const QString &text)
@@ -40,7 +71,7 @@ TrayIcon::TrayIcon(QObject *parent)
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
     m_window = window;
     m_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
-    m_icon = LoadImageW(instance, L"IDI_ICON1", IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+    m_icon = trayIconHandle(GetSystemMetrics(SM_CXSMICON));
 }
 
 TrayIcon::~TrayIcon()
