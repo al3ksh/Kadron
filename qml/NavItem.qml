@@ -7,7 +7,8 @@ Item {
     property bool active: false
     signal clicked()
     activeFocusOnTab: true
-    implicitHeight: 43
+    // Tighter rows on short windows so the rail footer stays on screen.
+    implicitHeight: Window.height > 0 && Window.height < 820 ? 35 : 43
     implicitWidth: 172
     Keys.onPressed: function(event) {
         if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {

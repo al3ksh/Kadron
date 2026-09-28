@@ -16,6 +16,9 @@ Settings {
     // The animated intro while the app starts (read by main.cpp at launch).
     property bool startupIntro: true
 
+    // Background checks for Kadron and yt-dlp releases (read by AppUpdater and LocalDownload).
+    property bool autoUpdateCheck: true
+
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"
     property bool exportLoudnorm: false

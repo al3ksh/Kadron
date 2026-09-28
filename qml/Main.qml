@@ -22,7 +22,7 @@ ApplicationWindow {
 
     property bool forceClose: false
     property bool closeAfterSave: false
-    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible || exportSheet.visible
+    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible || exportSheet.visible || settingsDialog.visible
     property bool closeAfterSaveProject: false
     property string currentMediaKey: ""
     property int currentClipIndex: -1
@@ -472,6 +472,7 @@ ApplicationWindow {
     Shortcut { sequence: "O"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.setOutMs(player.position) }
     Shortcut { sequences: [StandardKey.Undo]; enabled: root.workspace === 0 && editorProject.canUndo && !exporter.busy; onActivated: editorProject.undo() }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; enabled: root.workspace === 0 && editorProject.canRedo && !exporter.busy; onActivated: editorProject.redo() }
+    Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.visible ? settingsDialog.close() : settingsDialog.open() }
     Shortcut { sequence: "Ctrl+W"; enabled: root.workspace === 0 && editorProject.hasMedia && !root.dialogOpen; onActivated: root.closeEditing() }
     Shortcut { sequence: "Ctrl+K"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.splitAt(player.position) }
 
@@ -529,6 +530,11 @@ ApplicationWindow {
             else if (editorProject.mixed) exporter.startSequence(editorProject.clips, selectedFile, options)
             else exporter.start(editorProject.mediaUrl, selectedFile, editorProject.inMs, editorProject.outMs, options)
         }
+    }
+
+    SettingsDialog {
+        id: settingsDialog
+        objectName: "settingsDialog"
     }
 
     StudioDialog {
@@ -826,7 +832,7 @@ ApplicationWindow {
                         Text { text: "MEDIA STUDIO"; color: Theme.textFaint; font.family: Theme.fontFamily; font.pixelSize: 8; font.weight: Font.DemiBold; font.letterSpacing: 1.5 }
                     }
                 }
-                Item { Layout.preferredHeight: 23 }
+                Item { Layout.preferredHeight: root.height < 820 ? 10 : 23 }
                 Text { text: "WORKSPACE"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
                 NavItem { id: navEditor; Layout.fillWidth: true; title: "Editor"; iconName: "edit"; active: root.workspace === 0 && root.inspectorMode === 0; onClicked: { root.workspace = 0; root.inspectorMode = 0 } }
                 NavItem { id: navDownload; Layout.fillWidth: true; title: "Download"; iconName: "download"; active: root.workspace === 1; onClicked: root.workspace = 1 }
@@ -835,11 +841,11 @@ ApplicationWindow {
                 NavItem { id: navGif; Layout.fillWidth: true; title: "GIF Studio"; iconName: "gif"; active: root.workspace === 4; onClicked: root.workspace = 4 }
                 NavItem { id: navReframe; objectName: "navReframe"; Layout.fillWidth: true; title: "Reframe"; iconName: "reframe"; active: root.workspace === 11; onClicked: root.workspace = 11 }
                 NavItem { id: navImages; objectName: "navImages"; Layout.fillWidth: true; title: "Images"; iconName: "image"; active: root.workspace === 10; onClicked: root.workspace = 10 }
-                Item { Layout.preferredHeight: 20 }
+                Item { Layout.preferredHeight: root.height < 820 ? 12 : 20 }
                 Text { text: "UTILITIES"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
                 NavItem { id: navPdf; Layout.fillWidth: true; title: "PDF Tools"; iconName: "pdf"; active: root.workspace === 5; onClicked: root.workspace = 5 }
                 NavItem { id: navQr; Layout.fillWidth: true; title: "QR Code"; iconName: "qr"; active: root.workspace === 6; onClicked: root.workspace = 6 }
-                Item { Layout.preferredHeight: 20 }
+                Item { Layout.preferredHeight: root.height < 820 ? 12 : 20 }
                 Text { text: "YOUR TOOLS SERVER"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
                 NavItem { id: navClips; Layout.fillWidth: true; title: "Clips"; iconName: "publish"; active: root.workspace === 7; onClicked: root.workspace = 7 }
                 NavItem { id: navDrop; Layout.fillWidth: true; title: "Drop"; iconName: "publish"; active: root.workspace === 8; onClicked: root.workspace = 8 }
@@ -855,14 +861,40 @@ ApplicationWindow {
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: 13
-                    Layout.leftMargin: 9
+                    Layout.topMargin: 10
+                    Layout.leftMargin: 4
                     spacing: 8
-                    Rectangle { width: 7; height: 7; radius: 4; color: toolsClient.connected ? Theme.accent : Theme.textFaint }
-                    Text { text: toolsClient.connected ? "Server connected" : "Local workspace"; color: Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true; Layout.minimumWidth: 0; elide: Text.ElideRight }
-                    // Running version; click to look for an update.
+                    // Settings, with the running version beside it (click the version to look for an update).
+                    Rectangle {
+                        id: settingsButton
+                        objectName: "settingsButton"
+                        Layout.fillWidth: true
+                        implicitHeight: 32
+                        radius: Theme.radiusSmall
+                        color: settingsMouse.containsMouse || settingsDialog.visible ? Theme.hover : Theme.hoverClear
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Settings"
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 5
+                            spacing: 9
+                            ToolIcon { name: "sliders"; tint: settingsMouse.containsMouse || settingsDialog.visible ? Theme.text : Theme.textMuted }
+                            Text { text: "Settings"; color: settingsMouse.containsMouse || settingsDialog.visible ? Theme.text : Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
+                        }
+                        MouseArea {
+                            id: settingsMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: settingsDialog.open()
+                        }
+                        ToolTip.visible: settingsMouse.containsMouse
+                        ToolTip.delay: 600
+                        ToolTip.text: "Settings  Ctrl+,"
+                    }
                     Text {
                         objectName: "versionLink"
+                        Layout.rightMargin: 6
                         text: appUpdater.checking ? "Checking…" : "v" + appUpdater.currentVersion
                         color: versionMouse.containsMouse ? Theme.text : Theme.textFaint
                         font.pixelSize: 10
@@ -874,25 +906,6 @@ ApplicationWindow {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: appUpdater.check()
-                        }
-                    }
-                    ToolButton {
-                        id: appearanceButton
-                        objectName: "appearanceButton"
-                        implicitWidth: 26
-                        implicitHeight: 26
-                        Accessible.name: "Appearance"
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: "Theme and accent"
-                        onClicked: appearancePopup.opened ? appearancePopup.close() : appearancePopup.open()
-                        contentItem: ToolIcon { name: "palette"; tint: appearanceButton.hovered || appearancePopup.opened ? Theme.text : Theme.textFaint }
-                        background: Rectangle { radius: Theme.radiusSmall; color: appearanceButton.hovered || appearancePopup.opened ? Theme.hover : Theme.hoverClear }
-                        AppearancePopup {
-                            id: appearancePopup
-                            objectName: "appearancePopup"
-                            x: -8
-                            y: -height - 10
                         }
                     }
                 }

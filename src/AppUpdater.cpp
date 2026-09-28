@@ -117,6 +117,9 @@ void AppUpdater::checkAutomatically()
     if (updateAvailable())
         return;
     QSettings settings;
+    // Settings > General can turn the background checks off.
+    if (!settings.value("preferences/autoUpdateCheck", true).toBool())
+        return;
     const auto now = QDateTime::currentDateTimeUtc();
     const auto last = settings.value("updates/lastAutoCheck").toDateTime();
     if (last.isValid() && last.secsTo(now) >= 0 && last.secsTo(now) < 30 * 60)

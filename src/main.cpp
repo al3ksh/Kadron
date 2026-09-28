@@ -223,10 +223,14 @@ int main(int argc, char *argv[])
                     player->setProperty("position", position);
             });
         }
-        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_APPEARANCE")) {
-            QTimer::singleShot(400, &app, [mainWindow] {
-                if (auto *popup = mainWindow->findChild<QObject *>("appearancePopup"))
-                    QMetaObject::invokeMethod(popup, "open");
+        // KADRON_SCREENSHOT_SETTINGS=<section> opens Settings on that section (0 = Appearance, 3 = About).
+        if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_SETTINGS") || qEnvironmentVariableIsSet("KADRON_SCREENSHOT_APPEARANCE")) {
+            const auto section = qEnvironmentVariableIntValue("KADRON_SCREENSHOT_SETTINGS");
+            QTimer::singleShot(400, &app, [mainWindow, section] {
+                if (auto *dialog = mainWindow->findChild<QObject *>("settingsDialog")) {
+                    dialog->setProperty("section", section);
+                    QMetaObject::invokeMethod(dialog, "open");
+                }
             });
         }
         // KADRON_SCREENSHOT_DIALOG=<objectName> opens that dialog or popup.

@@ -104,6 +104,8 @@ void LocalDownload::checkYtDlpRelease(bool automatic)
     if (m_checkingLatest)
         return;
     QSettings settings;
+    if (automatic && !settings.value("preferences/autoUpdateCheck", true).toBool())
+        return;
     const auto now = QDateTime::currentDateTimeUtc();
     const auto last = settings.value("ytdlp/lastCheck").toDateTime();
     if (automatic && last.isValid() && last.secsTo(now) >= 0 && last.secsTo(now) < 6 * 60 * 60)
