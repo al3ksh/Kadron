@@ -22,7 +22,7 @@ ApplicationWindow {
 
     property bool forceClose: false
     property bool closeAfterSave: false
-    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible
+    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible || exportSheet.visible
     property bool closeAfterSaveProject: false
     property string currentMediaKey: ""
     property int currentClipIndex: -1
@@ -506,10 +506,96 @@ ApplicationWindow {
         defaultSuffix: "mp4"
         nameFilters: ["MP4 video (*.mp4)"]
         onAccepted: {
-            // A single clip with nothing added is a plain trim at the source's size.
-            if (editorProject.mixed) exporter.startSequence(editorProject.clips, selectedFile, editorProject.exportOptions())
-            else exporter.start(editorProject.mediaUrl, selectedFile, editorProject.inMs, editorProject.outMs)
+            var options = editorProject.exportOptions()
+            options.preset = Prefs.exportPreset
+            options.loudnorm = Prefs.exportLoudnorm
+            // A single clip with nothing added is a plain trim, or a lossless cut.
+            if (exportSheet.losslessCut && !editorProject.mixed)
+                exporter.start(editorProject.mediaUrl, selectedFile, editorProject.inMs, editorProject.outMs, { copy: true })
+            else if (editorProject.mixed) exporter.startSequence(editorProject.clips, selectedFile, options)
+            else exporter.start(editorProject.mediaUrl, selectedFile, editorProject.inMs, editorProject.outMs, options)
         }
+    }
+
+    StudioDialog {
+        id: exportSheet
+        objectName: "exportSheet"
+        property bool losslessCut: false
+        readonly property var presets: [
+            ["source", "Source", "Original size and frame rate"],
+            ["1080p60", "1080p60", "Full HD, up to 60 fps"],
+            ["discord", "Discord", "Under 10 MB, 720p"],
+            ["vertical", "Vertical", "1080×1920 for Shorts and Reels"]
+        ]
+        readonly property int discordKbps: exporter.discordVideoKbps(editorProject.sequenceDurationMs)
+        heading: "Export MP4"
+        message: ""
+        iconName: "publish"
+        width: 500
+        body: [
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                rowSpacing: 8
+                columnSpacing: 8
+                enabled: !exportSheet.losslessCut
+                opacity: enabled ? 1 : 0.45
+                Repeater {
+                    model: exportSheet.presets
+                    delegate: Rectangle {
+                        id: presetTile
+                        required property var modelData
+                        readonly property bool chosen: Prefs.exportPreset === modelData[0]
+                        objectName: "preset_" + modelData[0]
+                        Layout.fillWidth: true
+                        implicitHeight: 58
+                        radius: Theme.radius
+                        color: chosen ? Theme.accentWash : tileMouse.containsMouse ? Theme.hover : Theme.field
+                        border.color: chosen ? Theme.accentEdge : Theme.line
+                        Behavior on color { ColorAnimation { duration: Theme.fadeFast } }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 10
+                            spacing: 2
+                            Text { text: presetTile.modelData[1]; color: presetTile.chosen ? Theme.accent : Theme.text; font.family: Theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold }
+                            Text { width: parent.width; text: presetTile.modelData[2]; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight }
+                        }
+                        MouseArea { id: tileMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Prefs.exportPreset = presetTile.modelData[0] }
+                    }
+                }
+            },
+            Text {
+                Layout.fillWidth: true
+                visible: Prefs.exportPreset === "discord" && !exportSheet.losslessCut
+                text: exportSheet.discordKbps < 400 ? "Long for 10 MB: about " + exportSheet.discordKbps + " kbit/s, expect a soft picture."
+                                                    : "About " + exportSheet.discordKbps + " kbit/s for " + root.timecode(editorProject.sequenceDurationMs) + "."
+                color: exportSheet.discordKbps < 400 ? Theme.warning : Theme.textFaint
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            },
+            ToolCheck {
+                text: "Even out loudness (-16 LUFS)"
+                enabled: !exportSheet.losslessCut
+                checked: Prefs.exportLoudnorm
+                onToggled: Prefs.exportLoudnorm = checked
+            },
+            ToolCheck {
+                visible: !editorProject.mixed
+                text: "Fast lossless cut: no re-encode, starts at the nearest keyframe"
+                checked: exportSheet.losslessCut
+                onToggled: exportSheet.losslessCut = checked
+            }
+        ]
+        EditorButton {
+            text: "Choose file…"
+            primary: true
+            onClicked: { exportSheet.close(); exportDialog.open() }
+        }
+        EditorButton { text: "Cancel"; subtle: true; onClicked: exportSheet.close() }
     }
     FileDialog {
         id: musicDialog
@@ -910,7 +996,7 @@ ApplicationWindow {
                         }
                     }
                 }
-                EditorButton { text: "Export MP4"; visible: root.workspace === 0; primary: true; enabled: editorProject.canExport && !exporter.busy && exporter.available; onClicked: exportDialog.open() }
+                EditorButton { text: "Export MP4"; visible: root.workspace === 0; primary: true; enabled: editorProject.canExport && !exporter.busy && exporter.available; onClicked: exportSheet.open() }
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
         }

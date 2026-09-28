@@ -15,4 +15,8 @@ Settings {
 
     // The animated intro while the app starts (read by main.cpp at launch).
     property bool startupIntro: true
+
+    // Export sheet choices, kept for the next export.
+    property string exportPreset: "source"
+    property bool exportLoudnorm: false
 }

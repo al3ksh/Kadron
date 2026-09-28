@@ -57,8 +57,19 @@ QString ExportController::encoderLabel(const QString &encoder)
     return QStringLiteral("CPU (x264)");
 }
 
-QStringList ExportController::videoCodecArgs(const QString &encoder, bool fast)
+QStringList ExportController::videoCodecArgs(const QString &encoder, bool fast, int videoKbps)
 {
+    if (videoKbps > 0) {
+        const auto rate = QString::number(videoKbps) + "k";
+        const auto buffer = QString::number(videoKbps * 2) + "k";
+        if (encoder == "nvenc")
+            return {"-c:v", "h264_nvenc", "-preset", fast ? "p4" : "p6", "-rc", "vbr", "-b:v", rate, "-maxrate", rate, "-bufsize", buffer, "-pix_fmt", "yuv420p"};
+        if (encoder == "qsv")
+            return {"-c:v", "h264_qsv", "-preset", fast ? "faster" : "medium", "-b:v", rate, "-maxrate", rate, "-bufsize", buffer, "-pix_fmt", "nv12"};
+        if (encoder == "amf")
+            return {"-c:v", "h264_amf", "-quality", fast ? "speed" : "balanced", "-rc", "vbr_peak", "-b:v", rate, "-maxrate", rate, "-pix_fmt", "yuv420p"};
+        return {"-c:v", "libx264", "-preset", fast ? "fast" : "medium", "-b:v", rate, "-maxrate", rate, "-bufsize", buffer};
+    }
     // Quality targets roughly match x264 CRF 20.
     if (encoder == "nvenc")
         return {"-c:v", "h264_nvenc", "-preset", fast ? "p4" : "p6", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-pix_fmt", "yuv420p"};
@@ -137,16 +148,53 @@ bool ExportController::fallBackToCpu()
     return true;
 }
 
-QSize ExportController::canvasFor(int width, int height)
+QSize ExportController::canvasFor(int width, int height, int maxLong, int maxShort)
 {
     if (width <= 0 || height <= 0)
         return {1280, 720};
-    const auto ratio = qMin(1.0, qMin(1920.0 / qMax(width, height), 1080.0 / qMin(width, height)));
+    const auto ratio = qMin(1.0, qMin(double(maxLong) / qMax(width, height), double(maxShort) / qMin(width, height)));
     return {qMax(2, qRound(width * ratio / 2) * 2), qMax(2, qRound(height * ratio / 2) * 2)};
 }
 
+int ExportController::discordVideoKbps(qint64 durationMs)
+{
+    // 9.5 MB leaves room for the container under Discord's 10 MB.
+    const auto seconds = qMax(1.0, durationMs / 1000.0);
+    return qBound(100, qFloor(9.5 * 8000 / seconds) - 96, 8000);
+}
+
+ExportController::OutputPlan ExportController::outputPlan(const QString &preset, QSize source, double sourceFps, qint64 durationMs)
+{
+    const auto fps = [sourceFps](int cap) { return sourceFps >= 1 ? qBound(1, qRound(sourceFps), cap) : qMin(30, cap); };
+    OutputPlan plan;
+    if (preset == "1080p60") {
+        plan.canvas = canvasFor(source.width(), source.height());
+        plan.fps = fps(60);
+    } else if (preset == "discord") {
+        plan.canvas = canvasFor(source.width(), source.height(), 1280, 720);
+        plan.fps = fps(30);
+        plan.videoKbps = discordVideoKbps(durationMs);
+        plan.audioKbps = 96;
+    } else if (preset == "vertical") {
+        plan.canvas = {1080, 1920};
+        plan.fill = true;
+        plan.fps = fps(60);
+    } else {
+        plan.canvas = canvasFor(source.width(), source.height(), 3840, 2160);
+        plan.fps = fps(120);
+    }
+    return plan;
+}
+
+double ExportController::frameRate(const QString &rational)
+{
+    const auto numerator = rational.section('/', 0, 0).toDouble();
+    const auto denominator = rational.contains('/') ? rational.section('/', 1, 1).toDouble() : 1.0;
+    return denominator > 0 && numerator > 0 ? numerator / denominator : 0.0;
+}
+
 QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int firstAudioInput,
-                                     const QVector<AudioBed> &beds, bool duck)
+                                     const QVector<AudioBed> &beds, bool duck, int fps)
 {
     const auto seconds = [](qint64 milliseconds) { return QString::number(milliseconds / 1000.0, 'f', 3); };
     QStringList parts;
@@ -158,7 +206,7 @@ QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossf
     if (crossfadeMs > 0 && count > 1) {
         // Each join overlaps the clips by crossfadeMs; offsets are in the joined timeline.
         for (int i = 0; i < count; ++i)
-            parts << QStringLiteral("[%1:v]settb=AVTB,fps=30,format=yuv420p[in%1]").arg(i);
+            parts << QStringLiteral("[%1:v]settb=AVTB,fps=%2,format=yuv420p[in%1]").arg(i).arg(fps);
         QString video = QStringLiteral("[in0]");
         qint64 joined = lengthsMs.first();
         for (int i = 1; i < count; ++i) {
@@ -226,10 +274,18 @@ QString ExportController::stage() const { return m_stage; }
 QString ExportController::errorText() const { return m_errorText; }
 QUrl ExportController::outputUrl() const { return m_outputUrl; }
 
-bool ExportController::start(const QUrl &source, const QUrl &destination, qint64 inMs, qint64 outMs)
+bool ExportController::start(const QUrl &source, const QUrl &destination, qint64 inMs, qint64 outMs,
+                             const QVariantMap &options)
 {
     if (m_busy)
         return false;
+    const auto preset = options.value("preset", "source").toString();
+    const bool copy = options.value("copy").toBool();
+    // Anything beyond a plain re-encode goes through the sequence pipeline.
+    if (!copy && (preset != "source" || options.value("loudnorm").toBool())) {
+        return startSequence({QVariantMap{{"url", source}, {"inMs", inMs}, {"outMs", outMs},
+                                          {"durationMs", outMs}}}, destination, options);
+    }
     m_errorText.clear();
     m_outputUrl = QUrl();
 
@@ -269,6 +325,7 @@ bool ExportController::start(const QUrl &source, const QUrl &destination, qint64
     m_fellBack = false;
     m_singleSource = sourceInfo.absoluteFilePath();
     m_singleInMs = inMs;
+    m_copy = copy;
     launchSingle();
     return true;
 }
@@ -284,9 +341,13 @@ void ExportController::launchSingle()
         "-t", seconds(m_rangeMs),
         "-map", "0:v:0?", "-map", "0:a:0?"
     };
-    args << videoCodecArgs(m_activeEncoder, false)
-         << "-c:a" << "aac" << "-b:a" << "192k" << "-movflags" << "+faststart"
-         << "-y" << m_partialPath;
+    if (m_copy) {
+        // Starts at the keyframe before inMs; nothing is re-encoded.
+        args << "-c" << "copy" << "-avoid_negative_ts" << "make_zero";
+    } else {
+        args << videoCodecArgs(m_activeEncoder, false) << "-c:a" << "aac" << "-b:a" << "192k";
+    }
+    args << "-movflags" << "+faststart" << "-y" << m_partialPath;
     m_process.setProgram(m_ffmpeg);
     m_process.setArguments(args);
     emit changed();
@@ -330,8 +391,9 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
         }
         Segment segment{sourceInfo.absoluteFilePath(), in, out};
         segment.volume = clip.value("muted").toBool() ? 0.0 : qBound(0.0, clip.value("volume", 1.0).toDouble(), 2.0);
+        segment.speed = qBound(0.25, clip.value("speed", 1.0).toDouble(), 4.0);
         segments.append(segment);
-        totalMs += out - in;
+        totalMs += segment.lengthMs();
     }
     auto transition = options.value("transition", "cut").toString();
     auto transitionMs = qBound(100, options.value("transitionMs", 500).toInt(), 3000);
@@ -339,7 +401,7 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
         // Every clip has to outlast the overlaps at both of its ends.
         qint64 shortest = totalMs;
         for (const auto &segment : std::as_const(segments))
-            shortest = qMin(shortest, segment.outMs - segment.inMs);
+            shortest = qMin(shortest, segment.lengthMs());
         transitionMs = qMin<qint64>(transitionMs, shortest * 2 / 5);
     }
     if (segments.size() < 2 || transitionMs < 100 || (transition != "fade" && transition != "crossfade"))
@@ -366,7 +428,7 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
             qint64 clipStart = 0;
             int joins = 0;
             for (int i = 1; i < segments.size(); ++i) {
-                clipStart += segments.at(i - 1).outMs - segments.at(i - 1).inMs;
+                clipStart += segments.at(i - 1).lengthMs();
                 if (bed.startMs >= clipStart) joins = i;
             }
             bed.startMs = qMax<qint64>(0, bed.startMs - joins * transitionMs);
@@ -399,6 +461,10 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
     m_segmentIndex = 0;
     m_canvasWidth = 0;
     m_canvasHeight = 0;
+    m_sourceFps = 0;
+    m_preset = options.value("preset", "source").toString();
+    m_loudnorm = options.value("loudnorm").toBool();
+    m_plan = {};
     m_progress = 0;
     m_cancelled = false;
     m_busy = true;
@@ -413,10 +479,9 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
 void ExportController::probeNext()
 {
     if (m_segmentIndex >= m_segments.size()) {
-        if (m_canvasWidth == 0) {
-            m_canvasWidth = 1280;
-            m_canvasHeight = 720;
-        }
+        m_plan = outputPlan(m_preset, QSize(m_canvasWidth, m_canvasHeight), m_sourceFps, m_finalMs);
+        m_canvasWidth = m_plan.canvas.width();
+        m_canvasHeight = m_plan.canvas.height();
         m_segmentIndex = 0;
         encodeNext();
         return;
@@ -426,7 +491,7 @@ void ExportController::probeNext()
     m_errorBuffer.clear();
     m_progressBuffer.clear();
     m_process.start(m_ffprobe, {
-        "-v", "error", "-show_entries", "stream=codec_type,width,height",
+        "-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate,r_frame_rate:stream_side_data=rotation",
         "-of", "json", m_segments[m_segmentIndex].path
     });
     emit changed();
@@ -460,14 +525,14 @@ void ExportController::encodeNext()
         "-ss", seconds(segment.inMs), "-i", segment.path
     };
     if (!segment.hasVideo)
-        args << "-f" << "lavfi" << "-i" << QString("color=c=black:s=%1x%2:r=30").arg(m_canvasWidth).arg(m_canvasHeight);
+        args << "-f" << "lavfi" << "-i" << QString("color=c=black:s=%1x%2:r=%3").arg(m_canvasWidth).arg(m_canvasHeight).arg(m_plan.fps);
     else if (!segment.hasAudio)
         args << "-f" << "lavfi" << "-i" << "anullsrc=channel_layout=stereo:sample_rate=48000";
-    args << "-t" << seconds(segment.outMs - segment.inMs)
+    args << "-t" << seconds(segment.lengthMs())
          << "-map" << (segment.hasVideo ? "0:v:0" : "1:v:0")
          << "-map" << (segment.hasAudio ? "0:a:0" : "1:a:0");
     // Fade through black: half the transition out of one clip, half into the next.
-    const auto lengthMs = segment.outMs - segment.inMs;
+    const auto lengthMs = segment.lengthMs();
     const auto half = m_transition == "fade" ? qMin<qint64>(m_transitionMs / 2, lengthMs / 2) : 0;
     const bool fadeIn = half > 0 && m_segmentIndex > 0;
     const bool fadeOut = half > 0 && m_segmentIndex + 1 < m_segments.size();
@@ -495,16 +560,24 @@ void ExportController::encodeNext()
         if (fadeOut)
             audioFades += QString(",afade=t=out:st=%1:d=%2:curve=hsin").arg(seconds(lengthMs - half), seconds(half));
     }
+    const bool retimed = !qFuzzyCompare(segment.speed, 1.0);
+    const auto speed = QString::number(segment.speed, 'f', 4);
     if (segment.hasVideo) {
-        args << "-vf" << QString("scale=%1:%2:force_original_aspect_ratio=decrease,"
-                                 "pad=%1:%2:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p,setsar=1")
-                                 .arg(m_canvasWidth).arg(m_canvasHeight) + videoFades;
+        // Fill crops the frame to the canvas; otherwise it is letterboxed.
+        const auto fit = m_plan.fill ? QString("scale=%1:%2:force_original_aspect_ratio=increase,crop=%1:%2")
+                                     : QString("scale=%1:%2:force_original_aspect_ratio=decrease,pad=%1:%2:(ow-iw)/2:(oh-ih)/2");
+        args << "-vf" << (retimed ? QString("setpts=PTS/%1,").arg(speed) : QString())
+                             + fit.arg(m_canvasWidth).arg(m_canvasHeight)
+                             + QString(",fps=%1,format=yuv420p,setsar=1").arg(m_plan.fps) + videoFades;
     } else {
         args << "-vf" << "format=yuv420p" + videoFades;
     }
-    args << "-af" << QString("volume=%1").arg(QString::number(segment.volume, 'f', 3)) + audioFades;
-    args << videoCodecArgs(m_activeEncoder, true)
-         << "-r" << "30" << "-c:a" << "aac" << "-b:a" << "160k"
+    QString audio = retimed && segment.hasAudio ? QString("atempo=%1,").arg(speed) : QString();
+    if (m_loudnorm && segment.hasAudio)
+        audio += QStringLiteral("loudnorm=I=-16:TP=-1.5:LRA=11,");
+    args << "-af" << audio + QString("volume=%1").arg(QString::number(segment.volume, 'f', 3)) + audioFades;
+    args << videoCodecArgs(m_activeEncoder, true, m_plan.videoKbps)
+         << "-r" << QString::number(m_plan.fps) << "-c:a" << "aac" << "-b:a" << QString::number(qMin(160, m_plan.audioKbps)) + "k"
          << "-ar" << "48000" << "-ac" << "2" << "-shortest" << "-movflags" << "+faststart"
          << "-y" << segmentPath(m_segmentIndex);
     m_process.start(m_ffmpeg, args);
@@ -556,7 +629,7 @@ void ExportController::startFinal()
     const bool crossfade = m_transition == "crossfade";
     QVector<qint64> lengths;
     for (const auto &segment : std::as_const(m_segments))
-        lengths << segment.outMs - segment.inMs;
+        lengths << segment.lengthMs();
     QStringList args{"-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1"};
     if (crossfade) {
         for (int index = 0; index < m_segments.size(); ++index)
@@ -568,12 +641,12 @@ void ExportController::startFinal()
     const int firstAudioInput = crossfade ? m_segments.size() : 1;
     for (const auto &path : std::as_const(m_audioPaths))
         args << "-i" << path;
-    args << "-filter_complex" << mixFilter(lengths, crossfade ? m_transitionMs : 0, firstAudioInput, m_audioBeds, m_musicDuck);
+    args << "-filter_complex" << mixFilter(lengths, crossfade ? m_transitionMs : 0, firstAudioInput, m_audioBeds, m_musicDuck, m_plan.fps);
     if (crossfade)
-        args << "-map" << "[v]" << videoCodecArgs(m_activeEncoder, false) << "-r" << "30";
+        args << "-map" << "[v]" << videoCodecArgs(m_activeEncoder, false, m_plan.videoKbps) << "-r" << QString::number(m_plan.fps);
     else
         args << "-map" << "0:v:0" << "-c:v" << "copy";
-    args << "-map" << "[a]" << "-c:a" << "aac" << "-b:a" << "192k" << "-ar" << "48000"
+    args << "-map" << "[a]" << "-c:a" << "aac" << "-b:a" << QString::number(m_plan.audioKbps) + "k" << "-ar" << "48000"
          << "-t" << QString::number(m_finalMs / 1000.0, 'f', 3)
          << "-movflags" << "+faststart" << "-y" << m_partialPath;
     m_process.start(m_ffmpeg, args);
@@ -628,7 +701,7 @@ void ExportController::readProgress()
         if (valid && m_rangeMs > 0) {
             int next = 0;
             if (m_phase == Phase::Encode) {
-                const auto segmentMs = m_segments[m_segmentIndex].outMs - m_segments[m_segmentIndex].inMs;
+                const auto segmentMs = m_segments[m_segmentIndex].lengthMs();
                 next = qBound(0, static_cast<int>((m_completedMs + qMin(segmentMs, microseconds / 1000))
                                                   * m_encodeShare / m_rangeMs), m_encodeShare);
             } else if (m_phase == Phase::Final) {
@@ -691,12 +764,17 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
             if (codecType == "audio") segment.hasAudio = true;
             if (codecType == "video") {
                 segment.hasVideo = true;
-                const auto width = stream.value("width").toInt();
-                const auto height = stream.value("height").toInt();
+                auto width = stream.value("width").toInt();
+                auto height = stream.value("height").toInt();
+                // Phone videos are often stored sideways with a rotation tag.
+                for (const auto &data : stream.value("side_data_list").toArray())
+                    if (qAbs(data.toObject().value("rotation").toInt()) == 90) std::swap(width, height);
                 if (m_canvasWidth == 0 && width > 0 && height > 0) {
-                    const auto canvas = canvasFor(width, height);
-                    m_canvasWidth = canvas.width();
-                    m_canvasHeight = canvas.height();
+                    m_canvasWidth = width;
+                    m_canvasHeight = height;
+                    m_sourceFps = frameRate(stream.value("avg_frame_rate").toString());
+                    if (m_sourceFps < 1)
+                        m_sourceFps = frameRate(stream.value("r_frame_rate").toString());
                 }
             }
         }
@@ -733,7 +811,7 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
         return;
     }
     if (m_phase == Phase::Encode) {
-        m_completedMs += m_segments[m_segmentIndex].outMs - m_segments[m_segmentIndex].inMs;
+        m_completedMs += m_segments[m_segmentIndex].lengthMs();
         m_progress = qMax(m_progress, static_cast<int>(m_completedMs * m_encodeShare / m_rangeMs));
         ++m_segmentIndex;
         emit changed();

@@ -44,13 +44,30 @@ public:
     QString encoderUsed() const;
 
     // Arguments that select and tune the encoder, between inputs and output.
-    static QStringList videoCodecArgs(const QString &encoder, bool fast);
+    // A bitrate (kbit/s) instead of constant quality when videoKbps > 0.
+    static QStringList videoCodecArgs(const QString &encoder, bool fast, int videoKbps = 0);
     static QString encoderLabel(const QString &encoder);
     // Tries each hardware encoder with a tiny encode; slow, call off the UI thread.
     static QStringList probeHardwareEncoders(const QString &ffmpeg);
     // Sequence frame size for a first clip of this size: at most 1920 on the
     // long side and 1080 on the short one, so portrait stays 1080x1920.
-    static QSize canvasFor(int width, int height);
+    static QSize canvasFor(int width, int height, int maxLong = 1920, int maxShort = 1080);
+    // What an export preset makes of a sequence whose first clip is source
+    // at sourceFps: "source" keeps size and frame rate (up to 4K/120),
+    // "1080p60" caps at 1080p and 60 fps, "discord" fits 10 MB at 720p and
+    // "vertical" fills a 1080x1920 frame.
+    struct OutputPlan {
+        QSize canvas;
+        int fps = 30;
+        bool fill = false;
+        int videoKbps = 0;
+        int audioKbps = 192;
+    };
+    static OutputPlan outputPlan(const QString &preset, QSize source, double sourceFps, qint64 durationMs);
+    // Video bitrate that keeps an export of this length under 10 MB.
+    Q_INVOKABLE static int discordVideoKbps(qint64 durationMs);
+    // "30000/1001" -> 29.97; 0 when unknown.
+    static double frameRate(const QString &rational);
     // One file on the audio track: the part inMs..outMs of it plays from
     // startMs of the exported video.
     struct AudioBed {
@@ -65,13 +82,17 @@ public:
     // crossfades them when crossfadeMs > 0 and mixes in the audio track, one
     // input per bed from firstAudioInput. Outputs [a], and [v] when crossfading.
     static QString mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int firstAudioInput,
-                             const QVector<AudioBed> &beds, bool duck);
+                             const QVector<AudioBed> &beds, bool duck, int fps = 30);
 
     Q_INVOKABLE void detectEncoders();
-    Q_INVOKABLE bool start(const QUrl &source, const QUrl &destination, qint64 inMs, qint64 outMs);
-    // options: transition ("cut", "fade", "crossfade"), transitionMs, audio
-    // (a list of {url, startMs, inMs, outMs, volume} in sequence time) and
-    // musicDuck to lower the audio track under the clips' own sound.
+    // options: preset (see outputPlan), loudnorm to even out loudness, and
+    // copy for a lossless cut at keyframes (no re-encode, ignores the rest).
+    Q_INVOKABLE bool start(const QUrl &source, const QUrl &destination, qint64 inMs, qint64 outMs,
+                           const QVariantMap &options = {});
+    // options: the ones above, transition ("cut", "fade", "crossfade"),
+    // transitionMs, audio (a list of {url, startMs, inMs, outMs, volume} in
+    // sequence time) and musicDuck to lower the audio track under the clips'
+    // own sound. Clips may carry a speed (0.25 to 4).
     Q_INVOKABLE bool startSequence(const QVariantList &clips, const QUrl &destination,
                                    const QVariantMap &options = {});
     Q_INVOKABLE void cancel();
@@ -89,6 +110,9 @@ private:
         bool hasVideo = false;
         bool hasAudio = false;
         double volume = 1.0;
+        double speed = 1.0;
+        // Length in the exported video.
+        qint64 lengthMs() const { return qRound64((outMs - inMs) / speed); }
     };
     enum class Phase { Idle, Single, Probe, Encode, Concat, Final };
     void probeNext();
@@ -119,6 +143,10 @@ private:
     int m_segmentIndex = 0;
     int m_canvasWidth = 0;
     int m_canvasHeight = 0;
+    double m_sourceFps = 0;
+    QString m_preset;
+    bool m_loudnorm = false;
+    OutputPlan m_plan;
     qint64 m_completedMs = 0;
     qint64 m_rangeMs = 0;
     // Sequence options.
@@ -144,4 +172,5 @@ private:
     bool m_fellBack = false;
     QString m_singleSource;
     qint64 m_singleInMs = 0;
+    bool m_copy = false;
 };

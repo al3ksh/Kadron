@@ -35,6 +35,7 @@ private slots:
     void sequenceProject();
     void mediaExport();
     void sequenceExport();
+    void exportPresets();
     void remoteWorkflow();
     void localMediaOperations();
     void remoteJobWorkflow();
@@ -683,6 +684,81 @@ void CoreTests::sequenceExport()
     const auto before = peak("0.1", "0.7");
     const auto after = peak("1.2", "0.6");
     QVERIFY2(before < -60 && after > -30, qPrintable(QString("before %1 dB, after %2 dB").arg(before).arg(after)));
+}
+
+void CoreTests::exportPresets()
+{
+    // Plans: sizes, frame rates and the Discord bitrate budget.
+    QCOMPARE(ExportController::frameRate("30000/1001"), 30000.0 / 1001);
+    QCOMPARE(ExportController::frameRate("0/0"), 0.0);
+    QCOMPARE(ExportController::canvasFor(3840, 2160, 1280, 720), QSize(1280, 720));
+    auto plan = ExportController::outputPlan("source", {3840, 2160}, 59.94, 10000);
+    QCOMPARE(plan.canvas, QSize(3840, 2160));
+    QCOMPARE(plan.fps, 60);
+    plan = ExportController::outputPlan("1080p60", {2560, 1440}, 144, 10000);
+    QCOMPARE(plan.canvas, QSize(1920, 1080));
+    QCOMPARE(plan.fps, 60);
+    plan = ExportController::outputPlan("discord", {1920, 1080}, 60, 60000);
+    QCOMPARE(plan.canvas, QSize(1280, 720));
+    QCOMPARE(plan.fps, 30);
+    QVERIFY(plan.videoKbps > 1000 && plan.videoKbps < 1300);
+    plan = ExportController::outputPlan("vertical", {1920, 1080}, 30, 10000);
+    QCOMPARE(plan.canvas, QSize(1080, 1920));
+    QVERIFY(plan.fill);
+    QCOMPARE(ExportController::discordVideoKbps(1000), 8000);
+    QCOMPARE(ExportController::discordVideoKbps(3600000), 100);
+    QVERIFY(ExportController::videoCodecArgs("cpu", false, 2000).contains("2000k"));
+    QVERIFY(ExportController::videoCodecArgs("nvenc", false, 2000).contains("vbr"));
+
+    const auto ffmpeg = qEnvironmentVariable("KADRON_FFMPEG", "ffmpeg");
+    const auto ffprobe = ffprobeExecutable();
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto sourcePath = directory.path() + "/source.mp4";
+    QProcess generator;
+    generator.start(ffmpeg, {
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=15",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+        "-t", "4", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "15",
+        "-c:a", "aac", sourcePath
+    });
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+    const auto probe = [&](const QString &path, const QString &entries) {
+        QProcess process;
+        process.start(ffprobe, {"-v", "error", "-select_streams", "v:0", "-show_entries", entries,
+                                "-of", "default=noprint_wrappers=1:nokey=1", path});
+        process.waitForFinished(30000);
+        return QString::fromUtf8(process.readAllStandardOutput()).simplified().split(' ', Qt::SkipEmptyParts);
+    };
+    const auto source = QUrl::fromLocalFile(sourcePath);
+    ExportController exporter;
+
+    // Vertical fills a 1080x1920 frame even from a small landscape clip.
+    const auto verticalPath = directory.path() + "/vertical.mp4";
+    QVERIFY(exporter.start(source, QUrl::fromLocalFile(verticalPath), 500, 2500, {{"preset", "vertical"}, {"loudnorm", true}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    QCOMPARE(probe(verticalPath, "stream=width,height"), QStringList({"1080", "1920"}));
+
+    // A lossless cut copies the streams.
+    const auto copyPath = directory.path() + "/copy.mp4";
+    QVERIFY(exporter.start(source, QUrl::fromLocalFile(copyPath), 1000, 3000, {{"copy", true}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 60000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    QCOMPARE(probe(copyPath, "stream=width,height"), QStringList({"320", "180"}));
+    const auto copyLength = probe(copyPath, "format=duration").value(0).toDouble();
+    QVERIFY2(copyLength > 1.5 && copyLength < 2.6, qPrintable(QString::number(copyLength)));
+
+    // A clip at 2x plays its 2 s range in 1 s.
+    const auto fastPath = directory.path() + "/fast.mp4";
+    const QVariantList clips{QVariantMap{{"url", source}, {"inMs", 0}, {"outMs", 2000}, {"durationMs", 4000}, {"speed", 2.0}}};
+    QVERIFY(exporter.startSequence(clips, QUrl::fromLocalFile(fastPath)));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    const auto fastLength = probe(fastPath, "format=duration").value(0).toDouble();
+    QVERIFY2(fastLength > 0.8 && fastLength < 1.3, qPrintable(QString::number(fastLength)));
 }
 
 void CoreTests::remoteWorkflow()

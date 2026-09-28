@@ -11,6 +11,8 @@ Dialog {
     property string iconName: "close"
     property bool warning: false
     default property alias actions: actionRow.data
+    // Extra controls under the message (options, choices).
+    property alias body: bodyColumn.data
 
     modal: true
     focus: true
@@ -76,12 +78,20 @@ Dialog {
                 }
                 Text {
                     Layout.fillWidth: true
+                    visible: text !== ""
                     text: dialog.message
                     color: Theme.textMuted
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                     lineHeight: 1.15
                     wrapMode: Text.WordWrap
+                }
+                ColumnLayout {
+                    id: bodyColumn
+                    Layout.fillWidth: true
+                    Layout.topMargin: children.length > 0 ? 8 : 0
+                    visible: children.length > 0
+                    spacing: 8
                 }
             }
         }
@@ -97,8 +107,9 @@ Dialog {
             Rectangle { width: parent.width; height: 1; color: Theme.line }
             RowLayout {
                 id: actionRow
-                anchors.fill: parent
-                anchors.leftMargin: 18
+                // Sized to its buttons so they sit together on the right.
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 anchors.rightMargin: 18
                 spacing: 8
                 layoutDirection: Qt.RightToLeft
