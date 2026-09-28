@@ -11,6 +11,8 @@ class TrayIcon : public QObject
     Q_OBJECT
     Q_PROPERTY(bool supported READ supported CONSTANT)
     Q_PROPERTY(bool visible READ visible WRITE setVisible NOTIFY visibleChanged)
+    // Draw the right-click menu dark, to match the app theme.
+    Q_PROPERTY(bool dark MEMBER m_dark)
 public:
     explicit TrayIcon(QObject *parent = nullptr);
     ~TrayIcon() override;
@@ -40,4 +42,5 @@ private:
     unsigned m_taskbarCreated = 0;
     bool m_visible = false;
     bool m_added = false;
+    bool m_dark = true;
 };

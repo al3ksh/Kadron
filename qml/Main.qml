@@ -469,6 +469,7 @@ ApplicationWindow {
         }
     }
     Binding { target: root.trayAvailable ? trayIcon : null; property: "visible"; value: Prefs.closeToTray }
+    Binding { target: root.trayAvailable ? trayIcon : null; property: "dark"; value: Theme.dark }
     // Long jobs show on the taskbar button; one ending in the background flashes
     // it, or raises a tray notification while the window is hidden.
     readonly property int jobProgress: exporter.busy ? exporter.progress

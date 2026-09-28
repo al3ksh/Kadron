@@ -16,6 +16,23 @@ LRESULT CALLBACK trayWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
     return DefWindowProcW(window, message, wParam, lParam);
 }
 
+// Win32 popup menus only go dark through uxtheme's unnamed exports
+// (SetPreferredAppMode #135, FlushMenuThemes #136, Windows 10 1903+).
+void applyMenuTheme(bool dark)
+{
+    static const auto uxtheme = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!uxtheme)
+        return;
+    using SetPreferredAppMode = int(WINAPI *)(int);
+    using FlushMenuThemes = void(WINAPI *)();
+    static const auto setMode = reinterpret_cast<SetPreferredAppMode>(GetProcAddress(uxtheme, MAKEINTRESOURCEA(135)));
+    static const auto flush = reinterpret_cast<FlushMenuThemes>(GetProcAddress(uxtheme, MAKEINTRESOURCEA(136)));
+    if (!setMode || !flush)
+        return;
+    setMode(dark ? 2 : 3); // ForceDark : ForceLight
+    flush();
+}
+
 void copyText(wchar_t *target, size_t capacity, const QString &text)
 {
     const auto length = qMin<qsizetype>(text.size(), qsizetype(capacity) - 1);
@@ -116,6 +133,7 @@ void TrayIcon::showMessage(const QString &title, const QString &text)
 void TrayIcon::showMenu()
 {
     auto window = static_cast<HWND>(m_window);
+    applyMenuTheme(m_dark);
     auto menu = CreatePopupMenu();
     AppendMenuW(menu, MF_STRING, MenuOpen, L"Open Kadron");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
