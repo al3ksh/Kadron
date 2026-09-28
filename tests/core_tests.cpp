@@ -430,13 +430,21 @@ void CoreTests::mediaExport()
     QCOMPARE(generator.exitCode(), 0);
     QVERIFY(QFileInfo(sourcePath).size() > 0);
 
-    ThumbnailStrip thumbnails;
+    const auto cachePath = directory.path() + "/cache";
+    ThumbnailStrip thumbnails(cachePath);
     thumbnails.generate(QUrl::fromLocalFile(sourcePath), 4000);
     QTRY_VERIFY_WITH_TIMEOUT(!thumbnails.busy(), 30000);
     QVERIFY(thumbnails.frames().size() >= 10);
     QVERIFY(!thumbnails.frames().first().isEmpty());
     thumbnails.waveformFor(QUrl::fromLocalFile(sourcePath));
     QTRY_VERIFY_WITH_TIMEOUT(!thumbnails.waveformFor(QUrl::fromLocalFile(sourcePath)).isEmpty(), 30000);
+    // A later session reads both straight from the disk cache.
+    ThumbnailStrip reopenedStrip(cachePath);
+    QCOMPARE(reopenedStrip.framesFor(QUrl::fromLocalFile(sourcePath), 4000), thumbnails.frames());
+    QVERIFY(!reopenedStrip.waveformFor(QUrl::fromLocalFile(sourcePath)).isEmpty());
+    QVERIFY(!reopenedStrip.busy());
+    reopenedStrip.prune(0);
+    QVERIFY(QDir(cachePath).entryList(QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
 
     ExportController exporter;
     QVERIFY(exporter.available());
