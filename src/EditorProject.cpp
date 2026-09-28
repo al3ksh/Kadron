@@ -302,6 +302,34 @@ bool EditorProject::removeSilence(int index, double thresholdDb, int minMs)
     return true;
 }
 
+bool EditorProject::saveFrame(qint64 sourceMs, const QUrl &target)
+{
+    if (m_activeClipIndex < 0 || m_activeClipIndex >= m_clips.size() || !target.isLocalFile())
+        return false;
+    const auto ffmpeg = ffmpegExecutable();
+    if (ffmpeg.isEmpty()) {
+        emit frameSaved(target, QStringLiteral("FFmpeg is needed to save a frame."));
+        return false;
+    }
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::finished, this, [this, process, target](int code, QProcess::ExitStatus status) {
+        process->deleteLater();
+        const bool ok = code == 0 && status == QProcess::NormalExit && QFileInfo(target.toLocalFile()).size() > 0;
+        emit frameSaved(target, ok ? QString() : QStringLiteral("Could not save the frame."));
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process, target](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        process->deleteLater();
+        emit frameSaved(target, QStringLiteral("FFmpeg could not be started."));
+    });
+    process->start(ffmpeg, {"-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+                            "-ss", QString::number(qMax<qint64>(0, sourceMs) / 1000.0, 'f', 3),
+                            "-i", m_clips.at(m_activeClipIndex).mediaUrl.toLocalFile(),
+                            "-frames:v", "1", "-update", "1", target.toLocalFile()});
+    return true;
+}
+
 bool EditorProject::setTransition(const QString &kind)
 {
     if (kind != "cut" && kind != "fade" && kind != "crossfade")

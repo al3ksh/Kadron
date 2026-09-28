@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtMultimedia
 import QtQuick.Effects
+import QtCore
 
 ApplicationWindow {
     id: root
@@ -254,6 +255,16 @@ ApplicationWindow {
             pendingSourceMs = source
             if (index !== editorProject.activeClipIndex) editorProject.selectClip(index)
         } else requestSourceSeek(source)
+    }
+    // Frame rate of the active clip, for frame stepping; 30 when unknown.
+    readonly property real frameRate: {
+        var rate = Number(player.metaData.value(MediaMetaData.VideoFrameRate))
+        return rate > 1 && rate < 1000 ? rate : 30
+    }
+    // Keyboard seeking: pauses, jumps by `deltaMs` on the sequence, like one scrub step.
+    function nudgeSequence(deltaMs) {
+        beginScrub(Math.max(0, Math.min(editorProject.sequenceDurationMs - 1, sequencePositionMs + deltaMs)))
+        scrubbing = false
     }
     function beginScrub(ms) {
         if (sequencePlaying || player.playbackState === MediaPlayer.PlayingState) {
@@ -508,6 +519,25 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; enabled: root.workspace === 0 && editorProject.canRedo && !exporter.busy; onActivated: editorProject.redo() }
     Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.visible ? settingsDialog.close() : settingsDialog.open() }
     Shortcut { sequence: "Ctrl+W"; enabled: root.workspace === 0 && editorProject.hasMedia && !root.dialogOpen; onActivated: root.closeEditing() }
+    // Frame steps, J/K/L and one-second jumps; the timeline keeps its own arrows while focused.
+    readonly property bool keyboardSeek: workspace === 0 && editorProject.hasMedia && !dialogOpen && !exporter.busy
+    Shortcut { sequence: ","; enabled: root.keyboardSeek; autoRepeat: true; onActivated: root.nudgeSequence(-1000 / root.frameRate) }
+    Shortcut { sequence: "."; enabled: root.keyboardSeek; autoRepeat: true; onActivated: root.nudgeSequence(1000 / root.frameRate) }
+    Shortcut { sequence: "Shift+Left"; enabled: root.keyboardSeek && !sequenceTimeline.activeFocus; autoRepeat: true; onActivated: root.nudgeSequence(-1000) }
+    Shortcut { sequence: "Shift+Right"; enabled: root.keyboardSeek && !sequenceTimeline.activeFocus; autoRepeat: true; onActivated: root.nudgeSequence(1000) }
+    Shortcut {
+        sequence: "J"
+        enabled: root.keyboardSeek
+        autoRepeat: true
+        onActivated: {
+            var resume = player.playbackState === MediaPlayer.PlayingState
+            root.nudgeSequence(-5000)
+            if (resume) root.togglePlayback()
+        }
+    }
+    Shortcut { sequence: "K"; enabled: root.keyboardSeek && player.playbackState === MediaPlayer.PlayingState; onActivated: root.togglePlayback() }
+    Shortcut { sequence: "L"; enabled: root.keyboardSeek && player.playbackState !== MediaPlayer.PlayingState; onActivated: root.togglePlayback() }
+    Shortcut { sequence: "Ctrl+Shift+S"; enabled: root.keyboardSeek; onActivated: root.saveFrame() }
     Shortcut { sequence: "Ctrl+K"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.splitAt(player.position) }
 
     FileDialog {
@@ -530,6 +560,29 @@ ApplicationWindow {
         fileMode: FileDialog.OpenFile
         nameFilters: ["Kadron project (*.kadr)"]
         onAccepted: root.requestOpen(selectedFile, true)
+    }
+    // The preview frame as a full-size picture, named after the clip and the moment.
+    function saveFrame() {
+        if (!editorProject.hasMedia) return
+        var name = decodeURIComponent(editorProject.mediaUrl.toString().replace(/^.*\//, "").replace(/\.[^.]*$/, ""))
+        frameDialog.sourceMs = player.position
+        frameDialog.selectedFile = StandardPaths.writableLocation(StandardPaths.PicturesLocation) + "/" + name + " " + root.timecode(root.sequencePositionMs).replace(/:/g, "-") + ".png"
+        frameDialog.open()
+    }
+    FileDialog {
+        id: frameDialog
+        property real sourceMs: 0
+        title: "Save frame"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "png"
+        nameFilters: ["PNG image (*.png)", "JPEG image (*.jpg)"]
+        onAccepted: editorProject.saveFrame(sourceMs, selectedFile)
+    }
+    Connections {
+        target: editorProject
+        function onFrameSaved(file, error) {
+            root.notice = error ? error : "Frame saved · " + decodeURIComponent(file.toString().replace(/^.*\//, ""))
+        }
     }
     FileDialog {
         id: saveDialog
@@ -1168,6 +1221,16 @@ ApplicationWindow {
                         Text { text: root.timecode(root.sequencePositionMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
                         Text { text: "/ " + root.timecode(editorProject.sequenceDurationMs); color: Theme.textMuted; font.pixelSize: 12 }
                         Item { Layout.fillWidth: true }
+                        EditorButton {
+                            objectName: "saveFrameButton"
+                            subtle: true
+                            iconName: "camera"
+                            enabled: editorProject.hasMedia
+                            onClicked: root.saveFrame()
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 600
+                            ToolTip.text: "Save this frame as an image  Ctrl+Shift+S"
+                        }
                         VolumeControl { id: editorVolume; objectName: "editorVolume"; compact: transportRow.width <= 460 }
                     }
                     Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }

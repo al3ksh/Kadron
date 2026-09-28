@@ -88,6 +88,8 @@ public:
     Q_INVOKABLE bool replaceClipRanges(int index, const QVariantList &ranges);
     // Cuts the quiet parts out of a clip (below thresholdDb for at least minMs), as one undo step.
     Q_INVOKABLE bool removeSilence(int index, double thresholdDb = -35, int minMs = 600);
+    // Writes the active clip's frame at sourceMs to an image file at full size; answers with frameSaved.
+    Q_INVOKABLE bool saveFrame(qint64 sourceMs, const QUrl &target);
     bool findingSilence() const { return m_findingSilence; }
     // silencedetect output to {start, end} pairs in ms, shifted by offsetMs; an open silence ends at endMs.
     static QList<QPair<qint64, qint64>> parseSilence(const QString &log, qint64 offsetMs, qint64 endMs);
@@ -135,6 +137,7 @@ signals:
     void findingSilenceChanged();
     // Reported after removeSilence: the clip's parts left and the time cut (0 when nothing was quiet).
     void silenceRemoved(int parts, qint64 removedMs);
+    void frameSaved(const QUrl &file, const QString &error);
 
 private:
     struct Clip {

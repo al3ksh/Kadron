@@ -820,6 +820,14 @@ void CoreTests::clipSpeedAndSilence()
     QVERIFY2(cut > 1400 && cut < 2000, qPrintable(QString::number(cut)));
     QVERIFY(project.undo());
     QCOMPARE(project.clipCount(), 1);
+
+    // The preview frame as a picture at the source size.
+    const auto framePath = directory.path() + "/frame.png";
+    QSignalSpy saved(&project, &EditorProject::frameSaved);
+    QVERIFY(project.saveFrame(500, QUrl::fromLocalFile(framePath)));
+    QTRY_VERIFY_WITH_TIMEOUT(saved.size() == 1, 30000);
+    QVERIFY(saved.first().at(1).toString().isEmpty());
+    QCOMPARE(QImage(framePath).size(), QSize(160, 90));
 }
 
 void CoreTests::remoteWorkflow()
