@@ -1874,6 +1874,10 @@ ApplicationWindow {
                 root.uploadFile = fileUrl
                 root.workspace = 8
             }
+            onOpenInEditor: function(fileUrl) {
+                root.workspace = 0
+                root.requestOpen(fileUrl, false)
+            }
         }
 
         ShareWorkspace {

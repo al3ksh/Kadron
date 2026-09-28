@@ -80,6 +80,8 @@ public:
     Q_INVOKABLE void checkYtDlpRelease(bool automatic = false);
     // Checks now and then every intervalMs while Kadron is open.
     void startAutomaticChecks(int intervalMs);
+    // The clipboard text when it is a single http(s) link, empty otherwise.
+    Q_INVOKABLE static QString clipboardLink();
     // Looks up title, thumbnail, duration and source for a URL without downloading it.
     Q_INVOKABLE void probe(const QString &url);
 

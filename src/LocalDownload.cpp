@@ -3,6 +3,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
@@ -177,6 +179,14 @@ QString LocalDownload::safeFileName(const QString &title)
     while (name.endsWith('.') || name.endsWith(' '))
         name.chop(1);
     return name.left(120).trimmed();
+}
+
+QString LocalDownload::clipboardLink()
+{
+    const auto clipboard = QGuiApplication::clipboard();
+    const auto text = clipboard ? clipboard->text().trimmed() : QString();
+    static const QRegularExpression link(QStringLiteral("^https?://\S+$"), QRegularExpression::CaseInsensitiveOption);
+    return text.size() < 2048 && link.match(text).hasMatch() ? text : QString();
 }
 
 QString LocalDownload::youtubeId(const QString &url)

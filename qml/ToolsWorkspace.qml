@@ -125,6 +125,16 @@ Item {
     property string selectedFormat: section === 2 ? audioFormat.currentText.toLowerCase()
                                   : section === 3 ? compressFormat.currentText.toLowerCase() : "gif"
     signal publishFile(url fileUrl)
+    signal openInEditor(url fileUrl)
+    // A link copied before opening the Download page fills the empty field.
+    function takeClipboardLink() {
+        if (section !== 1 || !visible || downloadUrl.text.length > 0 || localDownload.busy) return
+        var link = localDownload.clipboardLink()
+        if (link) downloadUrl.text = link
+    }
+    onSectionChanged: takeClipboardLink()
+    onVisibleChanged: takeClipboardLink()
+    readonly property bool downloadIsMedia: /\.(mp4|mkv|webm|mov|m4a|mp3|opus|ogg|wav|flac|aac)$/i.test(localDownload.outputUrl.toString())
     readonly property bool hasSource: sourceUrl.toString().length > 0
     readonly property bool fileSection: section >= 2 && section <= 5
     readonly property bool gifSourceIsGif: sourceUrl.toString().toLowerCase().endsWith(".gif")
@@ -611,11 +621,27 @@ Item {
                 Layout.fillWidth: true
                 spacing: 12
                 Text { text: "Source URL"; color: Theme.textMuted; font.pixelSize: 12 }
-                EditorField {
-                    id: downloadUrl
+                RowLayout {
                     Layout.fillWidth: true
-                    placeholderText: "Paste a link from YouTube, TikTok, Instagram, X, Vimeo…"
-                    onTextChanged: probeDelay.restart()
+                    spacing: 8
+                    EditorField {
+                        id: downloadUrl
+                        objectName: "downloadUrl"
+                        Layout.fillWidth: true
+                        placeholderText: "Paste a link from YouTube, TikTok, Instagram, X, Vimeo…"
+                        onTextChanged: probeDelay.restart()
+                    }
+                    EditorButton {
+                        text: "Paste"
+                        iconName: "link"
+                        enabled: !localDownload.busy
+                        Layout.preferredHeight: downloadUrl.implicitHeight
+                        onClicked: {
+                            downloadUrl.clear()
+                            downloadUrl.paste()
+                            downloadUrl.text = downloadUrl.text.trim()
+                        }
+                    }
                 }
                 Timer { id: probeDelay; interval: 450; onTriggered: localDownload.probe(downloadUrl.text) }
                 // What the link points to, looked up locally before downloading.
@@ -1483,6 +1509,7 @@ Item {
                 visible: (toolsPage.section === 1 && toolsPage.resultSection === "download" && localDownload.outputUrl.toString().length > 0 && !localDownload.busy) || (toolsPage.section === 5 && toolsPage.resultSection === "pdf" && localPdf.outputUrl.toString().length > 0 && !localPdf.busy)
                 Layout.fillWidth: true
                 Text { text: toolsPage.filename(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl); color: Theme.textSoft; font.pixelSize: 12; Layout.fillWidth: true }
+                EditorButton { text: "Open in editor"; iconName: "edit"; visible: toolsPage.section === 1 && toolsPage.downloadIsMedia; onClicked: toolsPage.openInEditor(localDownload.outputUrl) }
                 EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
                 EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
             }
