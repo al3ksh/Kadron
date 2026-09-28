@@ -40,6 +40,8 @@ qt_add_executable(kadron
     src/AppUpdater.h
     src/TrayIcon.cpp
     src/TrayIcon.h
+    src/TaskbarProgress.cpp
+    src/TaskbarProgress.h
 )
 
 qt_add_resources(kadron "kadron_assets" PREFIX "/" FILES assets/kadron-mark.png)
@@ -109,7 +111,7 @@ target_link_libraries(kadron PRIVATE
     Qt6::Concurrent
 )
 if(WIN32)
-    target_link_libraries(kadron PRIVATE dwmapi advapi32 shell32)
+    target_link_libraries(kadron PRIVATE dwmapi advapi32 shell32 ole32 uuid)
 endif()
 
 set_target_properties(kadron PROPERTIES

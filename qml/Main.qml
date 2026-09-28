@@ -469,6 +469,33 @@ ApplicationWindow {
         }
     }
     Binding { target: root.trayAvailable ? trayIcon : null; property: "visible"; value: Prefs.closeToTray }
+    // Long jobs show on the taskbar button; one ending in the background flashes
+    // it, or raises a tray notification while the window is hidden.
+    readonly property int jobProgress: exporter.busy ? exporter.progress
+        : localDownload.busy ? localDownload.progress
+        : localTools.busy ? localTools.progress
+        : localReframe.busy ? localReframe.progress
+        : toolsClient.busy ? toolsClient.progress : -1
+    readonly property string jobName: exporter.busy ? "Export" : localDownload.busy ? "Download"
+        : localTools.busy ? "Conversion" : localReframe.busy ? "Reframe" : toolsClient.busy ? "Upload"
+        : localPdf.busy ? "PDF" : localImages.busy ? "Images" : ""
+    property string runningJob: ""
+    onJobProgressChanged: taskbar.setProgress(root, jobProgress)
+    onJobNameChanged: {
+        if (jobName) {
+            runningJob = jobName
+            return
+        }
+        var finished = runningJob
+        runningJob = ""
+        if (!finished || root.active) return
+        var error = editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText
+            || localDownload.errorText || localPdf.errorText || localImages.errorText || localReframe.errorText
+        if (!root.visible && root.trayAvailable && Prefs.closeToTray)
+            trayIcon.showMessage(finished + (error ? " failed" : " finished"), error || root.notice || "Open Kadron to see the result.")
+        else
+            taskbar.flash(root)
+    }
     Connections {
         target: root.trayAvailable ? trayIcon : null
         function onActivated() { root.showFromTray() }

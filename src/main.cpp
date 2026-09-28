@@ -8,6 +8,7 @@
 #include "LocalQr.h"
 #include "LocalImageTools.h"
 #include "WindowChrome.h"
+#include "TaskbarProgress.h"
 #include "AppUpdater.h"
 #include "ShellIntegration.h"
 #include "SingleInstance.h"
@@ -106,6 +107,7 @@ int main(int argc, char *argv[])
     AppUpdater appUpdater;
     ShellIntegration shellIntegration;
     TrayIcon trayIcon;
+    TaskbarProgress taskbar;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("editorProject", &project);
     engine.rootContext()->setContextProperty("exporter", &exporter);
@@ -120,6 +122,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("appUpdater", &appUpdater);
     engine.rootContext()->setContextProperty("shellIntegration", &shellIntegration);
     engine.rootContext()->setContextProperty("trayIcon", &trayIcon);
+    engine.rootContext()->setContextProperty("taskbar", &taskbar);
     engine.addImageProvider(QStringLiteral("qr"), new QrImageProvider(&localQr));
     QTemporaryDir screenshotSettings;
     const auto screenshotPath = qEnvironmentVariable("KADRON_SCREENSHOT");
