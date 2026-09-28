@@ -53,11 +53,26 @@ bool AppUpdater::updateAvailable() const
 bool AppUpdater::canInstall() const
 {
 #ifdef Q_OS_WIN
-    // Only installed copies have an uninstaller; the setup would not touch a portable folder.
-    return QFileInfo::exists(QCoreApplication::applicationDirPath() + "/uninstall.exe");
+    const auto kind = installKind();
+    return kind == "installed" || (kind == "portable" && QFileInfo(QCoreApplication::applicationDirPath()).isWritable());
 #else
     return false;
 #endif
+}
+
+QString AppUpdater::installKind() const
+{
+    return installKindOf(QCoreApplication::applicationDirPath());
+}
+
+QString AppUpdater::installKindOf(const QString &appDir)
+{
+    // Installed copies have an uninstaller; a build folder has CMake's cache.
+    if (QFileInfo::exists(appDir + "/uninstall.exe"))
+        return QStringLiteral("installed");
+    if (QFileInfo::exists(appDir + "/CMakeCache.txt"))
+        return QStringLiteral("development");
+    return QStringLiteral("portable");
 }
 
 QVariantMap AppUpdater::parseRelease(const QByteArray &json)
@@ -231,6 +246,11 @@ void AppUpdater::applyPending()
     QStringList arguments{QStringLiteral("/S")};
     if (m_relaunch)
         arguments << QStringLiteral("/relaunch");
+    if (installKind() == "portable") {
+        // Only the files, into this folder; /D= has to come last.
+        arguments << QStringLiteral("/portable")
+                  << QStringLiteral("/D=") + QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
+    }
     QProcess::startDetached(m_installer, arguments);
 }
 

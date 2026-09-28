@@ -32,6 +32,11 @@ VIAddVersionKey "LegalCopyright" "Copyright (C) 2026 ${PUBLISHER}. GPL-3.0."
 
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
+!include "Sections.nsh"
+
+; Set by /portable: Kadron's updater refreshing a portable folder. Only the
+; files are replaced; no uninstaller, registry, shortcuts or menus.
+Var Portable
 !define MUI_ICON "${ROOT}\assets\kadron.ico"
 !define MUI_UNICON "${ROOT}\assets\kadron.ico"
 !define MUI_ABORTWARNING
@@ -82,6 +87,7 @@ Section "Kadron" SecApp
     fresh:
     SetOutPath "$INSTDIR"
     File /r "${STAGE}\*.*"
+    StrCmp $Portable "1" appDone
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
     CreateShortcut "$SMPROGRAMS\Kadron.lnk" "$INSTDIR\kadron.exe"
@@ -98,6 +104,7 @@ Section "Kadron" SecApp
     WriteRegDWORD HKCU "${UNINSTALL_KEY}" "EstimatedSize" ${SIZE_KB}
     WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify" 1
     WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
+    appDone:
 SectionEnd
 
 Section "Open .kadr projects with Kadron" SecAssociate
@@ -119,6 +126,17 @@ SectionEnd
 Section /o "Desktop shortcut" SecDesktop
     CreateShortcut "$DESKTOP\Kadron.lnk" "$INSTDIR\kadron.exe"
 SectionEnd
+
+Function .onInit
+    ${GetParameters} $0
+    ClearErrors
+    ${GetOptions} $0 "/portable" $1
+    IfErrors notPortable
+    StrCpy $Portable "1"
+    !insertmacro UnselectSection ${SecAssociate}
+    !insertmacro UnselectSection ${SecExplorerMenu}
+    notPortable:
+FunctionEnd
 
 ; Kadron's updater passes /relaunch so the new version opens when it is done.
 Function .onInstSuccess

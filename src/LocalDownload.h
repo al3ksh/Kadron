@@ -7,6 +7,7 @@
 #include <QPointer>
 #include <QProcess>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QUrl>
 #include <memory>
 
@@ -17,6 +18,10 @@ class LocalDownload final : public QObject
     Q_PROPERTY(QString ytDlpVersion READ ytDlpVersion NOTIFY changed)
     Q_PROPERTY(int ytDlpAgeDays READ ytDlpAgeDays NOTIFY changed)
     Q_PROPERTY(bool ytDlpOutdated READ ytDlpOutdated NOTIFY changed)
+    Q_PROPERTY(QString ytDlpLatest READ ytDlpLatest NOTIFY changed)
+    Q_PROPERTY(bool ytDlpUpdateAvailable READ ytDlpUpdateAvailable NOTIFY changed)
+    Q_PROPERTY(bool checkingYtDlp READ checkingYtDlp NOTIFY changed)
+    Q_PROPERTY(bool ytDlpUpdateFailed READ ytDlpUpdateFailed NOTIFY changed)
     Q_PROPERTY(bool updatingYtDlp READ updatingYtDlp NOTIFY changed)
     Q_PROPERTY(QString updateText READ updateText NOTIFY changed)
     Q_PROPERTY(bool probing READ probing NOTIFY previewChanged)
@@ -41,6 +46,10 @@ public:
     QString ytDlpVersion() const;
     int ytDlpAgeDays() const;
     bool ytDlpOutdated() const;
+    QString ytDlpLatest() const;
+    bool ytDlpUpdateAvailable() const;
+    bool checkingYtDlp() const;
+    bool ytDlpUpdateFailed() const;
     bool updatingYtDlp() const;
     QString updateText() const;
     bool probing() const;
@@ -55,6 +64,8 @@ public:
 
     // Parses the date-based yt-dlp version (e.g. 2025.09.26 or 2025.09.26.1).
     static QDate versionDate(const QString &version);
+    // True when the latest yt-dlp release is newer than the installed version.
+    static bool isNewerYtDlp(const QString &latest, const QString &installed);
     // Picks the line worth showing from yt-dlp's stderr: its ERROR, not warnings.
     static QString summarizeError(const QString &stderrText);
 
@@ -64,6 +75,11 @@ public:
     // Updates Kadron's own yt-dlp copy, downloading the official release first if needed.
     Q_INVOKABLE void updateYtDlp();
     Q_INVOKABLE void refreshYtDlpVersion();
+    // Asks GitHub for the newest yt-dlp release. The automatic check is skipped
+    // when the last one was under 6 hours ago; the result is remembered.
+    Q_INVOKABLE void checkYtDlpRelease(bool automatic = false);
+    // Checks now and then every intervalMs while Kadron is open.
+    void startAutomaticChecks(int intervalMs);
     // Looks up title, thumbnail, duration and source for a URL without downloading it.
     Q_INVOKABLE void probe(const QString &url);
 
@@ -75,7 +91,7 @@ private:
     void readOutput();
     void finishDownload(int exitCode, QProcess::ExitStatus exitStatus);
     void fail(const QString &message);
-    void finishUpdate(const QString &message);
+    void finishUpdate(const QString &message, bool failed = false);
     void runSelfUpdate();
     void fetchPageMetadata(const QString &url);
 
@@ -107,6 +123,10 @@ private:
     QString m_ytdlpVersion;
     QString m_updateText;
     bool m_updating = false;
+    bool m_updateFailed = false;
+    QString m_ytdlpLatest;
+    bool m_checkingLatest = false;
+    QTimer *m_checkTimer = nullptr;
     QPointer<QProcess> m_probeProcess;
     QString m_probeUrl;
     QVariantMap m_preview;

@@ -115,6 +115,11 @@ void CoreTests::ytDlpDiagnostics()
     QCOMPARE(LocalDownload::versionDate("2025.09.26"), QDate(2025, 9, 26));
     QCOMPARE(LocalDownload::versionDate("2026.01.02.1\n"), QDate(2026, 1, 2));
     QVERIFY(!LocalDownload::versionDate("nightly").isValid());
+    QVERIFY(LocalDownload::isNewerYtDlp("2026.09.20", "2026.08.19"));
+    QVERIFY(LocalDownload::isNewerYtDlp("2026.08.19.1", "2026.08.19"));
+    QVERIFY(!LocalDownload::isNewerYtDlp("2026.08.19", "2026.08.19\n"));
+    QVERIFY(!LocalDownload::isNewerYtDlp("", "2026.08.19"));
+    QVERIFY(!LocalDownload::isNewerYtDlp("2026.07.01", "2026.08.19"));
     const auto stderrText = QStringLiteral(
         "WARNING: You are using an outdated version of yt-dlp (older than 90 days)\n"
         "WARNING: [youtube] abc: nsig extraction failed\n"
@@ -981,6 +986,18 @@ void CoreTests::appUpdates()
     QVERIFY(!AppUpdater::isNewer("0.1.0", "0.1.0"));
     QVERIFY(!AppUpdater::isNewer("0.0.9", "0.1.0"));
     QVERIFY(!AppUpdater::isNewer("", "0.1.0"));
+
+    QTemporaryDir kinds;
+    QVERIFY(kinds.isValid());
+    QCOMPARE(AppUpdater::installKindOf(kinds.path()), QString("portable"));
+    QFile cache(kinds.filePath("CMakeCache.txt"));
+    QVERIFY(cache.open(QIODevice::WriteOnly));
+    cache.close();
+    QCOMPARE(AppUpdater::installKindOf(kinds.path()), QString("development"));
+    QFile uninstaller(kinds.filePath("uninstall.exe"));
+    QVERIFY(uninstaller.open(QIODevice::WriteOnly));
+    uninstaller.close();
+    QCOMPARE(AppUpdater::installKindOf(kinds.path()), QString("installed"));
 
     // check() against a local stand-in for the GitHub API.
     QTcpServer server;

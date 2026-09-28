@@ -7,7 +7,10 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QRegularExpression>
+#include <QDateTime>
 #include <QSaveFile>
+#include <QSettings>
+#include <QVersionNumber>
 
 LocalDownload::LocalDownload(QObject *parent)
     : QObject(parent), m_ytdlp(ytDlpExecutable()), m_ffmpeg(ffmpegExecutable())
@@ -24,6 +27,7 @@ LocalDownload::LocalDownload(QObject *parent)
             fail(QStringLiteral("Could not start yt-dlp. Check its installation."));
     });
     refreshYtDlpVersion();
+    m_ytdlpLatest = QSettings().value("ytdlp/latest").toString();
     connect(&m_gifTools, &LocalMediaTools::changed, this, [this] {
         if (m_cancelled && !m_gifTools.busy()) {
             m_temp.reset();
@@ -73,7 +77,69 @@ int LocalDownload::ytDlpAgeDays() const
     return date.isValid() ? int(date.daysTo(QDate::currentDate())) : -1;
 }
 
-bool LocalDownload::ytDlpOutdated() const { return ytDlpAgeDays() > 90; }
+// Outdated means a newer release is known; before the first check, an old version.
+bool LocalDownload::ytDlpOutdated() const
+{
+    return ytDlpUpdateAvailable() || (m_ytdlpLatest.isEmpty() && ytDlpAgeDays() > 90);
+}
+
+QString LocalDownload::ytDlpLatest() const { return m_ytdlpLatest; }
+bool LocalDownload::checkingYtDlp() const { return m_checkingLatest; }
+bool LocalDownload::ytDlpUpdateFailed() const { return m_updateFailed; }
+
+bool LocalDownload::ytDlpUpdateAvailable() const
+{
+    return !m_ytdlpVersion.isEmpty() && isNewerYtDlp(m_ytdlpLatest, m_ytdlpVersion);
+}
+
+bool LocalDownload::isNewerYtDlp(const QString &latest, const QString &installed)
+{
+    const auto next = QVersionNumber::fromString(latest.trimmed());
+    const auto current = QVersionNumber::fromString(installed.trimmed());
+    return !next.isNull() && !current.isNull() && next > current;
+}
+
+void LocalDownload::checkYtDlpRelease(bool automatic)
+{
+    if (m_checkingLatest)
+        return;
+    QSettings settings;
+    const auto now = QDateTime::currentDateTimeUtc();
+    const auto last = settings.value("ytdlp/lastCheck").toDateTime();
+    if (automatic && last.isValid() && last.secsTo(now) >= 0 && last.secsTo(now) < 6 * 60 * 60)
+        return;
+    settings.setValue("ytdlp/lastCheck", now);
+    m_checkingLatest = true;
+    emit changed();
+
+    const auto configured = qEnvironmentVariable("KADRON_YTDLP_RELEASE_URL");
+    QNetworkRequest request(QUrl(configured.isEmpty() ? QStringLiteral("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest") : configured));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setRawHeader("Accept", "application/vnd.github+json");
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Kadron"));
+    request.setTransferTimeout(15000);
+    auto *reply = m_network.get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        m_checkingLatest = false;
+        const auto tag = QJsonDocument::fromJson(reply->readAll()).object().value("tag_name").toString().trimmed();
+        if (reply->error() == QNetworkReply::NoError && versionDate(tag).isValid()) {
+            m_ytdlpLatest = tag;
+            QSettings().setValue("ytdlp/latest", tag);
+        }
+        emit changed();
+    });
+}
+
+void LocalDownload::startAutomaticChecks(int intervalMs)
+{
+    if (!m_checkTimer) {
+        m_checkTimer = new QTimer(this);
+        connect(m_checkTimer, &QTimer::timeout, this, [this] { checkYtDlpRelease(true); });
+    }
+    m_checkTimer->start(intervalMs);
+    checkYtDlpRelease(true);
+}
 
 QDate LocalDownload::versionDate(const QString &version)
 {
@@ -258,6 +324,7 @@ void LocalDownload::updateYtDlp()
     if (m_updating || m_busy)
         return;
     m_updating = true;
+    m_updateFailed = false;
     m_updateText = QStringLiteral("Updating yt-dlp…");
     emit changed();
     if (QFileInfo(managedYtDlpPath()).isExecutable()) {
@@ -283,7 +350,7 @@ void LocalDownload::updateYtDlp()
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            finishUpdate(QStringLiteral("Could not download yt-dlp: %1").arg(reply->errorString()));
+            finishUpdate(QStringLiteral("Could not download yt-dlp: %1").arg(reply->errorString()), true);
             return;
         }
         const auto target = managedYtDlpPath();
@@ -291,7 +358,7 @@ void LocalDownload::updateYtDlp()
         QSaveFile file(target);
         const auto data = reply->readAll();
         if (data.size() < 1024 * 1024 || !file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit()) {
-            finishUpdate(QStringLiteral("Could not save yt-dlp to %1").arg(QDir::toNativeSeparators(target)));
+            finishUpdate(QStringLiteral("Could not save yt-dlp to %1").arg(QDir::toNativeSeparators(target)), true);
             return;
         }
         QFile::setPermissions(target, QFile::permissions(target) | QFileDevice::ExeOwner | QFileDevice::ExeUser);
@@ -307,7 +374,7 @@ void LocalDownload::runSelfUpdate()
         const auto output = QString::fromUtf8(process->readAll());
         process->deleteLater();
         if (status != QProcess::NormalExit || code != 0)
-            finishUpdate(QStringLiteral("yt-dlp update failed: %1").arg(summarizeError(output)));
+            finishUpdate(QStringLiteral("yt-dlp update failed: %1").arg(summarizeError(output)), true);
         else
             finishUpdate(output.contains("up to date", Qt::CaseInsensitive) ? QStringLiteral("yt-dlp is up to date")
                                                                            : QStringLiteral("yt-dlp updated"));
@@ -315,14 +382,15 @@ void LocalDownload::runSelfUpdate()
     connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
         process->deleteLater();
-        finishUpdate(QStringLiteral("Could not start yt-dlp to update it."));
+        finishUpdate(QStringLiteral("Could not start yt-dlp to update it."), true);
     });
     process->start(managedYtDlpPath(), {"--update-to", "stable"});
 }
 
-void LocalDownload::finishUpdate(const QString &message)
+void LocalDownload::finishUpdate(const QString &message, bool failed)
 {
     m_updating = false;
+    m_updateFailed = failed;
     m_updateText = message;
     m_ytdlpVersion.clear();
     emit changed();

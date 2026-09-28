@@ -504,6 +504,83 @@ Item {
                     font.weight: Font.DemiBold
                     Layout.fillWidth: true
                 }
+                // yt-dlp status: checked against its newest release in the background;
+                // the pill offers the update only when there is one.
+                Rectangle {
+                    id: ytdlpPill
+                    objectName: "ytdlpPill"
+                    visible: toolsPage.section === 1
+                    readonly property bool needsAction: !localDownload.updatingYtDlp
+                        && (!localDownload.ytDlpVersion || localDownload.ytDlpOutdated || localDownload.ytDlpUpdateFailed)
+                    readonly property bool upToDate: !!localDownload.ytDlpVersion && !!localDownload.ytDlpLatest
+                        && !localDownload.ytDlpUpdateAvailable && !localDownload.ytDlpUpdateFailed
+                    Layout.preferredWidth: pillRow.implicitWidth + 22
+                    Layout.preferredHeight: 28
+                    Layout.rightMargin: 8
+                    radius: 14
+                    color: needsAction ? Theme.playheadWash : Theme.field
+                    border.color: needsAction ? Theme.warning : pillMouse.containsMouse ? Theme.lineStrong : Theme.line
+                    Behavior on border.color { ColorAnimation { duration: Theme.fadeFast } }
+                    MouseArea {
+                        id: pillMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: localDownload.updatingYtDlp || localDownload.busy ? Qt.ArrowCursor : Qt.PointingHandCursor
+                        onClicked: {
+                            if (localDownload.updatingYtDlp || localDownload.busy) return
+                            if (ytdlpPill.needsAction) localDownload.updateYtDlp()
+                            else localDownload.checkYtDlpRelease(false)
+                        }
+                        ToolTip.visible: containsMouse
+                        ToolTip.delay: 400
+                        ToolTip.text: localDownload.ytDlpUpdateFailed ? localDownload.updateText
+                            : !localDownload.ytDlpVersion ? "Kadron can download its own copy of yt-dlp"
+                            : "Installed " + localDownload.ytDlpVersion
+                              + (localDownload.ytDlpLatest ? " · newest " + localDownload.ytDlpLatest : "")
+                              + (ytdlpPill.needsAction ? " · click to update" : " · click to check again")
+                    }
+                    Row {
+                        id: pillRow
+                        anchors.centerIn: parent
+                        spacing: 7
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 7
+                            height: 7
+                            radius: 3.5
+                            color: ytdlpPill.needsAction ? Theme.warning : ytdlpPill.upToDate ? Theme.accent : Theme.textMuted
+                            SequentialAnimation on opacity {
+                                running: localDownload.updatingYtDlp || localDownload.checkingYtDlp
+                                loops: Animation.Infinite
+                                onRunningChanged: if (!running) parent.opacity = 1
+                                NumberAnimation { to: 0.3; duration: 500 }
+                                NumberAnimation { to: 1; duration: 500 }
+                            }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: localDownload.updatingYtDlp ? localDownload.updateText
+                                : !localDownload.ytDlpVersion ? "yt-dlp not found"
+                                : localDownload.ytDlpUpdateFailed ? "yt-dlp update failed"
+                                : localDownload.ytDlpUpdateAvailable ? "yt-dlp " + localDownload.ytDlpLatest + " available"
+                                : ytdlpPill.upToDate ? "yt-dlp " + localDownload.ytDlpVersion + " · up to date"
+                                : localDownload.checkingYtDlp ? "yt-dlp " + localDownload.ytDlpVersion + " · checking…"
+                                : "yt-dlp " + localDownload.ytDlpVersion
+                                  + (localDownload.ytDlpOutdated ? " · " + localDownload.ytDlpAgeDays + " days old" : "")
+                            color: ytdlpPill.needsAction ? Theme.warning : Theme.textMuted
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: ytdlpPill.needsAction
+                            text: !localDownload.ytDlpVersion ? "Install" : localDownload.ytDlpUpdateFailed ? "Retry" : "Update"
+                            color: Theme.accentSoft
+                            font.pixelSize: 11
+                            font.weight: Font.DemiBold
+                            font.underline: pillMouse.containsMouse
+                        }
+                    }
+                }
                 Rectangle {
                     Layout.preferredWidth: scopeLabel.implicitWidth + 22
                     Layout.preferredHeight: 28
@@ -626,37 +703,6 @@ Item {
                     }
                 }
                 Text { visible: !localDownload.available; text: "Install yt-dlp and FFmpeg locally, or set KADRON_YTDLP and KADRON_FFMPEG."; color: Theme.warning; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: 48
-                    radius: Theme.radius
-                    color: localDownload.ytDlpOutdated ? Theme.playheadWash : Theme.field
-                    border.color: localDownload.ytDlpOutdated ? Theme.warning : Theme.line
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 6
-                        spacing: 10
-                        Text {
-                            Layout.fillWidth: true
-                            text: localDownload.updatingYtDlp || localDownload.updateText ? localDownload.updateText
-                                  : !localDownload.ytDlpVersion ? "yt-dlp not found — Kadron can install its own copy"
-                                  : "yt-dlp " + localDownload.ytDlpVersion + (localDownload.ytDlpAgeDays >= 0 ? " · " + localDownload.ytDlpAgeDays + " days old" : "")
-                                    + (localDownload.ytDlpOutdated ? " — sites change often, update before downloading" : "")
-                            color: localDownload.ytDlpOutdated ? Theme.warning : Theme.textMuted
-                            font.pixelSize: 12
-                            elide: Text.ElideRight
-                        }
-                        EditorButton {
-                            text: localDownload.updatingYtDlp ? "Updating…" : "Update yt-dlp"
-                            iconName: "download"
-                            primary: localDownload.ytDlpOutdated || !localDownload.ytDlpVersion
-                            subtle: !localDownload.ytDlpOutdated && localDownload.ytDlpVersion.length > 0
-                            enabled: !localDownload.updatingYtDlp && !localDownload.busy
-                            onClicked: localDownload.updateYtDlp()
-                        }
-                    }
-                }
                 Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12 }
                 ToolCombo {
                     id: downloadPreset

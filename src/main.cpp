@@ -196,6 +196,11 @@ int main(int argc, char *argv[])
         QTimer::singleShot(4000, &appUpdater, [&appUpdater] { appUpdater.startAutomaticChecks(4 * 60 * 60 * 1000); });
     else if (!screenshotPath.isEmpty() && qEnvironmentVariableIsSet("KADRON_UPDATE_URL"))
         appUpdater.check();
+    // The newest yt-dlp, so the Download page can say whether it is current.
+    if (screenshotPath.isEmpty() && !qEnvironmentVariableIsSet("KADRON_NO_UPDATE_CHECK"))
+        QTimer::singleShot(6000, &localDownload, [&localDownload] { localDownload.startAutomaticChecks(6 * 60 * 60 * 1000); });
+    else if (!screenshotPath.isEmpty() && qEnvironmentVariableIsSet("KADRON_YTDLP_RELEASE_URL"))
+        localDownload.checkYtDlpRelease();
     if (!screenshotPath.isEmpty()) {
         const auto dimensions = qEnvironmentVariable("KADRON_SCREENSHOT_SIZE").split('x');
         if (dimensions.size() == 2) {

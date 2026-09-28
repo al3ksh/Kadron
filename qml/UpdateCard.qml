@@ -80,7 +80,8 @@ ColumnLayout {
                       : card.updater.ready ? "Downloaded and verified."
                       : card.updater.downloading ? "Downloading… " + Math.round(card.updater.progress * 100) + "%"
                       : card.updater.canInstall ? "You have " + card.updater.currentVersion + "."
-                      : "Portable copy: get the new zip."
+                      : card.updater.installKind === "development" ? "Development build: get it from the release."
+                      : "This folder is read-only: get the new zip."
                 color: Theme.textMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: 10
