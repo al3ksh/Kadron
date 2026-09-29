@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QStringList>
+#include <QUrl>
 
 // "Kadron" in Explorer's right-click menu for media, images and PDFs.
 //
@@ -33,6 +34,9 @@ public:
     bool enabled() const;
     void setEnabled(bool enabled);
     bool supported() const;
+
+    // Opens the file's folder in Explorer with the file selected.
+    Q_INVOKABLE static void reveal(const QUrl &file);
 
     // `executable` is the kadron.exe the menu should start.
     static bool install(const QString &executable);

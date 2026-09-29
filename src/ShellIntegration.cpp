@@ -1,7 +1,9 @@
 #include "ShellIntegration.h"
 
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QDir>
+#include <QFileInfo>
 #include <QSettings>
 
 #ifdef Q_OS_WIN
@@ -41,6 +43,23 @@ QStringList ShellIntegration::tools()
 ShellIntegration::ShellIntegration(QObject *parent)
     : QObject(parent)
 {
+}
+
+void ShellIntegration::reveal(const QUrl &file)
+{
+    const QFileInfo info(file.toLocalFile());
+    if (!file.isLocalFile() || !info.exists())
+        return;
+#ifdef Q_OS_WIN
+    const auto native = QDir::toNativeSeparators(info.absoluteFilePath()).toStdWString();
+    if (PIDLIST_ABSOLUTE item = ILCreateFromPathW(native.c_str())) {
+        const HRESULT result = SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
+        ILFree(item);
+        if (SUCCEEDED(result))
+            return;
+    }
+#endif
+    QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
 }
 
 bool ShellIntegration::supported() const

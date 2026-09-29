@@ -171,6 +171,7 @@ Item {
     Connections {
         target: localDownload
         function onPlaylistChanged() { toolsPage.setAllPlaylist(true) }
+        function onFinished(file, url, title) { toolsPage.rememberDownload(file, url, title) }
     }
     function downloadPlaylist() {
         var playlist = localDownload.playlist
@@ -323,6 +324,18 @@ Item {
         }
     }
 
+    // The last downloads, newest first, so a file saved an hour ago is one click away.
+    readonly property var downloadHistory: {
+        try { return JSON.parse(Prefs.downloadHistory) } catch (error) { return [] }
+    }
+    function rememberDownload(file, url, title) {
+        var path = file.toString()
+        var list = downloadHistory.filter(function(entry) { return entry.file !== path })
+        list.unshift({ file: path, url: url, title: title || filename(file), time: Date.now() })
+        Prefs.downloadHistory = JSON.stringify(list.slice(0, 20))
+    }
+    function forgetDownloads() { Prefs.downloadHistory = "[]" }
+    function isMediaFile(url) { return /\.(mp4|mkv|webm|mov|m4a|mp3|opus|ogg|wav|flac|aac)$/i.test(url.toString()) }
     function filename(url) {
         return url.toString().split("/").pop() || "No file selected"
     }
@@ -1693,6 +1706,64 @@ Item {
                 EditorButton { text: "Open in editor"; iconName: "edit"; visible: toolsPage.section === 1 && toolsPage.downloadIsMedia; onClicked: toolsPage.openInEditor(localDownload.outputUrl) }
                 EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
                 EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
+            }
+            // Recent downloads: open, find, edit or fetch them again.
+            ColumnLayout {
+                visible: toolsPage.section === 1 && toolsPage.downloadHistory.length > 0
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                spacing: 2
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text { text: "Recent downloads"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
+                    EditorButton { text: "Clear"; subtle: true; implicitHeight: 30; onClicked: toolsPage.forgetDownloads() }
+                }
+                Repeater {
+                    model: toolsPage.downloadHistory
+                    delegate: Rectangle {
+                        id: historyRow
+                        required property var modelData
+                        readonly property bool present: editorProject.fileExists(modelData.file)
+                        Layout.fillWidth: true
+                        implicitHeight: 38
+                        radius: 8
+                        color: rowHover.hovered ? Theme.hover : "transparent"
+                        HoverHandler { id: rowHover }
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 4
+                            spacing: 4
+                            ToolIcon { name: "file"; implicitWidth: 14; implicitHeight: 14; tint: Theme.textMuted; opacity: historyRow.present ? 1 : 0.4 }
+                            Text {
+                                text: historyRow.modelData.title
+                                color: historyRow.present ? Theme.textSoft : Theme.textMuted
+                                font.pixelSize: 12
+                                font.strikeout: !historyRow.present
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 4
+                            }
+                            EditorButton { iconName: "external"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: historyRow.present
+                                           onClicked: Qt.openUrlExternally(historyRow.modelData.file)
+                                           ToolTip.visible: hovered; ToolTip.text: "Open" }
+                            EditorButton { iconName: "folder"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: historyRow.present
+                                           onClicked: shellIntegration.reveal(historyRow.modelData.file)
+                                           ToolTip.visible: hovered; ToolTip.text: "Show in folder" }
+                            EditorButton { iconName: "edit"; subtle: true; implicitWidth: 30; implicitHeight: 30
+                                           visible: historyRow.present && toolsPage.isMediaFile(historyRow.modelData.file)
+                                           onClicked: toolsPage.openInEditor(historyRow.modelData.file)
+                                           ToolTip.visible: hovered; ToolTip.text: "Open in editor" }
+                            EditorButton { iconName: "download"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: !!historyRow.modelData.url
+                                           onClicked: {
+                                               toolsPage.resultSection = "download"
+                                               localDownload.enqueue(historyRow.modelData.url, downloadPreset.currentValue, toolsPage.downloadsFolder,
+                                                                     historyRow.modelData.title, toolsPage.gifOptions())
+                                           }
+                                           ToolTip.visible: hovered; ToolTip.text: "Download again" }
+                        }
+                    }
+                }
             }
             Item { Layout.preferredHeight: 8 }
         }

@@ -26,6 +26,9 @@ Settings {
     // Projects and media opened lately, newest first: a JSON list of {url, project}.
     property string recentFiles: "[]"
 
+    // Finished downloads, newest first: a JSON list of {file, url, title, time}.
+    property string downloadHistory: "[]"
+
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"
     property bool exportLoudnorm: false
