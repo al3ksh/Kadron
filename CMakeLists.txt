@@ -84,6 +84,7 @@ qt_add_qml_module(kadron_ui
         qml/RevealAnimation.qml
         qml/StudioDialog.qml
         qml/DropZone.qml
+        qml/ToolEmptyState.qml
         qml/RangeStrip.qml
         qml/SkeletonBlock.qml
         qml/UpdateCard.qml

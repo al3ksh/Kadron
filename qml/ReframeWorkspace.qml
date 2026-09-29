@@ -227,15 +227,15 @@ Item {
         onDropped: function(drop) { if (drop.hasUrls) page.load(drop.urls[0]) }
     }
 
-    DropZone {
+    ToolEmptyState {
         visible: !page.sourceUrl.toString()
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 90, 760)
-        height: 300
+        anchors.fill: parent
+        title: "Reframe a video"
+        subtitle: "Turn a wide video into vertical, square, or 4:5, with a frame that follows the action."
         active: pageDrop.containsDrag
         iconName: "reframe"
         heading: "Drop a video to reframe"
-        formats: "MP4 · MOV · MKV · WEBM  ·  9:16, 1:1, 4:5 or 16:9 with a frame that follows the action"
+        formats: "MP4 · MOV · MKV · WEBM"
         onBrowseRequested: openDialog.open()
     }
 

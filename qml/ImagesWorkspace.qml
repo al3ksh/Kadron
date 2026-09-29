@@ -179,15 +179,15 @@ Item {
     }
 
     // Empty state.
-    DropZone {
+    ToolEmptyState {
         visible: edits.count === 0
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 90, 760)
-        height: 300
+        anchors.fill: parent
+        title: "Edit images"
+        subtitle: "Convert, resize, crop, or strip location from photos, one at a time or in a batch."
         active: pageDrop.containsDrag
         iconName: "image"
         heading: "Drop photos or images"
-        formats: "JPG · PNG · WEBP · AVIF · HEIC · TIFF · BMP  ·  convert, resize, crop, remove location"
+        formats: "JPG · PNG · WEBP · AVIF · HEIC · TIFF · BMP"
         onBrowseRequested: openDialog.open()
     }
 
