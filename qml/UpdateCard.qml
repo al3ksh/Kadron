@@ -11,6 +11,10 @@ ColumnLayout {
     spacing: 8
 
     readonly property bool offering: !!updater && updater.updateAvailable
+    // One row instead of the card, for sidebars too short to fit it.
+    property bool compact: false
+    // What the full card needs, so the sidebar can decide before showing it.
+    readonly property real fullHeight: offerColumn.implicitHeight + 24
     // A manual check's answer stays visible briefly, then fades.
     property bool showStatus: false
     readonly property string status: updater && !updater.checking ? updater.statusText : ""
@@ -20,10 +24,22 @@ ColumnLayout {
     }
     Timer { id: statusTimer; interval: 4000; onTriggered: card.showStatus = false }
 
+    function act() {
+        if (updater.downloading) return
+        if (updater.ready) {
+            updater.restartToUpdate()
+            restartRequested()
+        } else if (updater.canInstall) {
+            updater.install()
+        } else {
+            Qt.openUrlExternally(updater.releaseUrl)
+        }
+    }
+
     Rectangle {
         id: offer
         Layout.fillWidth: true
-        Layout.preferredHeight: card.offering ? offerColumn.implicitHeight + 24 : 0
+        Layout.preferredHeight: !card.offering ? 0 : card.compact ? 36 : card.fullHeight
         visible: Layout.preferredHeight > 0.5
         opacity: card.offering ? 1 : 0
         clip: true
@@ -33,8 +49,43 @@ ColumnLayout {
         Behavior on Layout.preferredHeight { SmoothSpring {} }
         Behavior on opacity { NumberAnimation { duration: Theme.fade } }
 
+        MouseArea {
+            id: compactMouse
+            anchors.fill: parent
+            visible: card.compact
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: card.act()
+        }
+        RowLayout {
+            objectName: "updateCompact"
+            visible: card.compact
+            x: 12
+            width: parent.width - 24
+            height: 36
+            spacing: 8
+            ToolIcon {
+                name: card.updater && card.updater.ready ? "rotateRight" : card.updater && card.updater.canInstall ? "download" : "link"
+                tint: Theme.accent
+                Layout.preferredWidth: 16
+                Layout.preferredHeight: 16
+            }
+            Text {
+                Layout.fillWidth: true
+                text: !card.updater ? ""
+                      : card.updater.ready ? "Restart to update"
+                      : card.updater.downloading ? "Downloading… " + Math.round(card.updater.progress * 100) + "%"
+                      : "Kadron " + card.updater.latestVersion + " is out"
+                color: compactMouse.containsMouse ? Theme.accent : Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+            }
+        }
         ColumnLayout {
             id: offerColumn
+            visible: !card.compact
             x: 12
             y: 12
             width: parent.width - 24
@@ -103,16 +154,7 @@ ColumnLayout {
                 iconName: card.updater && card.updater.ready ? "rotateRight" : card.updater && card.updater.canInstall ? "download" : "link"
                 text: card.updater && card.updater.ready ? "Restart to update"
                       : card.updater && card.updater.canInstall ? "Update" : "Open release"
-                onClicked: {
-                    if (card.updater.ready) {
-                        card.updater.restartToUpdate()
-                        card.restartRequested()
-                    } else if (card.updater.canInstall) {
-                        card.updater.install()
-                    } else {
-                        Qt.openUrlExternally(card.updater.releaseUrl)
-                    }
-                }
+                onClicked: card.act()
             }
         }
     }

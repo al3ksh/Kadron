@@ -1063,6 +1063,9 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.bottomMargin: 12
                     updater: appUpdater
+                    // Everything else in the sidebar stays put; the card shrinks
+                    // to one row when the full one would push Settings off screen.
+                    compact: navColumn.implicitHeight - implicitHeight + fullHeight > navColumn.height
                     onRestartRequested: root.quitApp()
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }

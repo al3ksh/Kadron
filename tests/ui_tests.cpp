@@ -487,6 +487,17 @@ QtObject {
     updater->setProperty("canInstall", false);
     QCOMPARE(button->property("text").toString(), QString("Open release"));
 
+    // A short sidebar gets one row that does the same.
+    updater->setProperty("canInstall", true);
+    card->setProperty("compact", true);
+    QTest::qWait(700);
+    auto *compactRow = card->findChild<QQuickItem *>("updateCompact");
+    QVERIFY(compactRow && compactRow->isVisible() && !button->isVisible());
+    QVERIFY(card->height() < card->property("fullHeight").toReal());
+    QTest::mouseClick(&window, Qt::LeftButton, {}, compactRow->mapToScene(QPointF(compactRow->width() / 2, compactRow->height() / 2)).toPoint());
+    QCOMPARE(updater->property("installs").toInt(), 2);
+    card->setProperty("compact", false);
+
     // No update: the card folds away.
     updater->setProperty("updateAvailable", false);
     QVERIFY(!card->property("offering").toBool());
