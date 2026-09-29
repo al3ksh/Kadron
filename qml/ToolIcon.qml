@@ -60,6 +60,7 @@ Item {
     })
     readonly property var fills: ({
         "gif": "M8 8l4.5 2L8 12z",
+        "bolt": "M11.5 1.5L4 11h5.2l-1 7.5L16 9h-5.3z",
         "play": "M6 3.5l10 6.5l-10 6.5z"
     })
 

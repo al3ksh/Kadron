@@ -92,6 +92,7 @@ qt_add_qml_module(kadron_ui
         qml/SettingsDialog.qml
         qml/CommandPalette.qml
         qml/FileBoard.qml
+        qml/Fireworks.qml
         qml/PagePicker.qml
         qml/Intro.qml
         qml/Tutorial.qml

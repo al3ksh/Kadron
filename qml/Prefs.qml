@@ -34,6 +34,8 @@ Settings {
 
     // Finished downloads, newest first: a JSON list of {file, url, title, time}.
     property string downloadHistory: "[]"
+    // The Recent downloads list is folded to its header.
+    property bool downloadHistoryFolded: false
 
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"

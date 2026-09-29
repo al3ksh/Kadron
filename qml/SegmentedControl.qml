@@ -3,8 +3,9 @@ import QtQuick.Controls
 
 // A row of choices in one track; the chosen one sits on an accent pill that
 // slides between them. Each option is { label, value, glyph, tip }, the last
-// two optional. A glyph draws a small picture before the label: "top",
-// "middle" or "bottom" put a bar in a frame, "w:h" draws that shape.
+// two optional. A glyph draws a small picture by the label: "top",
+// "middle" or "bottom" put a bar in a frame, "w:h" draws that shape, and
+// "bolt" adds lightning after it (option.bolts of them) that zaps when picked.
 Rectangle {
     id: control
     property var options: []
@@ -64,6 +65,32 @@ Rectangle {
                 enabled: control.enabled
                 scale: down && enabled ? 0.95 : 1
                 Behavior on scale { SnapSpring {} }
+                onChosenChanged: if (chosen && bolts.count > 0) zap.restart()
+
+                SequentialAnimation {
+                    id: zap
+                    ParallelAnimation {
+                        NumberAnimation { target: bolts; property: "scale"; from: 1; to: 1.7; duration: 90; easing.type: Easing.OutQuad }
+                        NumberAnimation { target: flash; property: "opacity"; from: 0; to: 0.6; duration: 70 }
+                    }
+                    ParallelAnimation {
+                        SequentialAnimation {
+                            NumberAnimation { target: bolts; property: "rotation"; to: -14; duration: 50 }
+                            NumberAnimation { target: bolts; property: "rotation"; to: 10; duration: 70 }
+                            NumberAnimation { target: bolts; property: "rotation"; to: 0; duration: 90 }
+                        }
+                        NumberAnimation { target: bolts; property: "scale"; to: 1; duration: 360; easing.type: Easing.OutBack }
+                        NumberAnimation { target: flash; property: "opacity"; to: 0; duration: 420; easing.type: Easing.OutQuad }
+                    }
+                }
+                // The flash of a bolt landing on the pill.
+                Rectangle {
+                    id: flash
+                    anchors.fill: parent
+                    radius: Theme.radius - 2
+                    color: "#ffffff"
+                    opacity: 0
+                }
 
                 background: Rectangle {
                     radius: Theme.radius - 2
@@ -72,6 +99,7 @@ Rectangle {
                     Behavior on opacity { NumberAnimation { duration: Theme.fadeFast } }
                 }
                 contentItem: Item {
+                    z: 1
                     Row {
                         anchors.centerIn: parent
                         spacing: 6
@@ -120,6 +148,17 @@ Rectangle {
                             font.weight: segment.chosen ? Font.DemiBold : Font.Medium
                             color: segment.ink
                             Behavior on color { ColorAnimation { duration: Theme.fadeFast } }
+                        }
+                        Row {
+                            id: bolts
+                            readonly property int count: segment.glyph === "bolt" ? segment.modelData.bolts || 1 : 0
+                            visible: count > 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: -5
+                            Repeater {
+                                model: bolts.count
+                                ToolIcon { name: "bolt"; width: 12; height: 12; tint: segment.ink }
+                            }
                         }
                     }
                 }

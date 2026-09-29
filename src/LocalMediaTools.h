@@ -47,6 +47,9 @@ public:
     Q_INVOKABLE bool reframe(const QUrl &source, const QUrl &destination, const QVariantMap &options);
     Q_INVOKABLE void cancel();
 
+    // Size of a local file in bytes, 0 when it is missing.
+    Q_INVOKABLE static qint64 fileBytes(const QUrl &url);
+
     // The export size for an aspect: 1080 on the short side.
     Q_INVOKABLE static QSize reframeOutput(int aspectW, int aspectH);
     // The crop in source pixels for an aspect and zoom.

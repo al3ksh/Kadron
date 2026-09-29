@@ -465,6 +465,14 @@ Dialog {
                                       : appUpdater.ready ? "Restart to update"
                                       : appUpdater.canInstall ? "Update" : "Open release"
                                 onClicked: dialog.updateRequested()
+                                onVisibleChanged: if (visible) aboutFireworks.play()
+                                Fireworks {
+                                    id: aboutFireworks
+                                    anchors.centerIn: parent
+                                    width: parent.width + 90
+                                    height: parent.height + 50
+                                    bursts: 2
+                                }
                             }
                             Text {
                                 Layout.fillWidth: true

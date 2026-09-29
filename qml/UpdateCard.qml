@@ -23,6 +23,12 @@ ColumnLayout {
         if (showStatus) statusTimer.restart()
     }
     Timer { id: statusTimer; interval: 4000; onTriggered: card.showStatus = false }
+    // A new release, and later its finished download, get a few fireworks once
+    // the card has opened.
+    onOfferingChanged: if (offering) celebrate.restart()
+    readonly property bool downloaded: !!updater && updater.ready
+    onDownloadedChanged: if (downloaded) celebrate.restart()
+    Timer { id: celebrate; interval: 350; onTriggered: fireworks.play() }
 
     function act() {
         if (updater.downloading) return
@@ -156,6 +162,11 @@ ColumnLayout {
                       : card.updater && card.updater.canInstall ? "Update" : "Open release"
                 onClicked: card.act()
             }
+        }
+        Fireworks {
+            id: fireworks
+            objectName: "updateFireworks"
+            anchors.fill: parent
         }
     }
 

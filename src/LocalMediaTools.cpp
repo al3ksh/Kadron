@@ -119,6 +119,12 @@ bool LocalMediaTools::convertAudio(const QUrl &source, const QUrl &destination, 
     return true;
 }
 
+qint64 LocalMediaTools::fileBytes(const QUrl &url)
+{
+    const QFileInfo info(url.toLocalFile());
+    return url.isLocalFile() && info.isFile() ? info.size() : 0;
+}
+
 bool LocalMediaTools::compress(const QUrl &source, const QUrl &destination, const QString &format,
                                int quality, double targetMB, int maxWidth, bool stripAudio)
 {

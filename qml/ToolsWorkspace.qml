@@ -8,7 +8,14 @@ import QtCore
 Item {
     id: toolsPage
     property int section: 1
-    property url sourceUrl: ""
+    // Audio, Compress and GIF each keep their own file.
+    property var sources: ({})
+    readonly property url sourceUrl: sources[section] || ""
+    function setSource(url) {
+        var next = Object.assign({}, sources)
+        next[section] = url
+        sources = next
+    }
     property var pdfFiles: []
     property string pdfMode: "edit"
     property bool pdfEdited: false
@@ -123,7 +130,22 @@ Item {
     property string pendingAction: ""
     property bool isImage: /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(sourceUrl.toString())
     property string selectedFormat: section === 2 ? audioFormat.currentText.toLowerCase()
-                                  : section === 3 ? compressFormat.currentText.toLowerCase() : "gif"
+                                  : section === 3 ? compressFormatName.toLowerCase() : "gif"
+    // Compress aims for a size (videos) or a quality, in a format and width.
+    property string compressGoal: "size"
+    property real compressMB: 8
+    property int compressQuality: 75
+    property int compressWidth: 1280
+    property string compressPick: ""
+    readonly property var compressFormats: isImage ? ["WebP", "JPG", "PNG", "GIF"] : ["MP4", "WebM", "GIF"]
+    readonly property string compressFormatName: compressFormats.indexOf(compressPick) >= 0 ? compressPick : compressFormats[0]
+    readonly property bool compressToSize: compressGoal === "size" && !isImage && compressMB > 0
+    readonly property real sourceBytes: section === 3 && hasSource ? localTools.fileBytes(sourceUrl) : 0
+    // What the file should weigh against what it does now, 0..1.
+    readonly property real compressShare: compressToSize && sourceBytes > 0 ? Math.min(1, compressMB * 1048576 / sourceBytes) : 1
+    function qualityName(quality) {
+        return quality >= 90 ? "Near original" : quality >= 70 ? "Balanced" : quality >= 45 ? "Smaller" : "Smallest"
+    }
     signal publishFile(url fileUrl)
     signal openInEditor(url fileUrl)
     // Enter in the link field skips the save dialog: the file goes straight to
@@ -238,8 +260,8 @@ Item {
             for (var i = 0; i < urls.length; i++) if (pattern.test(urls[i].toString())) accepted.push(urls[i])
             if (accepted.length > 0) takePdfFiles(accepted)
         } else {
-            sourceUrl = urls[0]
-            compressFormat.currentIndex = 0
+            setSource(urls[0])
+            toolsPage.compressPick = ""
         }
     }
 
@@ -402,8 +424,8 @@ Item {
         fileMode: FileDialog.OpenFile
         nameFilters: ["Media files (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.flac *.m4a *.ogg *.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff *.gif)", "All files (*)"]
         onAccepted: {
-            toolsPage.sourceUrl = selectedFile
-            compressFormat.currentIndex = 0
+            toolsPage.setSource(selectedFile)
+            toolsPage.compressPick = ""
         }
     }
     FileDialog {
@@ -418,8 +440,8 @@ Item {
                                         Number(audioStart.text), Number(audioEnd.text))
             else if (toolsPage.pendingAction === "compress")
                 localTools.compress(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
-                                    Number(compressQuality.text), Number(compressTarget.text),
-                                    Number(compressWidth.text), compressNoAudio.checked)
+                                    toolsPage.compressQuality, toolsPage.compressToSize ? toolsPage.compressMB : 0,
+                                    toolsPage.compressWidth, compressNoAudio.checked)
             else
                 localTools.createGif(toolsPage.sourceUrl, selectedFile, Number(gifStart.text),
                                      Number(gifDuration.text), Number(gifFps.text),
@@ -987,7 +1009,7 @@ Item {
                             elide: Text.ElideMiddle
                         }
                         EditorButton { text: "Change"; subtle: true; onClicked: sourceDialog.open() }
-                        EditorButton { iconName: "close"; subtle: true; enabled: !localTools.busy; onClicked: toolsPage.sourceUrl = ""; ToolTip.visible: hovered; ToolTip.text: "Clear file" }
+                        EditorButton { iconName: "close"; subtle: true; enabled: !localTools.busy; onClicked: toolsPage.setSource(""); ToolTip.visible: hovered; ToolTip.text: "Clear file" }
                     }
                 }
                 Text {
@@ -1078,26 +1100,166 @@ Item {
             ColumnLayout {
                 visible: toolsPage.section === 3 && toolsPage.hasSource
                 Layout.fillWidth: true
-                spacing: 12
-                Text { text: "Output format"; color: Theme.textMuted; font.pixelSize: 12 }
-                ToolCombo { id: compressFormat; model: toolsPage.isImage ? ["WebP", "JPG", "PNG", "GIF"] : ["MP4", "WebM", "GIF"]; Layout.preferredWidth: 250 }
-                GridLayout {
-                    columns: 3
-                    columnSpacing: 14
-                    rowSpacing: 7
-                    Text { text: "Target size (MB, 0 = quality)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "Quality (1–100)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "Max width (px, 0 = original)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    EditorField { id: compressTarget; text: "8"; validator: DoubleValidator { bottom: 0 }
-                        Layout.preferredWidth: 200 }
-                    EditorField { id: compressQuality; text: "75"; validator: IntValidator { bottom: 1; top: 100 }
-                        Layout.preferredWidth: 165 }
-                    EditorField { id: compressWidth; text: "1280"; validator: IntValidator { bottom: 0 }
-                        Layout.preferredWidth: 185 }
+                spacing: 10
+                // Before and after: the file as it is, and what the settings aim for.
+                Rectangle {
+                    objectName: "compressMeter"
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: 560
+                    Layout.bottomMargin: 6
+                    implicitHeight: meterColumn.implicitHeight + 32
+                    radius: Theme.radius + 2
+                    color: Theme.field
+                    border.color: Theme.line
+                    ColumnLayout {
+                        id: meterColumn
+                        x: 18
+                        y: 16
+                        width: parent.width - 36
+                        spacing: 12
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 14
+                            Column {
+                                spacing: 2
+                                Text { text: "NOW"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
+                                Text {
+                                    text: toolsPage.sourceBytes > 0 ? toolsPage.sizeLabel(toolsPage.sourceBytes) : "—"
+                                    color: Theme.text
+                                    font.pixelSize: 20
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                            ToolIcon { name: "chevron"; rotation: -90; tint: Theme.textFaint; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
+                            Column {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text { text: "AIM"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
+                                Text {
+                                    text: toolsPage.compressToSize ? "≤ " + toolsPage.compressMB + " MB"
+                                        : "Quality " + toolsPage.compressQuality + " · " + toolsPage.qualityName(toolsPage.compressQuality)
+                                    color: Theme.accent
+                                    font.pixelSize: 20
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                            // How much smaller the file should get.
+                            Rectangle {
+                                visible: toolsPage.compressToSize && toolsPage.compressShare < 1
+                                Layout.preferredWidth: savedLabel.implicitWidth + 20
+                                Layout.preferredHeight: 26
+                                radius: 13
+                                color: Theme.accentWash
+                                border.color: Theme.accentEdge
+                                Text {
+                                    id: savedLabel
+                                    anchors.centerIn: parent
+                                    text: "−" + Math.round((1 - toolsPage.compressShare) * 100) + "%"
+                                    color: Theme.accent
+                                    font.pixelSize: 12
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 6
+                            radius: 3
+                            color: Theme.hover
+                            Rectangle {
+                                width: parent.width * (toolsPage.compressToSize ? toolsPage.compressShare : toolsPage.compressQuality / 100)
+                                height: parent.height
+                                radius: 3
+                                color: Theme.accent
+                                Behavior on width { SmoothSpring {} }
+                            }
+                        }
+                        Text {
+                            visible: toolsPage.compressToSize && toolsPage.sourceBytes > 0 && toolsPage.compressShare >= 1
+                            text: "Already under " + toolsPage.compressMB + " MB, so it will stay about the same size."
+                            color: Theme.textMuted
+                            font.pixelSize: 11
+                        }
+                    }
                 }
-                ToolCheck { id: compressNoAudio; visible: !toolsPage.isImage; text: "Remove audio" }
+
+                Text { visible: !toolsPage.isImage; text: "Goal"; color: Theme.textMuted; font.pixelSize: 12 }
+                SegmentedControl {
+                    visible: !toolsPage.isImage
+                    Layout.preferredWidth: 300
+                    namePrefix: "compressGoal_"
+                    options: [{ label: "Fit a size", value: "size" }, { label: "Keep quality", value: "quality" }]
+                    current: toolsPage.compressGoal
+                    onActivated: function(goal) { toolsPage.compressGoal = goal }
+                }
+                RowLayout {
+                    visible: toolsPage.compressGoal === "size" && !toolsPage.isImage
+                    spacing: 10
+                    SegmentedControl {
+                        Layout.preferredWidth: 340
+                        namePrefix: "compressSize_"
+                        options: [
+                            { label: "8 MB", value: 8, tip: "Discord without Nitro" },
+                            { label: "25 MB", value: 25, tip: "Most email attachments" },
+                            { label: "50 MB", value: 50, tip: "Discord Nitro Basic" },
+                            { label: "100 MB", value: 100 }
+                        ]
+                        current: toolsPage.compressMB
+                        onActivated: function(mb) { toolsPage.compressMB = mb; compressTarget.text = mb }
+                    }
+                    EditorField {
+                        id: compressTarget
+                        objectName: "compressTarget"
+                        text: "8"
+                        validator: DoubleValidator { bottom: 0.5 }
+                        Layout.preferredWidth: 72
+                        onTextEdited: if (Number(text) > 0) toolsPage.compressMB = Number(text)
+                    }
+                    Text { text: "MB"; color: Theme.textMuted; font.pixelSize: 12 }
+                }
+                RowLayout {
+                    visible: toolsPage.compressGoal === "quality" || toolsPage.isImage
+                    spacing: 14
+                    ToolSlider {
+                        objectName: "compressQuality"
+                        Layout.preferredWidth: 300
+                        from: 1
+                        to: 100
+                        stepSize: 1
+                        value: toolsPage.compressQuality
+                        onMoved: toolsPage.compressQuality = Math.round(value)
+                    }
+                    Text {
+                        text: toolsPage.compressQuality + " · " + toolsPage.qualityName(toolsPage.compressQuality)
+                        color: Theme.textSoft
+                        font.pixelSize: 12
+                    }
+                }
+
+                Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
+                SegmentedControl {
+                    Layout.preferredWidth: toolsPage.compressFormats.length * 76
+                    namePrefix: "compressFormat_"
+                    options: toolsPage.compressFormats.map(function(name) { return { label: name, value: name } })
+                    current: toolsPage.compressFormatName
+                    onActivated: function(name) { toolsPage.compressPick = name }
+                }
+
+                Text { text: "Resolution"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
+                SegmentedControl {
+                    Layout.preferredWidth: 340
+                    namePrefix: "compressWidth_"
+                    options: toolsPage.isImage
+                        ? [{ label: "Original", value: 0 }, { label: "2560 px", value: 2560 }, { label: "1920 px", value: 1920 }, { label: "1280 px", value: 1280 }]
+                        : [{ label: "Original", value: 0 }, { label: "1080p", value: 1920 }, { label: "720p", value: 1280 }, { label: "480p", value: 854 }]
+                    current: toolsPage.compressWidth
+                    onActivated: function(width) { toolsPage.compressWidth = width }
+                }
+
+                ToolCheck { id: compressNoAudio; visible: !toolsPage.isImage; text: "Remove audio"; Layout.topMargin: 4 }
                 EditorButton {
                     text: "Compress"
+                    iconName: "compress"
                     primary: true
                     enabled: toolsPage.sourceUrl.toString() && localTools.available && !localTools.busy
                     onClicked: toolsPage.beginLocal("compress")
@@ -1658,7 +1820,7 @@ Item {
                 Layout.fillWidth: true
                 spacing: 10
                 Text { text: localTools.errorText || localTools.stage; color: localTools.errorText ? Theme.danger : Theme.textSoft; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                Text { text: localTools.busy ? localTools.progress + "%" : localTools.outputUrl.toString() ? toolsPage.sizeLabel(localTools.outputBytes) : ""; color: Theme.textMuted; font.pixelSize: 12 }
+                Text { text: localTools.busy ? localTools.progress + "%" : localTools.outputUrl.toString() ? toolsPage.sizeLabel(localTools.outputBytes) + (toolsPage.resultSection === "compress" && toolsPage.sourceBytes > localTools.outputBytes && localTools.outputBytes > 0 ? " · " + Math.round((1 - localTools.outputBytes / toolsPage.sourceBytes) * 100) + "% smaller" : "") : ""; color: Theme.textMuted; font.pixelSize: 12 }
                 EditorButton { text: "Cancel"; visible: localTools.busy; danger: true; onClicked: localTools.cancel() }
             }
             StudioProgress { visible: toolsPage.section >= 2 && toolsPage.section <= 4 && localTools.busy; value: localTools.progress / 100; Layout.fillWidth: true }
@@ -1725,11 +1887,37 @@ Item {
                 spacing: 2
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "Recent downloads"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
-                    EditorButton { text: "Clear"; subtle: true; implicitHeight: 30; onClicked: toolsPage.forgetDownloads() }
+                    // The header folds the list away and back.
+                    Item {
+                        objectName: "recentDownloadsToggle"
+                        Layout.fillWidth: true
+                        implicitHeight: 30
+                        HoverHandler { id: foldHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: Prefs.downloadHistoryFolded = !Prefs.downloadHistoryFolded }
+                        Row {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 6
+                            ToolIcon {
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: "chevron"
+                                width: 14
+                                height: 14
+                                tint: foldHover.hovered ? Theme.text : Theme.textMuted
+                                rotation: Prefs.downloadHistoryFolded ? -90 : 0
+                                Behavior on rotation { SmoothSpring {} }
+                            }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Recent downloads · " + toolsPage.downloadHistory.length
+                                color: foldHover.hovered ? Theme.text : Theme.textMuted
+                                font.pixelSize: 12
+                            }
+                        }
+                    }
+                    EditorButton { text: "Clear"; subtle: true; implicitHeight: 30; visible: !Prefs.downloadHistoryFolded; onClicked: toolsPage.forgetDownloads() }
                 }
                 Repeater {
-                    model: toolsPage.downloadHistory
+                    model: Prefs.downloadHistoryFolded ? [] : toolsPage.downloadHistory
                     delegate: Rectangle {
                         id: historyRow
                         required property var modelData
