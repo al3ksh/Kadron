@@ -2148,6 +2148,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
             onChooseFile: uploadDialog.open()
+            onFileDropped: function(fileUrl) { root.uploadFile = fileUrl }
         }
 
         ImagesWorkspace {
