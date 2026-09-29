@@ -497,6 +497,10 @@ void LocalMediaTools::onFinished(int exitCode, QProcess::ExitStatus exitStatus)
     const QFileInfo output(m_partialPath);
     if (exitStatus != QProcess::NormalExit || exitCode != 0 || !output.isFile() || output.size() == 0) {
         const auto details = QString::fromUtf8(m_errorBuffer).trimmed();
+        if (m_operation == Operation::Audio && details.contains(QStringLiteral("does not contain any stream"))) {
+            fail(QStringLiteral("This file has no sound to convert."));
+            return;
+        }
         fail(details.isEmpty() ? QStringLiteral("Processing failed. Check media and codec support.") : details.right(500));
         return;
     }

@@ -34,6 +34,7 @@ FocusScope {
     signal audioSelectRequested(int index)
     signal audioPlaceRequested(int index, real startMs, real inMs, real outMs)
     signal audioRemoveRequested(int index)
+    signal audioSplitRequested(int index, real atMs)
     signal audioFadeRequested(int index, real fadeInMs, real fadeOutMs)
     signal audioAddRequested(real startMs)
     signal audioDropped(var urls, real startMs)
@@ -43,6 +44,8 @@ FocusScope {
     signal textPlaceRequested(int index, real startMs, real endMs)
     signal textAddRequested(real startMs)
     signal textRemoveRequested(int index)
+    signal textSplitRequested(int index, real atMs)
+    signal textDuplicateRequested(int index)
 
     readonly property real totalMs: {
         var total = 0
@@ -715,7 +718,10 @@ FocusScope {
                                 pressX = mapToItem(timeline, mouse.x, 0).x
                                 moved = false
                                 timeline.audioSelectRequested(audioBlock.index)
-                                if (mouse.button === Qt.RightButton) audioMenu.popup()
+                                if (mouse.button === Qt.RightButton) {
+                                    timeline.menuMs = audioBlock.item.startMs + mouse.x / Math.max(timeline.pxPerMs, 0.0001)
+                                    audioMenu.popup()
+                                }
                             }
                             onPositionChanged: function(mouse) {
                                 if (!pressed || !(pressedButtons & Qt.LeftButton)) return
@@ -1004,6 +1010,7 @@ FocusScope {
                             id: textMouse
                             anchors.fill: parent
                             hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
                             preventStealing: true
                             cursorShape: textBlock.editing ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                             property real pressX: 0
@@ -1013,9 +1020,13 @@ FocusScope {
                                 pressX = mapToItem(timeline, mouse.x, 0).x
                                 moved = false
                                 timeline.textSelectRequested(textBlock.index)
+                                if (mouse.button === Qt.RightButton) {
+                                    timeline.menuMs = textBlock.item.startMs + mouse.x / Math.max(timeline.pxPerMs, 0.0001)
+                                    textMenu.popup()
+                                }
                             }
                             onPositionChanged: function(mouse) {
-                                if (!pressed) return
+                                if (!pressed || !(pressedButtons & Qt.LeftButton)) return
                                 var offset = mapToItem(timeline, mouse.x, 0).x - pressX
                                 if (!moved && Math.abs(offset) < 5) return
                                 moved = true
@@ -1031,6 +1042,7 @@ FocusScope {
                                 timeline.textEditIndex = textBlock.index
                             }
                             onReleased: function(mouse) {
+                                if (mouse.button !== Qt.LeftButton) return
                                 timeline.snapGuideMs = -1
                                 if (timeline.textEditIndex === textBlock.index) {
                                     timeline.textEditIndex = -1
@@ -1044,7 +1056,7 @@ FocusScope {
                             onCanceled: { timeline.textEditIndex = -1; timeline.snapGuideMs = -1 }
                             ToolTip.visible: containsMouse && !pressed
                             ToolTip.delay: 700
-                            ToolTip.text: timeline.timeLabel(textBlock.item.startMs, true) + " – " + timeline.timeLabel(textBlock.item.endMs, true) + " · drag to move, edges to change how long it shows"
+                            ToolTip.text: timeline.timeLabel(textBlock.item.startMs, true) + " – " + timeline.timeLabel(textBlock.item.endMs, true) + " · drag to move, edges to change how long it shows, right-click for more"
                         }
 
                         // Edges change when the caption appears and disappears.
@@ -1203,8 +1215,8 @@ FocusScope {
         font.pixelSize: 12
     }
 
-    Menu {
-        id: clipMenu
+    // Right-click menus share one look; "Remove" is red.
+    component TimelineMenu: Menu {
         padding: 5
         background: Rectangle { implicitWidth: 190; radius: Theme.radius; color: Theme.card; border.color: Theme.lineStrong }
         enter: Transition { ParallelAnimation { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.fadeFast } SnapSpring { property: "scale"; from: 0.96; to: 1 } } }
@@ -1221,29 +1233,39 @@ FocusScope {
             }
             background: Rectangle { radius: Theme.radiusSmall; color: menuItem.highlighted ? Theme.hover : Theme.hoverClear }
         }
+    }
+    // Where the menu was opened, in sequence time.
+    property real menuMs: 0
+
+    TimelineMenu {
+        id: clipMenu
         Action { text: "Split at playhead"; onTriggered: timeline.splitRequested() }
         Action { text: "Duplicate"; onTriggered: timeline.duplicateRequested(timeline.activeIndex) }
         Action { text: "Remove"; enabled: timeline.clips.length > 1; onTriggered: timeline.removeRequested(timeline.activeIndex) }
     }
-    Menu {
+    TimelineMenu {
         id: audioMenu
-        padding: 5
-        background: Rectangle { implicitWidth: 190; radius: Theme.radius; color: Theme.card; border.color: Theme.lineStrong }
-        enter: Transition { ParallelAnimation { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.fadeFast } SnapSpring { property: "scale"; from: 0.96; to: 1 } } }
-        delegate: MenuItem {
-            id: audioMenuItem
-            implicitHeight: 32
-            contentItem: Text {
-                leftPadding: 8
-                text: audioMenuItem.text
-                color: audioMenuItem.text === "Remove" ? Theme.danger : Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                verticalAlignment: Text.AlignVCenter
-            }
-            background: Rectangle { radius: Theme.radiusSmall; color: audioMenuItem.highlighted ? Theme.hover : Theme.hoverClear }
+        objectName: "audioMenu"
+        readonly property var item: timeline.audioItems[timeline.audioIndex]
+        Action {
+            text: "Split here"
+            enabled: !!audioMenu.item && timeline.menuMs - audioMenu.item.startMs >= 100
+                     && audioMenu.item.startMs + audioMenu.item.lengthMs - timeline.menuMs >= 100
+            onTriggered: timeline.audioSplitRequested(timeline.audioIndex, timeline.menuMs)
         }
         Action { text: "Move to playhead"; onTriggered: { var item = timeline.audioItems[timeline.audioIndex]; if (item) timeline.audioPlaceRequested(timeline.audioIndex, timeline.playheadMs, item.inMs, item.outMs) } }
         Action { text: "Remove"; onTriggered: timeline.audioRemoveRequested(timeline.audioIndex) }
+    }
+    TimelineMenu {
+        id: textMenu
+        objectName: "textMenu"
+        readonly property var item: timeline.textItems[timeline.textIndex]
+        Action {
+            text: "Split here"
+            enabled: !!textMenu.item && timeline.menuMs - textMenu.item.startMs >= 200 && textMenu.item.endMs - timeline.menuMs >= 200
+            onTriggered: timeline.textSplitRequested(timeline.textIndex, timeline.menuMs)
+        }
+        Action { text: "Duplicate"; onTriggered: timeline.textDuplicateRequested(timeline.textIndex) }
+        Action { text: "Remove"; onTriggered: timeline.textRemoveRequested(timeline.textIndex) }
     }
 }

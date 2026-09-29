@@ -116,6 +116,8 @@ public:
     Q_INVOKABLE bool setAudioVolume(int index, double volume);
     // Fade lengths at the item's start and end; together at most its length.
     Q_INVOKABLE bool setAudioFades(int index, qint64 fadeInMs, qint64 fadeOutMs);
+    // Cuts the item in two at a sequence time; both parts keep at least 100 ms.
+    Q_INVOKABLE bool splitAudio(int index, qint64 atMs);
     Q_INVOKABLE bool removeAudio(int index);
     Q_INVOKABLE void setMusicDuck(bool value);
     // Adds a caption at startMs and selects it; returns its index or -1.
@@ -127,6 +129,10 @@ public:
     // Merges changes (x, y, size, color, font, style; see TextOverlay) into
     // the caption; out of range values are clamped, unknown names dropped.
     Q_INVOKABLE bool setTextStyle(int index, const QVariantMap &changes);
+    // Cuts the caption in two at a sequence time; both parts keep at least 200 ms.
+    Q_INVOKABLE bool splitText(int index, qint64 atMs);
+    // A copy right after the caption, or over it when there is no room.
+    Q_INVOKABLE int duplicateText(int index);
     Q_INVOKABLE bool removeText(int index);
     Q_INVOKABLE bool openProject(const QUrl &url);
     // Back to an empty editor: no clips, no project file, no history.

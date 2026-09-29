@@ -464,6 +464,30 @@ bool EditorProject::setAudioFades(int index, qint64 fadeInMs, qint64 fadeOutMs)
     return true;
 }
 
+bool EditorProject::splitAudio(int index, qint64 atMs)
+{
+    if (index < 0 || index >= m_mix.audio.size())
+        return false;
+    const auto item = m_mix.audio.at(index);
+    const auto offset = atMs - item.startMs;
+    if (offset < 100 || item.outMs - item.inMs - offset < 100)
+        return false;
+    auto head = item, tail = item;
+    head.outMs = item.inMs + offset;
+    head.fadeInMs = qMin(item.fadeInMs, offset);
+    head.fadeOutMs = 0;
+    tail.startMs = atMs;
+    tail.inMs = head.outMs;
+    tail.fadeInMs = 0;
+    tail.fadeOutMs = qMin(item.fadeOutMs, tail.outMs - tail.inMs);
+    m_mix.audio[index] = head;
+    m_mix.audio.insert(index + 1, tail);
+    m_activeAudioIndex = index + 1;
+    m_activeTextIndex = -1;
+    markChanged();
+    return true;
+}
+
 bool EditorProject::removeAudio(int index)
 {
     if (index < 0 || index >= m_mix.audio.size())
@@ -561,6 +585,41 @@ bool EditorProject::setTextStyle(int index, const QVariantMap &changes)
     current = item;
     markChanged();
     return true;
+}
+
+bool EditorProject::splitText(int index, qint64 atMs)
+{
+    if (index < 0 || index >= m_mix.texts.size())
+        return false;
+    const auto item = m_mix.texts.at(index);
+    if (atMs - item.startMs < 200 || item.endMs - atMs < 200)
+        return false;
+    auto tail = item;
+    m_mix.texts[index].endMs = atMs;
+    tail.startMs = atMs;
+    m_mix.texts.insert(index + 1, tail);
+    m_activeTextIndex = index + 1;
+    m_activeAudioIndex = -1;
+    markChanged();
+    return true;
+}
+
+int EditorProject::duplicateText(int index)
+{
+    if (index < 0 || index >= m_mix.texts.size())
+        return -1;
+    auto copy = m_mix.texts.at(index);
+    const auto length = copy.endMs - copy.startMs;
+    const auto total = sequenceDurationMs();
+    if (copy.endMs + qMin<qint64>(length, 200) <= total) {
+        copy.startMs = copy.endMs;
+        copy.endMs = qMin(total, copy.startMs + length);
+    }
+    m_mix.texts.insert(index + 1, copy);
+    m_activeTextIndex = index + 1;
+    m_activeAudioIndex = -1;
+    markChanged();
+    return m_activeTextIndex;
 }
 
 bool EditorProject::removeText(int index)

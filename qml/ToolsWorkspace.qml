@@ -347,7 +347,19 @@ Item {
     function beginLocal(action) {
         if (!sourceUrl.toString()) return
         pendingAction = action
-        localSave.defaultSuffix = selectedFormat
+        // Suggests a name next to the source, with the type spelled out, so
+        // the file does not end up without an extension.
+        var extension = selectedFormat
+        var path = sourceUrl.toString()
+        var folder = path.substring(0, path.lastIndexOf("/"))
+        var base = decodeURIComponent(path.split("/").pop()).replace(/\.[^.]*$/, "")
+        var sourceExtension = (path.match(/\.([^./]*)$/) || ["", ""])[1].toLowerCase()
+        if (action === "compress") base += "-compressed"
+        else if (sourceExtension === extension || (sourceExtension === "jpeg" && extension === "jpg")) base += "-converted"
+        localSave.defaultSuffix = extension
+        localSave.nameFilters = [formatLabel(extension)]
+        localSave.currentFolder = folder
+        localSave.selectedFile = folder + "/" + encodeURIComponent(base) + "." + extension
         localSave.open()
     }
     property string qrFg: "#000000"
@@ -367,15 +379,17 @@ Item {
         qrSave.selectedFile = StandardPaths.writableLocation(StandardPaths.PicturesLocation) + "/qrcode." + extension
         qrSave.open()
     }
-    function downloadLabel(extension) {
-        return ({mp4: "MP4 video (*.mp4)", gif: "GIF animation (*.gif)", mp3: "MP3 audio (*.mp3)",
-                 flac: "FLAC audio (*.flac)", wav: "WAV audio (*.wav)", opus: "Opus audio (*.opus)"})[extension] || "*." + extension
+    function formatLabel(extension) {
+        return ({mp4: "MP4 video (*.mp4)", webm: "WebM video (*.webm)", gif: "GIF animation (*.gif)",
+                 mp3: "MP3 audio (*.mp3)", flac: "FLAC audio (*.flac)", wav: "WAV audio (*.wav)", opus: "Opus audio (*.opus)",
+                 webp: "WebP image (*.webp)", jpg: "JPEG image (*.jpg *.jpeg)", png: "PNG image (*.png)"})[extension]
+               || extension.toUpperCase() + " file (*." + extension + ")"
     }
     function openDownloadSave() {
         var extension = downloadExtension()
         var name = localDownload.preview.fileName || "download"
         downloadSave.defaultSuffix = extension
-        downloadSave.nameFilters = [downloadLabel(extension)]
+        downloadSave.nameFilters = [formatLabel(extension)]
         downloadSave.currentFolder = StandardPaths.writableLocation(StandardPaths.DownloadLocation)
         downloadSave.selectedFile = StandardPaths.writableLocation(StandardPaths.DownloadLocation) + "/" + name + "." + extension
         downloadSave.open()

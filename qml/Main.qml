@@ -2043,6 +2043,7 @@ ApplicationWindow {
                     onAudioPlaceRequested: function(index, startMs, inMs, outMs) { editorProject.setAudioPlacement(index, startMs, inMs, outMs) }
                     onAudioFadeRequested: function(index, fadeInMs, fadeOutMs) { editorProject.setAudioFades(index, fadeInMs, fadeOutMs) }
                     onAudioRemoveRequested: function(index) { editorProject.removeAudio(index) }
+                    onAudioSplitRequested: function(index, atMs) { editorProject.splitAudio(index, Math.round(atMs)) }
                     onAudioAddRequested: function(startMs) {
                         root.audioAddMs = startMs
                         musicDialog.open()
@@ -2053,6 +2054,8 @@ ApplicationWindow {
                     onTextSelectRequested: function(index) { editorProject.selectText(index) }
                     onTextPlaceRequested: function(index, startMs, endMs) { editorProject.setTextPlacement(index, startMs, endMs) }
                     onTextRemoveRequested: function(index) { editorProject.removeText(index) }
+                    onTextSplitRequested: function(index, atMs) { editorProject.splitText(index, Math.round(atMs)) }
+                    onTextDuplicateRequested: function(index) { editorProject.duplicateText(index) }
                     onTextAddRequested: function(startMs) {
                         if (editorProject.addText(startMs) >= 0) {
                             captionField.forceActiveFocus()

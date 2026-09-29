@@ -349,6 +349,25 @@ void CoreTests::projectRoundTrip()
     const auto legacy = TextOverlay::fromMap({{"text", "Old"}, {"position", "top"}, {"size", "large"}});
     QCOMPARE(legacy.size, 0.095);
     QVERIFY(legacy.y > 0.1 && legacy.y < 0.15);
+    // Cutting a caption keeps its look on both sides; a copy goes after it when there is room.
+    QVERIFY(!project.splitText(0, 600));
+    QVERIFY(project.splitText(0, 1500));
+    QCOMPARE(project.textItems().size(), 2);
+    QCOMPARE(project.textItems().at(0).toMap().value("endMs").toLongLong(), 1500);
+    QCOMPARE(project.textItems().at(1).toMap().value("startMs").toLongLong(), 1500);
+    QCOMPARE(project.textItems().at(1).toMap().value("endMs").toLongLong(), 3000);
+    QCOMPARE(project.textItems().at(1).toMap().value("text").toString(), QString("Two\nlines"));
+    QCOMPARE(project.activeTextIndex(), 1);
+    QCOMPARE(project.duplicateText(0), 1);
+    QCOMPARE(project.textItems().at(1).toMap().value("startMs").toLongLong(), 1500);
+    QCOMPARE(project.textItems().at(1).toMap().value("endMs").toLongLong(), 2500);
+    QCOMPARE(project.duplicateText(2), 3);
+    QCOMPARE(project.textItems().at(3).toMap().value("startMs").toLongLong(), 1500);
+    QCOMPARE(project.duplicateText(9), -1);
+    QVERIFY(project.undo());
+    QVERIFY(project.undo());
+    QVERIFY(project.undo());
+    QCOMPARE(project.textItems().size(), 1);
 
     const auto projectPath = directory.path() + "/edit.kadr";
     QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
@@ -620,6 +639,22 @@ void CoreTests::sequenceExport()
     QVERIFY(project.setAudioFades(0, 300, 5000));
     QCOMPARE(project.audioItems().at(0).toMap().value("fadeOutMs").toLongLong(), 800);
     QVERIFY(project.setAudioFades(0, 300, 400));
+    // A cut plays on from where the first part stopped; each part keeps its outer fade.
+    QVERIFY(!project.splitAudio(0, 250));
+    QVERIFY(project.splitAudio(0, 700));
+    {
+        const auto head = project.audioItems().at(0).toMap(), tail = project.audioItems().at(1).toMap();
+        QCOMPARE(head.value("outMs").toLongLong(), 600);
+        QCOMPARE(head.value("fadeInMs").toLongLong(), 300);
+        QCOMPARE(head.value("fadeOutMs").toLongLong(), 0);
+        QCOMPARE(tail.value("startMs").toLongLong(), 700);
+        QCOMPARE(tail.value("inMs").toLongLong(), 600);
+        QCOMPARE(tail.value("outMs").toLongLong(), 1200);
+        QCOMPARE(tail.value("fadeInMs").toLongLong(), 0);
+        QCOMPARE(tail.value("fadeOutMs").toLongLong(), 400);
+    }
+    QVERIFY(project.undo());
+    QCOMPARE(project.audioCount(), 1);
 
     // Unsaved work is copied aside; a later session can restore it, and a save removes it.
     const auto recoveryPath = directory.path() + "/recovery/recovery.kadr";
