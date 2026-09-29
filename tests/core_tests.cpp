@@ -327,12 +327,22 @@ void CoreTests::projectRoundTrip()
     QCOMPARE(project.inMs(), 1500);
     QCOMPARE(project.outMs(), 4500);
 
+    // Captions are kept with the project and clamped to the sequence.
+    QCOMPARE(project.addText(500), 0);
+    QCOMPARE(project.textItems().at(0).toMap().value("endMs").toLongLong(), 3000);
+    QVERIFY(project.setTextContent(0, "Two\nlines  "));
+    QVERIFY(!project.setTextContent(0, "   "));
+    QVERIFY(project.setTextStyle(0, "top", "large"));
+    QVERIFY(!project.setTextStyle(0, "left", "large"));
+
     const auto projectPath = directory.path() + "/edit.kadr";
     QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
     QVERIFY(!project.dirty());
 
     EditorProject reopened;
     QVERIFY(reopened.openProject(QUrl::fromLocalFile(projectPath)));
+    QCOMPARE(reopened.textItems(), project.textItems());
+    QCOMPARE(reopened.textItems().at(0).toMap().value("text").toString(), QString("Two\nlines"));
     QCOMPARE(reopened.mediaUrl().toLocalFile(), sourcePath);
     QCOMPARE(reopened.durationMs(), 5000);
     QCOMPARE(reopened.inMs(), 1500);
@@ -693,6 +703,34 @@ void CoreTests::sequenceExport()
     const auto before = peak("0.1", "0.7");
     const auto after = peak("1.2", "0.6");
     QVERIFY2(before < -60 && after > -30, qPrintable(QString("before %1 dB, after %2 dB").arg(before).arg(after)));
+
+    // A caption from 1 s lights up the bottom of a black video only from then.
+    const auto blackPath = directory.path() + "/black.mp4";
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                             "color=c=black:size=320x180:rate=15", "-t", "2", "-c:v", "libx264", blackPath});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+    EditorProject captioned;
+    QVERIFY(captioned.importMedia(QUrl::fromLocalFile(blackPath)));
+    captioned.setDurationMs(2000);
+    QCOMPARE(captioned.addText(1000), 0);
+    QVERIFY(captioned.setTextContent(0, "Zażółć %{pts}"));
+    QVERIFY(captioned.mixed());
+    const auto captionedPath = directory.path() + "/captioned.mp4";
+    QVERIFY(exporter.startSequence(captioned.clips(), QUrl::fromLocalFile(captionedPath), captioned.exportOptions()));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    const auto bottomLuma = [&](const QString &at) {
+        QProcess stats;
+        stats.start(ffmpeg, {"-hide_banner", "-nostdin", "-ss", at, "-i", captionedPath, "-frames:v", "1",
+                             "-vf", "crop=iw/2:ih/5:iw/4:ih*0.75,signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-f", "null", "-"});
+        stats.waitForFinished(30000);
+        const auto text = QString::fromUtf8(stats.readAllStandardError());
+        return text.section("YAVG=", 1).section('\n', 0, 0).trimmed().toDouble();
+    };
+    const auto plain = bottomLuma("0.5");
+    const auto withText = bottomLuma("1.6");
+    QVERIFY2(withText > plain + 5, qPrintable(QString("without %1, with caption %2").arg(plain).arg(withText)));
 }
 
 void CoreTests::exportPresets()
@@ -714,6 +752,11 @@ void CoreTests::exportPresets()
     plan = ExportController::outputPlan("vertical", {1920, 1080}, 30, 10000);
     QCOMPARE(plan.canvas, QSize(1080, 1920));
     QVERIFY(plan.fill);
+    const QVector<ExportController::TextOverlay> texts{{"Hi", 1000, 3000, "top", "large"}};
+    QVERIFY(ExportController::textFilter(texts, 3000, 2000, 1080).isEmpty());
+    const auto caption = ExportController::textFilter(texts, 2000, 2000, 1080);
+    QVERIFY2(caption.startsWith(",drawtext=") && caption.contains("textfile=text_0.txt") && caption.contains("fontsize=103")
+             && caption.contains("between(t,-1.000,1.000)") && caption.contains("y='h*0.07'"), qPrintable(caption));
     QCOMPARE(ExportController::discordVideoKbps(1000), 8000);
     QCOMPARE(ExportController::discordVideoKbps(3600000), 100);
     QVERIFY(ExportController::videoCodecArgs("cpu", false, 2000).contains("2000k"));

@@ -37,6 +37,12 @@ FocusScope {
     signal audioFadeRequested(int index, real fadeInMs, real fadeOutMs)
     signal audioAddRequested(real startMs)
     signal audioDropped(var urls, real startMs)
+    property var textItems: []
+    property int textIndex: -1
+    signal textSelectRequested(int index)
+    signal textPlaceRequested(int index, real startMs, real endMs)
+    signal textAddRequested(real startMs)
+    signal textRemoveRequested(int index)
 
     readonly property real totalMs: {
         var total = 0
@@ -78,7 +84,12 @@ FocusScope {
     property bool trimLeading: false
     property real trimInMs: 0
     property real trimOutMs: 0
-    function cancelTrim() { trimIndex = -1; audioEditIndex = -1; audioFadeIndex = -1; snapGuideMs = -1 }
+    function cancelTrim() { trimIndex = -1; audioEditIndex = -1; audioFadeIndex = -1; textEditIndex = -1; snapGuideMs = -1 }
+
+    // Caption being moved or trimmed, committed on release.
+    property int textEditIndex: -1
+    property real textEditStart: 0
+    property real textEditEnd: 0
 
     // Audio track edits are previewed the same way: startMs/inMs/outMs of the
     // item being moved or trimmed, committed on release.
@@ -93,12 +104,16 @@ FocusScope {
     // Where the dragged audio item snapped, drawn as a guide (-1 when it didn't).
     property real snapGuideMs: -1
     // Pulls a time to a nearby join, the playhead, the ends or another audio item.
-    function snapMs(ms, skipIndex) {
+    function snapMs(ms, skipIndex, skipText) {
         var reach = 8 / Math.max(pxPerMs, 0.0001)
         var points = [0, totalMs, playheadMs].concat(starts)
         for (var i = 0; i < audioItems.length; i++) {
             if (i === skipIndex) continue
             points.push(audioItems[i].startMs, audioItems[i].startMs + audioItems[i].lengthMs)
+        }
+        for (var t = 0; t < textItems.length; t++) {
+            if (t === skipText) continue
+            points.push(textItems[t].startMs, textItems[t].endMs)
         }
         var best = ms, distance = reach
         for (var k = 0; k < points.length; k++) {
@@ -121,7 +136,7 @@ FocusScope {
             flick.contentX = Math.max(0, Math.min(flick.contentWidth - flick.width, x - 48))
     }
 
-    implicitHeight: 150
+    implicitHeight: 176
     activeFocusOnTab: true
 
     function msAt(contentX) {
@@ -164,7 +179,8 @@ FocusScope {
         else if (event.key === Qt.Key_Right) timeline.scrubRequested(Math.min(totalMs, playheadMs + step))
         else if (event.key === Qt.Key_Home) timeline.scrubRequested(0)
         else if (event.key === Qt.Key_End) timeline.scrubRequested(totalMs)
-        else if (event.key === Qt.Key_Escape && (trimIndex >= 0 || audioEditIndex >= 0)) { cancelTrim(); event.accepted = true; return }
+        else if (event.key === Qt.Key_Escape && (trimIndex >= 0 || audioEditIndex >= 0 || textEditIndex >= 0)) { cancelTrim(); event.accepted = true; return }
+        else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && textIndex >= 0) timeline.textRemoveRequested(textIndex)
         else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && audioIndex >= 0) timeline.audioRemoveRequested(audioIndex)
         else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && clips.length > 1) timeline.removeRequested(activeIndex)
         else return
@@ -252,7 +268,7 @@ FocusScope {
                 id: track
                 y: ruler.height + 6
                 width: parent.width
-                height: parent.height - y - (audioLane.visible ? audioLane.height + 4 : 0)
+                height: parent.height - y - (audioLane.visible ? audioLane.height + 4 : 0) - (textLane.visible ? textLane.height + 4 : 0)
 
                 Repeater {
                     model: timeline.clips.length
@@ -906,6 +922,181 @@ FocusScope {
                                         font.pixelSize: 10
                                         font.weight: Font.DemiBold
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Text track: captions drawn over the video for a stretch of the sequence.
+            Rectangle {
+                id: textLane
+                objectName: "textLane"
+                visible: timeline.clips.length > 0
+                y: audioLane.y + audioLane.height + 4
+                width: audioLane.width
+                height: 22
+                radius: Theme.radiusSmall
+                color: Theme.field
+                border.color: Theme.line
+                clip: true
+
+                MouseArea {
+                    anchors.fill: parent
+                    onPressed: timeline.forceActiveFocus()
+                    onClicked: function(mouse) {
+                        timeline.textSelectRequested(-1)
+                        timeline.scrubRequested(timeline.msAt(mouse.x))
+                        timeline.scrubFinished()
+                    }
+                    onDoubleClicked: function(mouse) { timeline.textAddRequested(timeline.msAt(mouse.x)) }
+                }
+                Text {
+                    visible: timeline.textItems.length === 0
+                    x: Math.max(8, flick.contentX + 8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Text track · double-click to put a caption on the video"
+                    color: Theme.textFaint
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                }
+
+                Repeater {
+                    model: timeline.textItems.length
+                    delegate: Item {
+                        id: textBlock
+                        required property int index
+                        readonly property var item: timeline.textItems[index] || ({ text: "", startMs: 0, endMs: 0, lengthMs: 0 })
+                        readonly property bool editing: timeline.textEditIndex === index
+                        readonly property real startMs: editing ? timeline.textEditStart : item.startMs
+                        readonly property real endMs: editing ? timeline.textEditEnd : item.endMs
+                        readonly property bool active: timeline.textIndex === index
+                        x: startMs * timeline.pxPerMs
+                        z: editing ? 3 : active ? 2 : 1
+                        width: Math.max(3, (endMs - startMs) * timeline.pxPerMs)
+                        height: textLane.height
+
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            radius: 4
+                            color: textBlock.active ? Theme.playheadHover : Theme.playheadWash
+                            border.width: textBlock.active ? 2 : 1
+                            border.color: textBlock.active || textMouse.containsMouse ? Theme.playhead : Theme.line
+                            clip: true
+                            Text {
+                                x: 6
+                                width: Math.max(0, parent.width - 12)
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: parent.width > 24
+                                text: textBlock.item.text.replace(/\s+/g, " ")
+                                color: Theme.playheadInk
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        // Body: drag to move, click to select.
+                        MouseArea {
+                            id: textMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            preventStealing: true
+                            cursorShape: textBlock.editing ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                            property real pressX: 0
+                            property bool moved: false
+                            onPressed: function(mouse) {
+                                timeline.forceActiveFocus()
+                                pressX = mapToItem(timeline, mouse.x, 0).x
+                                moved = false
+                                timeline.textSelectRequested(textBlock.index)
+                            }
+                            onPositionChanged: function(mouse) {
+                                if (!pressed) return
+                                var offset = mapToItem(timeline, mouse.x, 0).x - pressX
+                                if (!moved && Math.abs(offset) < 5) return
+                                moved = true
+                                var length = textBlock.item.lengthMs
+                                var start = Math.max(0, textBlock.item.startMs + offset / Math.max(timeline.pxPerMs, 0.0001))
+                                var head = timeline.snapMs(start, -1, textBlock.index)
+                                var tail = timeline.snapMs(start + length, -1, textBlock.index) - length
+                                timeline.snapGuideMs = head !== start ? head : tail !== start ? tail + length : -1
+                                start = head !== start ? head : tail !== start ? tail : start
+                                start = Math.round(Math.max(0, Math.min(timeline.totalMs - length, start)))
+                                timeline.textEditStart = start
+                                timeline.textEditEnd = start + length
+                                timeline.textEditIndex = textBlock.index
+                            }
+                            onReleased: function(mouse) {
+                                timeline.snapGuideMs = -1
+                                if (timeline.textEditIndex === textBlock.index) {
+                                    timeline.textEditIndex = -1
+                                    if (timeline.textEditStart !== textBlock.item.startMs)
+                                        timeline.textPlaceRequested(textBlock.index, timeline.textEditStart, timeline.textEditEnd)
+                                } else if (!moved) {
+                                    timeline.scrubRequested(textBlock.item.startMs + mouse.x / Math.max(timeline.pxPerMs, 0.0001))
+                                    timeline.scrubFinished()
+                                }
+                            }
+                            onCanceled: { timeline.textEditIndex = -1; timeline.snapGuideMs = -1 }
+                            ToolTip.visible: containsMouse && !pressed
+                            ToolTip.delay: 700
+                            ToolTip.text: timeline.timeLabel(textBlock.item.startMs, true) + " – " + timeline.timeLabel(textBlock.item.endMs, true) + " · drag to move, edges to change how long it shows"
+                        }
+
+                        // Edges change when the caption appears and disappears.
+                        Repeater {
+                            model: 2
+                            delegate: MouseArea {
+                                id: textEdge
+                                required property int index
+                                readonly property bool leading: index === 0
+                                x: leading ? 0 : textBlock.width - width
+                                width: Math.min(8, textBlock.width / 3)
+                                height: textBlock.height
+                                hoverEnabled: true
+                                preventStealing: true
+                                cursorShape: Qt.SizeHorCursor
+                                property real pressX: 0
+                                onPressed: function(mouse) {
+                                    timeline.forceActiveFocus()
+                                    timeline.textSelectRequested(textBlock.index)
+                                    pressX = mapToItem(timeline, mouse.x, 0).x
+                                    timeline.textEditStart = textBlock.item.startMs
+                                    timeline.textEditEnd = textBlock.item.endMs
+                                    timeline.textEditIndex = textBlock.index
+                                }
+                                onPositionChanged: function(mouse) {
+                                    if (!pressed || timeline.textEditIndex !== textBlock.index) return
+                                    var item = textBlock.item
+                                    var delta = (mapToItem(timeline, mouse.x, 0).x - pressX) / Math.max(timeline.pxPerMs, 0.0001)
+                                    var raw = (leading ? item.startMs : item.endMs) + delta
+                                    var edge = timeline.snapMs(raw, -1, textBlock.index)
+                                    timeline.snapGuideMs = edge !== raw ? edge : -1
+                                    if (leading)
+                                        timeline.textEditStart = Math.round(Math.max(0, Math.min(item.endMs - 200, edge)))
+                                    else
+                                        timeline.textEditEnd = Math.round(Math.max(item.startMs + 200, Math.min(timeline.totalMs, edge)))
+                                }
+                                onReleased: {
+                                    timeline.snapGuideMs = -1
+                                    if (timeline.textEditIndex !== textBlock.index) return
+                                    timeline.textEditIndex = -1
+                                    if (timeline.textEditStart !== textBlock.item.startMs || timeline.textEditEnd !== textBlock.item.endMs)
+                                        timeline.textPlaceRequested(textBlock.index, timeline.textEditStart, timeline.textEditEnd)
+                                }
+                                onCanceled: { timeline.textEditIndex = -1; timeline.snapGuideMs = -1 }
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: textEdge.leading ? 3 : parent.width - width - 3
+                                    width: 3
+                                    height: Math.min(10, textBlock.height - 8)
+                                    radius: 2
+                                    color: textEdge.pressed ? Theme.playhead : Theme.text
+                                    opacity: textEdge.pressed || textEdge.containsMouse ? 1 : textBlock.active ? 0.5 : 0
                                 }
                             }
                         }

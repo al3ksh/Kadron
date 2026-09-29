@@ -37,6 +37,9 @@ class EditorProject final : public QObject
     Q_PROPERTY(int activeAudioIndex READ activeAudioIndex NOTIFY changed)
     // Lower the audio track while the clips have sound (speech).
     Q_PROPERTY(bool musicDuck READ musicDuck NOTIFY changed)
+    // Captions over the video, each shown from startMs to endMs of the sequence.
+    Q_PROPERTY(QVariantList textItems READ textItems NOTIFY changed)
+    Q_PROPERTY(int activeTextIndex READ activeTextIndex NOTIFY changed)
     // Whether an export needs the full sequence pipeline rather than a plain trim.
     Q_PROPERTY(bool mixed READ mixed NOTIFY changed)
     // True while quiet parts of a clip are being looked for.
@@ -67,6 +70,8 @@ public:
     int audioCount() const;
     int activeAudioIndex() const;
     bool musicDuck() const;
+    QVariantList textItems() const;
+    int activeTextIndex() const { return m_activeTextIndex; }
     bool mixed() const;
     // Transition and music settings for ExportController::startSequence.
     Q_INVOKABLE QVariantMap exportOptions() const;
@@ -111,6 +116,15 @@ public:
     Q_INVOKABLE bool setAudioFades(int index, qint64 fadeInMs, qint64 fadeOutMs);
     Q_INVOKABLE bool removeAudio(int index);
     Q_INVOKABLE void setMusicDuck(bool value);
+    // Adds a caption at startMs and selects it; returns its index or -1.
+    Q_INVOKABLE int addText(qint64 startMs);
+    // -1 clears the selection.
+    Q_INVOKABLE bool selectText(int index);
+    Q_INVOKABLE bool setTextContent(int index, const QString &text);
+    Q_INVOKABLE bool setTextPlacement(int index, qint64 startMs, qint64 endMs);
+    // position: "top", "middle" or "bottom"; size: "small", "medium" or "large".
+    Q_INVOKABLE bool setTextStyle(int index, const QString &position, const QString &size);
+    Q_INVOKABLE bool removeText(int index);
     Q_INVOKABLE bool openProject(const QUrl &url);
     // Back to an empty editor: no clips, no project file, no history.
     Q_INVOKABLE void closeProject();
@@ -163,11 +177,19 @@ private:
         qint64 fadeInMs = 0;
         qint64 fadeOutMs = 0;
     };
+    struct TextItem {
+        QString text;
+        qint64 startMs = 0;
+        qint64 endMs = 0;
+        QString position = QStringLiteral("bottom");
+        QString size = QStringLiteral("medium");
+    };
     struct Mix {
         QString transition = QStringLiteral("cut");
         int transitionMs = 500;
         QVector<AudioItem> audio;
         bool musicDuck = true;
+        QVector<TextItem> texts;
     };
     const Clip *active() const;
     Clip *active();
@@ -193,6 +215,7 @@ private:
     QVector<Clip> m_clips;
     int m_activeClipIndex = -1;
     int m_activeAudioIndex = -1;
+    int m_activeTextIndex = -1;
     Mix m_mix;
     QUrl m_projectUrl;
     bool m_dirty = false;

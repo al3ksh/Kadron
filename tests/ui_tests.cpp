@@ -85,13 +85,13 @@ void UiTests::timelineInteractions()
     QVERIFY(timeline);
     // Two 4 s clips across 800 px: 0.1 px per ms, clip B starts at x = 400.
     timeline->setWidth(800);
-    timeline->setHeight(150);
+    timeline->setHeight(176);
     timeline->setProperty("clips", QVariantList{clip("a.mp4", 4000, 0, 4000), clip("b.mp4", 4000, 0, 4000)});
     timeline->setProperty("activeIndex", 0);
     timeline->setProperty("playheadMs", 0);
 
     QQuickWindow window;
-    window.setGeometry(50, 50, 800, 150);
+    window.setGeometry(50, 50, 800, 176);
     timeline->setParentItem(window.contentItem());
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
@@ -228,6 +228,30 @@ void UiTests::timelineInteractions()
     QCOMPARE(removeAudio.count(), 1);
     QCOMPARE(removeAudio.last().first().toInt(), 0);
     timeline->setProperty("audioIndex", -1);
+
+    // Text track, under the audio: double-click adds, a caption drags along and deletes.
+    QSignalSpy addText(timeline, signalOf(timeline, "textAddRequested(double)"));
+    QSignalSpy selectText(timeline, signalOf(timeline, "textSelectRequested(int)"));
+    QSignalSpy placeText(timeline, signalOf(timeline, "textPlaceRequested(int,double,double)"));
+    QSignalSpy removeText(timeline, signalOf(timeline, "textRemoveRequested(int)"));
+    QTest::mouseDClick(&window, Qt::LeftButton, {}, QPoint(600, 165));
+    QCOMPARE(addText.count(), 1);
+    QVERIFY(qAbs(addText.last().first().toDouble() - 6000.0) < 20);
+    QVariantMap caption{{"text", "Hi"}, {"startMs", 1000}, {"endMs", 3000}, {"lengthMs", 2000}};
+    timeline->setProperty("textItems", QVariantList{caption});
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(200, 165));
+    QTest::mouseMove(&window, QPoint(230, 165));
+    QTest::mouseMove(&window, QPoint(250, 165));
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(250, 165));
+    QCOMPARE(selectText.last().first().toInt(), 0);
+    QCOMPARE(placeText.count(), 1);
+    QVERIFY(qAbs(placeText.last().at(1).toDouble() - 1500.0) < 20);
+    QVERIFY(qAbs(placeText.last().at(2).toDouble() - 3500.0) < 20);
+    timeline->setProperty("textIndex", 0);
+    timeline->forceActiveFocus();
+    QTest::keyClick(&window, Qt::Key_Delete);
+    QCOMPARE(removeText.count(), 1);
+    timeline->setProperty("textIndex", -1);
 
     // Ctrl + wheel zooms around the pointer.
     QWheelEvent wheel(QPointF(400, 100), window.mapToGlobal(QPointF(400, 100)), {}, QPoint(0, 120),

@@ -84,6 +84,20 @@ public:
     static QString mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int firstAudioInput,
                              const QVector<AudioBed> &beds, bool duck, int fps = 30);
 
+    // A caption shown from startMs to endMs of the sequence (before crossfade
+    // overlaps, like the editor's timeline).
+    struct TextOverlay {
+        QString text;
+        qint64 startMs = 0;
+        qint64 endMs = 0;
+        QString position;
+        QString size;
+    };
+    // drawtext filters (each led by a comma) for the captions over one clip
+    // that starts at segmentStartMs of the sequence; caption i reads
+    // text_<i>.txt and every one font.ttf from the working directory.
+    static QString textFilter(const QVector<TextOverlay> &texts, qint64 segmentStartMs, qint64 segmentLengthMs, int canvasHeight);
+
     Q_INVOKABLE void detectEncoders();
     // options: preset (see outputPlan), loudnorm to even out loudness, and
     // copy for a lossless cut at keyframes (no re-encode, ignores the rest).
@@ -92,7 +106,8 @@ public:
     // options: the ones above, transition ("cut", "fade", "crossfade"),
     // transitionMs, audio (a list of {url, startMs, inMs, outMs, volume} in
     // sequence time) and musicDuck to lower the audio track under the clips'
-    // own sound. Clips may carry a speed (0.25 to 4).
+    // own sound, and texts ({text, startMs, endMs, position, size}) to caption
+    // the video. Clips may carry a speed (0.25 to 4).
     Q_INVOKABLE bool startSequence(const QVariantList &clips, const QUrl &destination,
                                    const QVariantMap &options = {});
     Q_INVOKABLE void cancel();
@@ -154,6 +169,7 @@ private:
     int m_transitionMs = 0;
     QStringList m_audioPaths;
     QVector<AudioBed> m_audioBeds;
+    QVector<TextOverlay> m_texts;
     bool m_musicDuck = true;
     // Share of the progress bar the clip encodes take; the rest is the final pass.
     int m_encodeShare = 90;

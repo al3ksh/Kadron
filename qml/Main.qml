@@ -46,7 +46,8 @@ ApplicationWindow {
     property real transitionDrag: -1
     property real audioVolumeDrag: -1
     // The selected audio track item, and the one under the playhead for the preview.
-    readonly property var activeAudio: editorProject.activeAudioIndex >= 0 ? editorProject.audioItems[editorProject.activeAudioIndex] || null : null
+    readonly property var activeText: editorProject.activeTextIndex >= 0 ? editorProject.textItems[editorProject.activeTextIndex] || null : null
+    readonly property var activeAudio:editorProject.activeAudioIndex >= 0 ? editorProject.audioItems[editorProject.activeAudioIndex] || null : null
     // Two preview players, so two overlapping items are both heard. A slot
     // keeps its item while it plays on, so nothing reloads mid-sound.
     property var audioSlots: [-1, -1]
@@ -1273,6 +1274,39 @@ ApplicationWindow {
                         color: "black"
                         opacity: root.transitionDim
                     }
+                    // Captions, laid out like the export draws them.
+                    Item {
+                        id: captionLayer
+                        objectName: "captionLayer"
+                        visible: player.hasVideo
+                        x: videoOutput.x + videoOutput.contentRect.x
+                        y: videoOutput.y + videoOutput.contentRect.y
+                        width: videoOutput.contentRect.width
+                        height: videoOutput.contentRect.height
+                        clip: true
+                        Repeater {
+                            model: editorProject.textItems
+                            delegate: Text {
+                                required property var modelData
+                                readonly property real factor: modelData.size === "small" ? 0.045 : modelData.size === "large" ? 0.095 : 0.065
+                                visible: root.sequencePositionMs >= modelData.startMs && root.sequencePositionMs < modelData.endMs
+                                text: modelData.text
+                                textFormat: Text.PlainText
+                                width: captionLayer.width
+                                horizontalAlignment: Text.AlignHCenter
+                                y: modelData.position === "top" ? captionLayer.height * 0.07
+                                 : modelData.position === "middle" ? (captionLayer.height - height) / 2
+                                                                    : captionLayer.height * 0.93 - height
+                                color: "white"
+                                style: Text.Outline
+                                styleColor: "#8c000000"
+                                font.family: "Segoe UI"
+                                font.weight: Font.Bold
+                                font.pixelSize: Math.max(4, captionLayer.height * factor)
+                                lineHeight: 1.0
+                            }
+                        }
+                    }
                     Column {
                         anchors.centerIn: parent
                         spacing: 13
@@ -1726,6 +1760,102 @@ ApplicationWindow {
                             }
                         }
 
+                        // Text track: captions drawn over the video.
+                        ColumnLayout {
+                            visible: editorProject.hasMedia
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
+                            Text { text: "Text on video"; color: Theme.textMuted; font.pixelSize: 11 }
+                            EditorButton {
+                                objectName: "addTextButton"
+                                Layout.fillWidth: true
+                                text: "Add text at playhead"
+                                iconName: "plus"
+                                enabled: !exporter.busy && editorProject.sequenceDurationMs >= 200
+                                onClicked: {
+                                    if (editorProject.addText(root.sequencePositionMs) >= 0) {
+                                        captionField.forceActiveFocus()
+                                        captionField.selectAll()
+                                    }
+                                }
+                            }
+                            TextArea {
+                                id: captionField
+                                objectName: "captionField"
+                                visible: root.activeText !== null
+                                Layout.fillWidth: true
+                                enabled: !exporter.busy
+                                wrapMode: TextEdit.Wrap
+                                color: Theme.text
+                                selectionColor: Theme.accent
+                                selectedTextColor: Theme.accentInk
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 12
+                                padding: 9
+                                background: Rectangle {
+                                    radius: 8
+                                    color: Theme.field
+                                    border.width: captionField.activeFocus ? 2 : 1
+                                    border.color: captionField.activeFocus ? Theme.accent : Theme.lineStrong
+                                }
+                                // Follows the selected caption until the user types.
+                                readonly property string savedText: root.activeText ? root.activeText.text : ""
+                                onSavedTextChanged: if (text !== savedText) text = savedText
+                                Component.onCompleted: text = savedText
+                                onEditingFinished: {
+                                    if (!root.activeText) return
+                                    if (!editorProject.setTextContent(editorProject.activeTextIndex, text)) text = savedText
+                                }
+                            }
+                            RowLayout {
+                                visible: root.activeText !== null
+                                Layout.fillWidth: true
+                                spacing: 6
+                                ToolCombo {
+                                    objectName: "captionPositionCombo"
+                                    Layout.fillWidth: true
+                                    enabled: !exporter.busy
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: [{ value: "top", label: "Top" }, { value: "middle", label: "Middle" }, { value: "bottom", label: "Bottom" }]
+                                    currentIndex: root.activeText ? ["top", "middle", "bottom"].indexOf(root.activeText.position) : 2
+                                    onActivated: editorProject.setTextStyle(editorProject.activeTextIndex, currentValue, root.activeText.size)
+                                }
+                                ToolCombo {
+                                    objectName: "captionSizeCombo"
+                                    Layout.fillWidth: true
+                                    enabled: !exporter.busy
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: [{ value: "small", label: "Small" }, { value: "medium", label: "Medium" }, { value: "large", label: "Large" }]
+                                    currentIndex: root.activeText ? ["small", "medium", "large"].indexOf(root.activeText.size) : 1
+                                    onActivated: editorProject.setTextStyle(editorProject.activeTextIndex, root.activeText.position, currentValue)
+                                }
+                                EditorButton {
+                                    objectName: "removeTextButton"
+                                    iconName: "close"
+                                    subtle: true
+                                    enabled: !exporter.busy
+                                    onClicked: editorProject.removeText(editorProject.activeTextIndex)
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: "Remove the text (Delete on the timeline)"
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.activeText
+                                      ? "Shown from " + root.timecode(root.activeText.startMs) + " for " + root.timecode(root.activeText.lengthMs) + ". Drag it on the text track to move it, its edges to change how long it stays."
+                                      : editorProject.textItems.length === 0
+                                        ? "Titles and captions, burnt into the export. Double-click the text track to add one."
+                                        : "Click a caption on the text track to edit it."
+                                wrapMode: Text.WordWrap
+                                color: Theme.textFaint
+                                font.pixelSize: 10
+                            }
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.topMargin: 4
@@ -1888,7 +2018,7 @@ ApplicationWindow {
         Rectangle {
             visible: root.workspace === 0
             Layout.fillWidth: true
-            Layout.preferredHeight: 248
+            Layout.preferredHeight: 274
             color: Theme.panel
             Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Theme.line }
             ColumnLayout {
@@ -1935,12 +2065,24 @@ ApplicationWindow {
                         musicDialog.open()
                     }
                     onAudioDropped: function(urls, startMs) { root.addAudioFiles(urls, startMs) }
+                    textItems: editorProject.textItems
+                    textIndex: editorProject.activeTextIndex
+                    onTextSelectRequested: function(index) { editorProject.selectText(index) }
+                    onTextPlaceRequested: function(index, startMs, endMs) { editorProject.setTextPlacement(index, startMs, endMs) }
+                    onTextRemoveRequested: function(index) { editorProject.removeText(index) }
+                    onTextAddRequested: function(startMs) {
+                        if (editorProject.addText(startMs) >= 0) {
+                            captionField.forceActiveFocus()
+                            captionField.selectAll()
+                        }
+                    }
                     onScrubRequested: function(ms) { root.beginScrub(ms) }
                     onScrubFinished: root.scrubbing = false
                     onSelectRequested: function(index) {
                         root.sequencePlaying = false
                         root.sequenceAdvancing = false
                         editorProject.selectAudio(-1)
+                        editorProject.selectText(-1)
                         editorProject.selectClip(index)
                     }
                     onTrimRequested: function(index, inMs, outMs, previewMs) {

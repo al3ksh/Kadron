@@ -129,9 +129,25 @@ QVariantList EditorProject::audioItems() const
     return result;
 }
 
+QVariantList EditorProject::textItems() const
+{
+    QVariantList result;
+    for (const auto &item : m_mix.texts) {
+        result.append(QVariantMap{
+            {"text", item.text},
+            {"startMs", item.startMs},
+            {"endMs", item.endMs},
+            {"lengthMs", qMax<qint64>(0, item.endMs - item.startMs)},
+            {"position", item.position},
+            {"size", item.size}
+        });
+    }
+    return result;
+}
+
 bool EditorProject::mixed() const
 {
-    if (m_clips.size() != 1 || !m_mix.audio.isEmpty())
+    if (m_clips.size() != 1 || !m_mix.audio.isEmpty() || !m_mix.texts.isEmpty())
         return true;
     const auto &clip = m_clips.first();
     return clip.muted || !qFuzzyCompare(clip.volume, 1.0) || !qFuzzyCompare(clip.speed, 1.0);
@@ -143,7 +159,8 @@ QVariantMap EditorProject::exportOptions() const
         {"transition", m_mix.transition},
         {"transitionMs", m_mix.transitionMs},
         {"audio", audioItems()},
-        {"musicDuck", m_mix.musicDuck}
+        {"musicDuck", m_mix.musicDuck},
+        {"texts", textItems()}
     };
 }
 
@@ -380,6 +397,7 @@ int EditorProject::addAudio(const QUrl &url, qint64 startMs)
     }
     m_mix.audio.append(item);
     m_activeAudioIndex = m_mix.audio.size() - 1;
+    m_activeTextIndex = -1;
     clearError();
     markChanged();
     probeDurations();
@@ -392,6 +410,8 @@ bool EditorProject::selectAudio(int index)
         return false;
     if (index != m_activeAudioIndex) {
         m_activeAudioIndex = index;
+        if (index >= 0)
+            m_activeTextIndex = -1;
         emit changed();
     }
     return true;
@@ -473,6 +493,93 @@ void EditorProject::setMusicDuck(bool value)
     }
 }
 
+int EditorProject::addText(qint64 startMs)
+{
+    const auto total = sequenceDurationMs();
+    if (m_clips.isEmpty() || total < 200)
+        return -1;
+    TextItem item;
+    item.text = QStringLiteral("Your text");
+    item.startMs = qBound<qint64>(0, startMs, total - 200);
+    item.endMs = qMin(total, item.startMs + 3000);
+    m_mix.texts.append(item);
+    m_activeTextIndex = m_mix.texts.size() - 1;
+    m_activeAudioIndex = -1;
+    markChanged();
+    return m_activeTextIndex;
+}
+
+bool EditorProject::selectText(int index)
+{
+    if (index < -1 || index >= m_mix.texts.size())
+        return false;
+    if (index != m_activeTextIndex) {
+        m_activeTextIndex = index;
+        if (index >= 0)
+            m_activeAudioIndex = -1;
+        emit changed();
+    }
+    return true;
+}
+
+bool EditorProject::setTextContent(int index, const QString &text)
+{
+    if (index < 0 || index >= m_mix.texts.size())
+        return false;
+    // Trailing blank lines would push the caption off its place.
+    auto value = text.left(500);
+    while (!value.isEmpty() && value.back().isSpace())
+        value.chop(1);
+    if (value.trimmed().isEmpty() || value == m_mix.texts[index].text)
+        return !value.trimmed().isEmpty();
+    m_mix.texts[index].text = value;
+    markChanged();
+    return true;
+}
+
+bool EditorProject::setTextPlacement(int index, qint64 startMs, qint64 endMs)
+{
+    if (index < 0 || index >= m_mix.texts.size())
+        return false;
+    startMs = qMax<qint64>(0, startMs);
+    endMs = qMax(startMs + 200, endMs);
+    auto &item = m_mix.texts[index];
+    if (item.startMs == startMs && item.endMs == endMs)
+        return true;
+    item.startMs = startMs;
+    item.endMs = endMs;
+    markChanged();
+    return true;
+}
+
+bool EditorProject::setTextStyle(int index, const QString &position, const QString &size)
+{
+    if (index < 0 || index >= m_mix.texts.size()
+        || !QStringList{"top", "middle", "bottom"}.contains(position)
+        || !QStringList{"small", "medium", "large"}.contains(size))
+        return false;
+    auto &item = m_mix.texts[index];
+    if (item.position == position && item.size == size)
+        return true;
+    item.position = position;
+    item.size = size;
+    markChanged();
+    return true;
+}
+
+bool EditorProject::removeText(int index)
+{
+    if (index < 0 || index >= m_mix.texts.size())
+        return false;
+    m_mix.texts.removeAt(index);
+    if (m_activeTextIndex >= m_mix.texts.size() || m_activeTextIndex == index)
+        m_activeTextIndex = -1;
+    else if (m_activeTextIndex > index)
+        --m_activeTextIndex;
+    markChanged();
+    return true;
+}
+
 EditorProject::Snapshot EditorProject::snapshot() const { return {m_clips, m_activeClipIndex, m_mix}; }
 
 void EditorProject::restore(const Snapshot &state)
@@ -482,6 +589,8 @@ void EditorProject::restore(const Snapshot &state)
     m_mix = state.mix;
     if (m_activeAudioIndex >= m_mix.audio.size())
         m_activeAudioIndex = -1;
+    if (m_activeTextIndex >= m_mix.texts.size())
+        m_activeTextIndex = -1;
     m_baseline = state;
     m_dirty = true;
     clearError();
@@ -493,6 +602,7 @@ void EditorProject::closeProject()
     m_clips.clear();
     m_activeClipIndex = -1;
     m_activeAudioIndex = -1;
+    m_activeTextIndex = -1;
     m_mix = {};
     m_projectUrl.clear();
     m_dirty = false;
@@ -611,6 +721,7 @@ bool EditorProject::importMedia(const QUrl &url)
     m_clips = {{QUrl::fromLocalFile(QFileInfo(url.toLocalFile()).absoluteFilePath()), 0, 0, 0}};
     m_activeClipIndex = 0;
     m_activeAudioIndex = -1;
+    m_activeTextIndex = -1;
     m_mix = {};
     m_projectUrl = QUrl();
     markChanged();
@@ -711,7 +822,7 @@ bool EditorProject::openProject(const QUrl &url)
     const auto object = document.object();
     const auto version = object.value("version").toInt();
     if (parseError.error != QJsonParseError::NoError || !document.isObject()
-        || version < 1 || version > 5) {
+        || version < 1 || version > 6) {
         setError(QStringLiteral("This is not a supported Kadron project."));
         return false;
     }
@@ -791,11 +902,29 @@ bool EditorProject::openProject(const QUrl &url)
         if (mix.audio.size() > 1000)
             break;
     }
+    for (const auto &entry : object.value("texts").toArray()) {
+        const auto item = entry.toObject();
+        TextItem text;
+        text.text = item.value("text").toString().left(500);
+        text.startMs = qMax<qint64>(0, item.value("startMs").toVariant().toLongLong());
+        text.endMs = qMax(text.startMs + 200, item.value("endMs").toVariant().toLongLong());
+        const auto position = item.value("position").toString();
+        if (position == "top" || position == "middle")
+            text.position = position;
+        const auto size = item.value("size").toString();
+        if (size == "small" || size == "large")
+            text.size = size;
+        if (!text.text.trimmed().isEmpty())
+            mix.texts.append(text);
+        if (mix.texts.size() > 1000)
+            break;
+    }
 
     m_clips = parsedClips;
     m_mix = mix;
     m_activeClipIndex = qBound(0, object.value("activeIndex").toInt(), m_clips.size() - 1);
     m_activeAudioIndex = -1;
+    m_activeTextIndex = -1;
     m_projectUrl = QUrl::fromLocalFile(projectFile.absoluteFilePath());
     m_dirty = false;
     resetHistory();
@@ -856,9 +985,22 @@ QByteArray EditorProject::serialize(const QString &directory) const
             {"fadeOutMs", static_cast<double>(item.fadeOutMs)}
         });
     }
-    QJsonObject object{{"version", 5}, {"clips", entries}, {"activeIndex", m_activeClipIndex},
+    QJsonArray textEntries;
+    for (const auto &item : m_mix.texts) {
+        textEntries.append(QJsonObject{
+            {"text", item.text},
+            {"startMs", static_cast<double>(item.startMs)},
+            {"endMs", static_cast<double>(item.endMs)},
+            {"position", item.position},
+            {"size", item.size}
+        });
+    }
+    // Version 6 only when there are captions, so older Kadron still opens the rest.
+    QJsonObject object{{"version", textEntries.isEmpty() ? 5 : 6}, {"clips", entries}, {"activeIndex", m_activeClipIndex},
                        {"transition", m_mix.transition}, {"transitionMs", m_mix.transitionMs},
                        {"audio", audioEntries}, {"duck", m_mix.musicDuck}};
+    if (!textEntries.isEmpty())
+        object.insert("texts", textEntries);
     return QJsonDocument(object).toJson(QJsonDocument::Indented);
 }
 
