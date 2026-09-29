@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/editor.png" alt="Kadron editor with a three-clip sequence on the timeline">
+  <img src="docs/screenshots/editor.png" alt="Kadron editor with three clips, a music track and a caption on the timeline">
 </p>
 
 ## What it does
@@ -20,7 +20,10 @@
 - Drag a block's edge to trim it; the monitor previews the new frame, and the cut stays reversible until you release.
 - Drag blocks to reorder them, split at the playhead, and undo or redo any edit.
 - Scrubbing lands on the exact frame, and playback runs across the whole sequence.
-- Set each clip's volume (up to 200%) or mute it, and let clips meet with a cut, a fade through black or a crossfade.
+- Set each clip's volume (up to 200%) or mute it, play it at 0.5× to 2×, and let clips meet with a cut, a fade through black or a crossfade.
+- **Remove silence** cuts the quiet stretches out of a clip in one step.
+- Put text over the video: drag a caption where it should sit, stretch it on its own track for as long as it shows, and pick a font and an outline, box or shadow.
+- The camera button under the monitor (or `Ctrl+Shift+S`) saves the current frame as an image.
 - Lay music and sounds on the audio track under the clips: drop in as many files as you like, drag each to where it should play (it snaps to joins, the playhead and other sounds), trim its edges and drag its corners to fade it in and out. Each has its own volume, the track can duck under the clips' own sound, and anything still playing at the end fades out.
 - Export the sequence as MP4 on the GPU (NVIDIA NVENC, Intel Quick Sync or AMD AMF, whichever works on your machine) or on the CPU. If the GPU encoder fails mid-export, Kadron finishes on the CPU. Projects are saved as `.kadr` files.
 - Preview volume is shared by the editor and the tools, and remembered.
@@ -36,8 +39,8 @@
 
 | Tool | What you get |
 | --- | --- |
-| Audio | Trim on the waveform, play the selection, then convert to MP3, WAV, FLAC or Opus, with optional loudness normalization |
-| GIF Studio | Choose a range on a filmstrip with a looping preview; set frame rate, width, and a size limit |
+| Audio | Trim on the waveform, play the selection, then convert to MP3, AAC, Opus, WAV or FLAC at a chosen bitrate, with the output size estimated before you start. Under *More options*: fade in and out, a loudness target (Podcast, Music, Loud), mono, and exact start and end times |
+| GIF Studio | Choose a range on a filmstrip with a looping preview; pick the size, smoothness and a file size limit while a meter shows the clip and the GIF it becomes. Under *More options*: speed, bounce (forward then back) and play once |
 | Compress | Shrink video or images, optionally to a target file size |
 | Reframe | Turn a landscape video into 9:16, 1:1, 4:5 or 16:9. Either a crop that follows the action (move the frame at different moments and it eases between those keyframes, with a live preview of the result) the whole picture over a blurred copy of itself, or a split screen that stacks two regions, such as a streamer's webcam (any size and place) above the game. Exports 1080p MP4 |
 | Images | Convert a batch of photos between JPG, PNG, WebP and AVIF (HEIC in), resize them, fit them under a file size, crop with aspect presets, rotate and flip; compare before and after. Shows the camera, date and GPS location a photo carries; saved copies have no metadata |
@@ -49,11 +52,15 @@ Nothing leaves your machine unless you ask it to. **Clips**, **Drop**, and **Sho
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/audio.png" alt="Audio trimmer with a waveform selection"></td>
-    <td><img src="docs/screenshots/gif.png" alt="GIF Studio with a range on the filmstrip"></td>
+    <td><img src="docs/screenshots/reframe.png" alt="Reframe cropping a landscape video to 9:16"></td>
+    <td><img src="docs/screenshots/images.png" alt="Images with a batch of photos and crop handles"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/pdf.png" alt="Visual PDF page editor"></td>
+    <td><img src="docs/screenshots/gif.png" alt="GIF Studio with a range on the filmstrip and the size meter"></td>
+    <td><img src="docs/screenshots/audio.png" alt="Audio converter with a waveform selection and size estimate"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/pdf.png" alt="PDF Tools with a document ready to edit"></td>
     <td><img src="docs/screenshots/qr.png" alt="QR code with a live preview"></td>
   </tr>
 </table>
