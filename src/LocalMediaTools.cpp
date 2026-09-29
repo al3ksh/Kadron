@@ -10,6 +10,8 @@
 #include <QUuid>
 #include <QtMath>
 
+#include <limits>
+
 LocalMediaTools::LocalMediaTools(QObject *parent)
     : QObject(parent), m_ffmpeg(ffmpegExecutable()), m_ffprobe(ffprobeExecutable())
 {
@@ -240,7 +242,30 @@ static QString glide(const QList<QPair<double, double>> &points)
     return expression;
 }
 
+QVector<TextOverlay> LocalMediaTools::reframeTexts(const QVariantMap &options)
+{
+    QVector<TextOverlay> texts;
+    for (const auto &entry : options.value("texts").toList()) {
+        const auto text = TextOverlay::fromMap(entry.toMap());
+        if (!text.text.trimmed().isEmpty() && text.endMs - text.startMs >= 100)
+            texts << text;
+    }
+    return texts;
+}
+
 QString LocalMediaTools::reframeFilter(QSize source, const QVariantMap &options)
+{
+    auto graph = reframePicture(source, options);
+    const auto texts = reframeTexts(options);
+    if (texts.isEmpty() || !graph.endsWith("[v]"))
+        return graph;
+    // Text goes on the finished frame, sized against the output's height.
+    const auto output = reframeOutput(options.value("aspectW").toInt(), options.value("aspectH").toInt());
+    graph.chop(3);
+    return graph + TextOverlay::filter(texts, 0, std::numeric_limits<qint64>::max() / 4, output.height()) + "[v]";
+}
+
+QString LocalMediaTools::reframePicture(QSize source, const QVariantMap &options)
 {
     const int aspectW = options.value("aspectW").toInt(), aspectH = options.value("aspectH").toInt();
     const auto output = reframeOutput(aspectW, aspectH);
@@ -376,6 +401,18 @@ void LocalMediaTools::encode()
     m_stage = m_attempt == 1 ? QStringLiteral("Encoding") : QStringLiteral("Refining size (%1/4)").arg(m_attempt);
     QFile::remove(m_partialPath);
     emit changed();
+    m_process.setWorkingDirectory(QString());
+    if (m_operation == Operation::Reframe) {
+        const auto texts = reframeTexts(m_reframe);
+        if (!texts.isEmpty()) {
+            m_textDir = std::make_unique<QTemporaryDir>();
+            if (!m_textDir->isValid() || !TextOverlay::writeAssets(m_textDir->path(), texts)) {
+                fail(QStringLiteral("Could not prepare the text for the video."));
+                return;
+            }
+            m_process.setWorkingDirectory(m_textDir->path());
+        }
+    }
     m_process.start(m_ffmpeg, arguments());
 }
 

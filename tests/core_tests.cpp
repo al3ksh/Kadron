@@ -332,8 +332,23 @@ void CoreTests::projectRoundTrip()
     QCOMPARE(project.textItems().at(0).toMap().value("endMs").toLongLong(), 3000);
     QVERIFY(project.setTextContent(0, "Two\nlines  "));
     QVERIFY(!project.setTextContent(0, "   "));
-    QVERIFY(project.setTextStyle(0, "top", "large"));
-    QVERIFY(!project.setTextStyle(0, "left", "large"));
+    QVERIFY(project.setTextStyle(0, {{"x", 0.25}, {"y", 1.4}, {"size", 0.09}, {"color", "#FFCC00"},
+                                     {"font", "impact"}, {"style", "box"}, {"text", "ignored"}}));
+    {
+        const auto styled = project.textItems().at(0).toMap();
+        QCOMPARE(styled.value("x").toDouble(), 0.25);
+        QCOMPARE(styled.value("y").toDouble(), 1.0);
+        QCOMPARE(styled.value("color").toString(), QString("#ffcc00"));
+        QCOMPARE(styled.value("font").toString(), QString("impact"));
+        QCOMPARE(styled.value("text").toString(), QString("Two\nlines"));
+    }
+    QVERIFY(project.setTextStyle(0, {{"font", "comic"}, {"y", 0.8}}));
+    QCOMPARE(project.textItems().at(0).toMap().value("font").toString(), QString("sans"));
+    QVERIFY(!project.setTextStyle(3, {{"y", 0.5}}));
+    // Captions saved before free placement keep their spot.
+    const auto legacy = TextOverlay::fromMap({{"text", "Old"}, {"position", "top"}, {"size", "large"}});
+    QCOMPARE(legacy.size, 0.095);
+    QVERIFY(legacy.y > 0.1 && legacy.y < 0.15);
 
     const auto projectPath = directory.path() + "/edit.kadr";
     QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
@@ -752,11 +767,15 @@ void CoreTests::exportPresets()
     plan = ExportController::outputPlan("vertical", {1920, 1080}, 30, 10000);
     QCOMPARE(plan.canvas, QSize(1080, 1920));
     QVERIFY(plan.fill);
-    const QVector<ExportController::TextOverlay> texts{{"Hi", 1000, 3000, "top", "large"}};
-    QVERIFY(ExportController::textFilter(texts, 3000, 2000, 1080).isEmpty());
-    const auto caption = ExportController::textFilter(texts, 2000, 2000, 1080);
+    auto overlay = TextOverlay::fromMap({{"text", "Hi"}, {"startMs", 1000}, {"endMs", 3000}, {"x", 0.2}, {"y", 0.1},
+                                         {"size", 0.095}, {"color", "#ff0000"}, {"font", "serif"}, {"style", "shadow"}});
+    const QVector<TextOverlay> texts{overlay};
+    QVERIFY(TextOverlay::filter(texts, 3000, 2000, 1080).isEmpty());
+    const auto caption = TextOverlay::filter(texts, 2000, 2000, 1080);
     QVERIFY2(caption.startsWith(",drawtext=") && caption.contains("textfile=text_0.txt") && caption.contains("fontsize=103")
-             && caption.contains("between(t,-1.000,1.000)") && caption.contains("y='h*0.07'"), qPrintable(caption));
+             && caption.contains("between(t,-1.000,1.000)") && caption.contains("fontfile=font_serif.ttf")
+             && caption.contains("fontcolor=0xff0000") && caption.contains("shadowx=")
+             && caption.contains("clip(w*0.2000-text_w/2") && caption.contains("clip(h*0.1000-text_h/2"), qPrintable(caption));
     QCOMPARE(ExportController::discordVideoKbps(1000), 8000);
     QCOMPARE(ExportController::discordVideoKbps(3600000), 100);
     QVERIFY(ExportController::videoCodecArgs("cpu", false, 2000).contains("2000k"));
@@ -1581,6 +1600,21 @@ void CoreTests::reframeVideo()
     QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 60000);
     QVERIFY2(tools.errorText().isEmpty(), qPrintable(tools.errorText()));
     QCOMPARE(probeSize(stacked), QSize(1080, 1920));
+
+    // Text on a reframe is drawn on the finished frame, from files beside ffmpeg.
+    auto titled = moving;
+    titled["texts"] = QVariantList{
+        QVariantMap{{"text", "Zażółć"}, {"startMs", 0}, {"endMs", 1500}, {"x", 0.5}, {"y", 0.2}, {"size", 0.08},
+                    {"font", "impact"}, {"style", "box"}, {"color", "#ffee00"}},
+        QVariantMap{{"text", "  "}, {"startMs", 0}, {"endMs", 1500}}};
+    QCOMPARE(LocalMediaTools::reframeTexts(titled).size(), 1);
+    const auto titledFilter = LocalMediaTools::reframeFilter(QSize(640, 360), titled);
+    QVERIFY2(titledFilter.contains("fontsize=154") && titledFilter.endsWith("[v]"), qPrintable(titledFilter));
+    const auto withText = directory.path() + "/titled.mp4";
+    QVERIFY(tools.reframe(QUrl::fromLocalFile(source), QUrl::fromLocalFile(withText), titled));
+    QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 60000);
+    QVERIFY2(tools.errorText().isEmpty(), qPrintable(tools.errorText()));
+    QCOMPARE(probeSize(withText), QSize(1080, 1920));
 }
 
 #include "core_tests.moc"

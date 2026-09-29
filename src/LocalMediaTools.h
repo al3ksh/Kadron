@@ -1,8 +1,12 @@
 #pragma once
 
+#include "TextOverlay.h"
+
 #include <QObject>
+#include <memory>
 #include <QProcess>
 #include <QSize>
+#include <QTemporaryDir>
 #include <QUrl>
 #include <QVariantMap>
 
@@ -49,13 +53,17 @@ public:
     Q_INVOKABLE static QSize reframeCrop(QSize source, int aspectW, int aspectH, double zoom);
     // Heights of the top and bottom panels of a split output.
     static QPair<int, int> splitHeights(QSize output, double share);
-    // FFmpeg filter graph from [0:v] to [v].
+    // FFmpeg filter graph from [0:v] to [v], with options.texts drawn on top
+    // (their files come from TextOverlay::writeAssets in the working directory).
     static QString reframeFilter(QSize source, const QVariantMap &options);
+    // The texts in options.texts worth drawing, in the order the filter numbers them.
+    static QVector<TextOverlay> reframeTexts(const QVariantMap &options);
 
 signals:
     void changed();
 
 private:
+    static QString reframePicture(QSize source, const QVariantMap &options);
     enum class Operation { None, Audio, Image, Video, Gif, Reframe };
     enum class Phase { Idle, Probe, Encode };
     bool begin(const QUrl &source, const QUrl &destination, Operation operation);
@@ -98,5 +106,6 @@ private:
     bool m_stripAudio = false;
     bool m_cancelled = false;
     QVariantMap m_reframe;
+    std::unique_ptr<QTemporaryDir> m_textDir;
     QSize m_sourceSize;
 };

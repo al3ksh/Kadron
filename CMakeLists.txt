@@ -15,6 +15,8 @@ qt_add_executable(kadron
     src/EditorProject.h
     src/ExportController.cpp
     src/ExportController.h
+    src/TextOverlay.cpp
+    src/TextOverlay.h
     src/ThumbnailStrip.cpp
     src/ThumbnailStrip.h
     src/MediaTools.h
@@ -92,6 +94,8 @@ qt_add_qml_module(kadron_ui
         qml/PagePicker.qml
         qml/Intro.qml
         qml/Tutorial.qml
+        qml/TextOverlayLayer.qml
+        qml/TextStyleEditor.qml
         qml/ImagesWorkspace.qml
         qml/ReframeWorkspace.qml
         qml/RegionFrame.qml
@@ -131,6 +135,8 @@ if(BUILD_TESTING)
         src/EditorProject.h
         src/ExportController.cpp
         src/ExportController.h
+        src/TextOverlay.cpp
+        src/TextOverlay.h
         src/ThumbnailStrip.cpp
         src/ThumbnailStrip.h
         src/MediaTools.h
@@ -158,7 +164,8 @@ if(BUILD_TESTING)
     add_test(NAME core COMMAND kadron_core_tests)
 
     qt_add_executable(kadron_ui_tests tests/ui_tests.cpp src/LocalImageTools.cpp src/LocalImageTools.h
-        src/LocalMediaTools.cpp src/LocalMediaTools.h)
+        src/LocalMediaTools.cpp src/LocalMediaTools.h
+        src/TextOverlay.cpp src/TextOverlay.h)
     target_include_directories(kadron_ui_tests PRIVATE src)
     target_link_libraries(kadron_ui_tests PRIVATE kadron_uiplugin Qt6::Quick Qt6::Qml Qt6::Test Qt6::Concurrent)
     target_compile_definitions(kadron_ui_tests PRIVATE KADRON_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")

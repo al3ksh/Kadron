@@ -1,5 +1,7 @@
 #pragma once
 
+#include "TextOverlay.h"
+
 #include <QObject>
 #include <QProcess>
 #include <QSize>
@@ -84,19 +86,8 @@ public:
     static QString mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int firstAudioInput,
                              const QVector<AudioBed> &beds, bool duck, int fps = 30);
 
-    // A caption shown from startMs to endMs of the sequence (before crossfade
-    // overlaps, like the editor's timeline).
-    struct TextOverlay {
-        QString text;
-        qint64 startMs = 0;
-        qint64 endMs = 0;
-        QString position;
-        QString size;
-    };
-    // drawtext filters (each led by a comma) for the captions over one clip
-    // that starts at segmentStartMs of the sequence; caption i reads
-    // text_<i>.txt and every one font.ttf from the working directory.
-    static QString textFilter(const QVector<TextOverlay> &texts, qint64 segmentStartMs, qint64 segmentLengthMs, int canvasHeight);
+    // Captions are shown from startMs to endMs of the sequence (before
+    // crossfade overlaps, like the editor's timeline); see TextOverlay::filter.
 
     Q_INVOKABLE void detectEncoders();
     // options: preset (see outputPlan), loudnorm to even out loudness, and

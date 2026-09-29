@@ -33,6 +33,7 @@ private slots:
     void appearance();
     void intro();
     void tutorial();
+    void textOverlayDrag();
     void imagesWorkspace();
     void reframeWorkspace();
     void fileBoardReorder();
@@ -584,6 +585,37 @@ void UiTests::tutorial()
     QVERIFY(prefs->property("tutorialDone").toBool());
     QTRY_VERIFY(!tour->property("visible").toBool());
     prefs->setProperty("tutorialDone", false);
+}
+
+void UiTests::textOverlayDrag()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport Kadron\nTextOverlayLayer {\n width: 400; height: 200\n"
+                      " property real movedX: -1\n property real movedY: -1\n property int pickedIndex: -1\n"
+                      " onPicked: function(i) { pickedIndex = i }\n"
+                      " onMoved: function(i, x, y) { movedX = x; movedY = y }\n}", QUrl());
+    std::unique_ptr<QObject> root(component.create());
+    auto *layer = qobject_cast<QQuickItem *>(root.get());
+    QVERIFY2(layer, qPrintable(component.errorString()));
+    layer->setProperty("texts", QVariantList{QVariantMap{{"text", "Drag me"}, {"startMs", 0}, {"endMs", 5000},
+        {"x", 0.5}, {"y", 0.5}, {"size", 0.1}, {"color", "#ffffff"}, {"font", "sans"}, {"style", "box"}}});
+    layer->setProperty("timeMs", 1000);
+    QQuickWindow window;
+    window.setGeometry(50, 50, 400, 200);
+    layer->setParentItem(window.contentItem());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    // Dragging the text 100 px right and 40 px up is reported once, on release.
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(200, 100));
+    QCOMPARE(root->property("pickedIndex").toInt(), 0);
+    for (int step = 1; step <= 10; ++step)
+        QTest::mouseMove(&window, QPoint(200 + step * 10, 100 - step * 4));
+    QCOMPARE(root->property("movedX").toDouble(), -1.0);
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(300, 60));
+    QVERIFY(qAbs(root->property("movedX").toDouble() - 0.75) < 0.01);
+    QVERIFY(qAbs(root->property("movedY").toDouble() - 0.3) < 0.01);
 }
 
 void UiTests::imagesWorkspace()

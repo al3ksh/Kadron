@@ -88,7 +88,40 @@ Item {
         sourceUrl = url
         keyframes = []
         zoom = 1
+        texts = []
+        textIndex = -1
         return true
+    }
+    // Text over the result, the same maps the editor uses (TextOverlay).
+    property var texts: []
+    property int textIndex: -1
+    readonly property var activeText: textIndex >= 0 && textIndex < texts.length ? texts[textIndex] : null
+    function addText() {
+        var end = Math.max(1000, player.duration)
+        var list = texts.slice()
+        list.push({ text: "Your text", startMs: 0, endMs: end, lengthMs: end, x: 0.5, y: 0.8, size: 0.05,
+                    color: "#ffffff", font: "sans", style: "outline" })
+        texts = list
+        textIndex = list.length - 1
+    }
+    function updateText(index, changes) {
+        if (index < 0 || index >= texts.length) return
+        var item = Object.assign({}, texts[index], changes)
+        item.x = Math.max(0, Math.min(1, item.x))
+        item.y = Math.max(0, Math.min(1, item.y))
+        item.size = Math.max(0.02, Math.min(0.25, item.size))
+        item.startMs = Math.max(0, Math.min(item.startMs, item.endMs - 200))
+        item.lengthMs = item.endMs - item.startMs
+        var list = texts.slice()
+        list[index] = item
+        texts = list
+    }
+    function removeText(index) {
+        if (index < 0 || index >= texts.length) return
+        var list = texts.slice()
+        list.splice(index, 1)
+        texts = list
+        textIndex = Math.min(textIndex, list.length - 1)
     }
     function clampCenter(x, y) {
         var hw = cropShare.width / 2, hh = cropShare.height / 2
@@ -162,7 +195,8 @@ Item {
                 keyframes: page.keyframes.length > 0 ? page.keyframes : [{ t: 0, x: page.center.x, y: page.center.y }],
                 share: page.camOnTop ? page.camShare : 1 - page.camShare,
                 panels: page.camOnTop ? [page.asPanel(page.camArea), page.asPanel(page.mainArea)]
-                                      : [page.asPanel(page.mainArea), page.asPanel(page.camArea)]
+                                      : [page.asPanel(page.mainArea), page.asPanel(page.camArea)],
+                texts: page.texts
             })
         }
     }
@@ -614,6 +648,18 @@ Item {
                                         sourceRect: page.picture
                                     }
                                 }
+
+                                TextOverlayLayer {
+                                    objectName: "reframeTextLayer"
+                                    anchors.fill: parent
+                                    texts: page.texts
+                                    timeMs: player.position
+                                    selectedIndex: page.textIndex
+                                    draftSize: reframeTextStyle.draftSize
+                                    editable: !localReframe.busy
+                                    onPicked: function(index) { page.textIndex = index }
+                                    onMoved: function(index, x, y) { page.updateText(index, { x: x, y: y }) }
+                                }
                             }
                             Rectangle { id: phoneMask; width: phone.width; height: phone.height; radius: 10; visible: false; layer.enabled: true }
                             Rectangle {
@@ -726,6 +772,130 @@ Item {
                             color: Theme.textFaint
                             font.pixelSize: 11
                             wrapMode: Text.WordWrap
+                        }
+
+                        // Text burnt into the result.
+                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+                        Text { Layout.leftMargin: 20; Layout.topMargin: 6; text: "TEXT"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 20
+                            Layout.rightMargin: 20
+                            Layout.bottomMargin: 14
+                            spacing: 6
+                            enabled: !localReframe.busy
+                            Flow {
+                                visible: page.texts.length > 1
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Repeater {
+                                    model: page.texts
+                                    delegate: EditorButton {
+                                        required property var modelData
+                                        required property int index
+                                        implicitHeight: 28
+                                        text: modelData.text.length > 14 ? modelData.text.slice(0, 13).trim() + "…" : modelData.text
+                                        primary: index === page.textIndex
+                                        subtle: index !== page.textIndex
+                                        onClicked: {
+                                            page.textIndex = index
+                                            if (player.position < modelData.startMs || player.position >= modelData.endMs)
+                                                player.position = modelData.startMs
+                                        }
+                                    }
+                                }
+                            }
+                            EditorButton {
+                                objectName: "reframeAddText"
+                                Layout.fillWidth: true
+                                text: "Add text"
+                                iconName: "plus"
+                                enabled: player.duration > 0
+                                onClicked: {
+                                    page.addText()
+                                    reframeTextField.forceActiveFocus()
+                                    reframeTextField.selectAll()
+                                }
+                            }
+                            TextArea {
+                                id: reframeTextField
+                                objectName: "reframeTextField"
+                                visible: page.activeText !== null
+                                Layout.fillWidth: true
+                                wrapMode: TextEdit.Wrap
+                                color: Theme.text
+                                selectionColor: Theme.accent
+                                selectedTextColor: Theme.accentInk
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 12
+                                padding: 9
+                                background: Rectangle {
+                                    radius: 8
+                                    color: Theme.field
+                                    border.width: reframeTextField.activeFocus ? 2 : 1
+                                    border.color: reframeTextField.activeFocus ? Theme.accent : Theme.lineStrong
+                                }
+                                readonly property string savedText: page.activeText ? page.activeText.text : ""
+                                onSavedTextChanged: if (text !== savedText) text = savedText
+                                Component.onCompleted: text = savedText
+                                // Live: the preview follows each key.
+                                onTextChanged: if (page.activeText && text !== savedText && text.trim().length > 0)
+                                                   page.updateText(page.textIndex, { text: text.slice(0, 500) })
+                            }
+                            RowLayout {
+                                visible: page.activeText !== null
+                                Layout.fillWidth: true
+                                spacing: 6
+                                EditorButton {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 30
+                                    text: "Start here"
+                                    subtle: true
+                                    enabled: page.activeText !== null && player.position < page.activeText.endMs - 200
+                                    onClicked: page.updateText(page.textIndex, { startMs: player.position })
+                                }
+                                EditorButton {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 30
+                                    text: "End here"
+                                    subtle: true
+                                    enabled: page.activeText !== null && player.position > page.activeText.startMs + 200
+                                    onClicked: page.updateText(page.textIndex, { endMs: player.position })
+                                }
+                                EditorButton {
+                                    implicitHeight: 30
+                                    text: "Whole"
+                                    subtle: true
+                                    onClicked: page.updateText(page.textIndex, { startMs: 0, endMs: Math.max(1000, player.duration) })
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: "Show it for the whole video"
+                                }
+                            }
+                            TextStyleEditor {
+                                id: reframeTextStyle
+                                visible: page.activeText !== null
+                                Layout.fillWidth: true
+                                item: page.activeText
+                                onChangeRequested: function(changes) { page.updateText(page.textIndex, changes) }
+                            }
+                            EditorButton {
+                                visible: page.activeText !== null
+                                Layout.fillWidth: true
+                                text: "Remove text"
+                                iconName: "close"
+                                subtle: true
+                                onClicked: page.removeText(page.textIndex)
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: page.activeText
+                                      ? "Shown " + page.timecode(page.activeText.startMs / 1000) + " – " + page.timecode(page.activeText.endMs / 1000) + ". Drag it on the preview to place it."
+                                      : "Titles or a hook over the reframed video, placed anywhere on it."
+                                color: Theme.textFaint
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                            }
                         }
                     }
                 }

@@ -1283,8 +1283,8 @@ ApplicationWindow {
                         color: "black"
                         opacity: root.transitionDim
                     }
-                    // Captions, laid out like the export draws them.
-                    Item {
+                    // Captions, laid out like the export draws them; drag one to place it.
+                    TextOverlayLayer {
                         id: captionLayer
                         objectName: "captionLayer"
                         visible: player.hasVideo
@@ -1292,29 +1292,13 @@ ApplicationWindow {
                         y: videoOutput.y + videoOutput.contentRect.y
                         width: videoOutput.contentRect.width
                         height: videoOutput.contentRect.height
-                        clip: true
-                        Repeater {
-                            model: editorProject.textItems
-                            delegate: Text {
-                                required property var modelData
-                                readonly property real factor: modelData.size === "small" ? 0.045 : modelData.size === "large" ? 0.095 : 0.065
-                                visible: root.sequencePositionMs >= modelData.startMs && root.sequencePositionMs < modelData.endMs
-                                text: modelData.text
-                                textFormat: Text.PlainText
-                                width: captionLayer.width
-                                horizontalAlignment: Text.AlignHCenter
-                                y: modelData.position === "top" ? captionLayer.height * 0.07
-                                 : modelData.position === "middle" ? (captionLayer.height - height) / 2
-                                                                    : captionLayer.height * 0.93 - height
-                                color: "white"
-                                style: Text.Outline
-                                styleColor: "#8c000000"
-                                font.family: "Segoe UI"
-                                font.weight: Font.Bold
-                                font.pixelSize: Math.max(4, captionLayer.height * factor)
-                                lineHeight: 1.0
-                            }
-                        }
+                        texts: editorProject.textItems
+                        timeMs: root.sequencePositionMs
+                        selectedIndex: editorProject.activeTextIndex
+                        draftSize: captionStyle.draftSize
+                        editable: !exporter.busy
+                        onPicked: function(index) { editorProject.selectText(index) }
+                        onMoved: function(index, x, y) { editorProject.setTextStyle(index, { x: x, y: y }) }
                     }
                     Column {
                         anchors.centerIn: parent
@@ -1817,32 +1801,22 @@ ApplicationWindow {
                                     if (!editorProject.setTextContent(editorProject.activeTextIndex, text)) text = savedText
                                 }
                             }
+                            TextStyleEditor {
+                                id: captionStyle
+                                visible: root.activeText !== null
+                                Layout.fillWidth: true
+                                enabled: !exporter.busy
+                                item: root.activeText
+                                onChangeRequested: function(changes) { editorProject.setTextStyle(editorProject.activeTextIndex, changes) }
+                            }
                             RowLayout {
                                 visible: root.activeText !== null
                                 Layout.fillWidth: true
                                 spacing: 6
-                                ToolCombo {
-                                    objectName: "captionPositionCombo"
-                                    Layout.fillWidth: true
-                                    enabled: !exporter.busy
-                                    textRole: "label"
-                                    valueRole: "value"
-                                    model: [{ value: "top", label: "Top" }, { value: "middle", label: "Middle" }, { value: "bottom", label: "Bottom" }]
-                                    currentIndex: root.activeText ? ["top", "middle", "bottom"].indexOf(root.activeText.position) : 2
-                                    onActivated: editorProject.setTextStyle(editorProject.activeTextIndex, currentValue, root.activeText.size)
-                                }
-                                ToolCombo {
-                                    objectName: "captionSizeCombo"
-                                    Layout.fillWidth: true
-                                    enabled: !exporter.busy
-                                    textRole: "label"
-                                    valueRole: "value"
-                                    model: [{ value: "small", label: "Small" }, { value: "medium", label: "Medium" }, { value: "large", label: "Large" }]
-                                    currentIndex: root.activeText ? ["small", "medium", "large"].indexOf(root.activeText.size) : 1
-                                    onActivated: editorProject.setTextStyle(editorProject.activeTextIndex, root.activeText.position, currentValue)
-                                }
                                 EditorButton {
                                     objectName: "removeTextButton"
+                                    Layout.fillWidth: true
+                                    text: "Remove text"
                                     iconName: "close"
                                     subtle: true
                                     enabled: !exporter.busy
@@ -1855,7 +1829,7 @@ ApplicationWindow {
                             Text {
                                 Layout.fillWidth: true
                                 text: root.activeText
-                                      ? "Shown from " + root.timecode(root.activeText.startMs) + " for " + root.timecode(root.activeText.lengthMs) + ". Drag it on the text track to move it, its edges to change how long it stays."
+                                      ? "Shown from " + root.timecode(root.activeText.startMs) + " for " + root.timecode(root.activeText.lengthMs) + ". Drag it on the picture to place it, on the text track to retime it."
                                       : editorProject.textItems.length === 0
                                         ? "Titles and captions, burnt into the export. Double-click the text track to add one."
                                         : "Click a caption on the text track to edit it."

@@ -267,32 +267,6 @@ QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossf
     return parts.join(';');
 }
 
-QString ExportController::textFilter(const QVector<TextOverlay> &texts, qint64 segmentStartMs, qint64 segmentLengthMs, int canvasHeight)
-{
-    const auto seconds = [](qint64 milliseconds) { return QString::number(milliseconds / 1000.0, 'f', 3); };
-    QString result;
-    for (int i = 0; i < texts.size(); ++i) {
-        const auto &text = texts.at(i);
-        const auto start = text.startMs - segmentStartMs;
-        const auto end = text.endMs - segmentStartMs;
-        if (end <= 0 || start >= segmentLengthMs || end - start < 100)
-            continue;
-        const auto factor = text.size == "small" ? 0.045 : text.size == "large" ? 0.095 : 0.065;
-        const auto fontSize = qMax(8, qRound(canvasHeight * factor));
-        const auto y = text.position == "top" ? QStringLiteral("h*0.07")
-                     : text.position == "middle" ? QStringLiteral("(h-text_h)/2")
-                                                 : QStringLiteral("h*0.93-text_h");
-        // A short fade at both ends, in sequence time so it carries across clips.
-        const auto fade = seconds(qMin<qint64>(200, (end - start) / 2));
-        result += QStringLiteral(",drawtext=fontfile=font.ttf:textfile=text_%1.txt:expansion=none:text_align=center"
-                                 ":fontsize=%2:fontcolor=white:borderw=%3:bordercolor=black@0.55"
-                                 ":x='(w-text_w)/2':y='%4':alpha='clip(min((t-(%5))/%7,(%6-t)/%7),0,1)':enable='between(t,%5,%6)'")
-                      .arg(i).arg(fontSize).arg(qMax(1, qRound(fontSize / 16.0)))
-                      .arg(y, seconds(start), seconds(end), fade);
-    }
-    return result;
-}
-
 bool ExportController::available() const { return !m_ffmpeg.isEmpty(); }
 bool ExportController::busy() const { return m_busy; }
 int ExportController::progress() const { return m_progress; }
@@ -467,8 +441,7 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
     QVector<TextOverlay> texts;
     for (const auto &entry : options.value("texts").toList()) {
         const auto item = entry.toMap();
-        TextOverlay text{item.value("text").toString(), item.value("startMs").toLongLong(), item.value("endMs").toLongLong(),
-                         item.value("position").toString(), item.value("size").toString()};
+        const auto text = TextOverlay::fromMap(item);
         if (!text.text.trimmed().isEmpty() && text.endMs - text.startMs >= 100 && text.startMs < totalMs)
             texts << text;
     }
@@ -478,21 +451,7 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
         return false;
     }
     if (!texts.isEmpty()) {
-        // drawtext reads the captions and the font from files beside the
-        // clips, which spares escaping the text and the font's path.
-        const auto fonts = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows")) + "/Fonts/";
-        QString font;
-        for (const auto &name : {"segoeuib.ttf", "arialbd.ttf", "arial.ttf"}) {
-            if (QFileInfo::exists(fonts + name)) {
-                font = fonts + name;
-                break;
-            }
-        }
-        bool written = !font.isEmpty() && QFile::copy(font, directory->path() + "/font.ttf");
-        for (int i = 0; written && i < texts.size(); ++i) {
-            QSaveFile file(directory->path() + QStringLiteral("/text_%1.txt").arg(i));
-            written = file.open(QIODevice::WriteOnly) && file.write(texts.at(i).text.toUtf8()) >= 0 && file.commit();
-        }
+        const bool written = TextOverlay::writeAssets(directory->path(), texts);
         if (!written) {
             fail(QStringLiteral("Could not prepare the text for export."));
             return false;
@@ -622,7 +581,7 @@ void ExportController::encodeNext()
     for (int i = 0; i < m_segmentIndex; ++i)
         segmentStartMs += m_segments.at(i).lengthMs();
     // Captions go under the fades so they dip to black with the picture.
-    const auto captions = textFilter(m_texts, segmentStartMs, lengthMs, m_canvasHeight);
+    const auto captions = TextOverlay::filter(m_texts, segmentStartMs, lengthMs, m_canvasHeight);
     m_process.setWorkingDirectory(captions.isEmpty() ? QString() : m_sequenceDir->path());
     if (segment.hasVideo) {
         // Fill crops the frame to the canvas; otherwise it is letterboxed.

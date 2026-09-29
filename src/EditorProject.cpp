@@ -132,16 +132,8 @@ QVariantList EditorProject::audioItems() const
 QVariantList EditorProject::textItems() const
 {
     QVariantList result;
-    for (const auto &item : m_mix.texts) {
-        result.append(QVariantMap{
-            {"text", item.text},
-            {"startMs", item.startMs},
-            {"endMs", item.endMs},
-            {"lengthMs", qMax<qint64>(0, item.endMs - item.startMs)},
-            {"position", item.position},
-            {"size", item.size}
-        });
-    }
+    for (const auto &item : m_mix.texts)
+        result.append(item.toMap());
     return result;
 }
 
@@ -552,17 +544,21 @@ bool EditorProject::setTextPlacement(int index, qint64 startMs, qint64 endMs)
     return true;
 }
 
-bool EditorProject::setTextStyle(int index, const QString &position, const QString &size)
+bool EditorProject::setTextStyle(int index, const QVariantMap &changes)
 {
-    if (index < 0 || index >= m_mix.texts.size()
-        || !QStringList{"top", "middle", "bottom"}.contains(position)
-        || !QStringList{"small", "medium", "large"}.contains(size))
+    if (index < 0 || index >= m_mix.texts.size())
         return false;
-    auto &item = m_mix.texts[index];
-    if (item.position == position && item.size == size)
+    auto merged = m_mix.texts.at(index).toMap();
+    for (auto it = changes.cbegin(); it != changes.cend(); ++it) {
+        if (QStringList{"x", "y", "size", "color", "font", "style"}.contains(it.key()))
+            merged.insert(it.key(), it.value());
+    }
+    const auto item = TextOverlay::fromMap(merged);
+    auto &current = m_mix.texts[index];
+    if (item.x == current.x && item.y == current.y && item.size == current.size
+        && item.color == current.color && item.font == current.font && item.style == current.style)
         return true;
-    item.position = position;
-    item.size = size;
+    current = item;
     markChanged();
     return true;
 }
@@ -904,16 +900,10 @@ bool EditorProject::openProject(const QUrl &url)
     }
     for (const auto &entry : object.value("texts").toArray()) {
         const auto item = entry.toObject();
-        TextItem text;
-        text.text = item.value("text").toString().left(500);
-        text.startMs = qMax<qint64>(0, item.value("startMs").toVariant().toLongLong());
-        text.endMs = qMax(text.startMs + 200, item.value("endMs").toVariant().toLongLong());
-        const auto position = item.value("position").toString();
-        if (position == "top" || position == "middle")
-            text.position = position;
-        const auto size = item.value("size").toString();
-        if (size == "small" || size == "large")
-            text.size = size;
+        // Older projects keep a position and a size name; fromMap maps them.
+        auto text = TextOverlay::fromMap(item.toVariantMap());
+        text.startMs = qMax<qint64>(0, text.startMs);
+        text.endMs = qMax(text.startMs + 200, text.endMs);
         if (!text.text.trimmed().isEmpty())
             mix.texts.append(text);
         if (mix.texts.size() > 1000)
@@ -991,8 +981,12 @@ QByteArray EditorProject::serialize(const QString &directory) const
             {"text", item.text},
             {"startMs", static_cast<double>(item.startMs)},
             {"endMs", static_cast<double>(item.endMs)},
-            {"position", item.position},
-            {"size", item.size}
+            {"x", item.x},
+            {"y", item.y},
+            {"size", item.size},
+            {"color", item.color},
+            {"font", item.font},
+            {"style", item.style}
         });
     }
     // Version 6 only when there are captions, so older Kadron still opens the rest.

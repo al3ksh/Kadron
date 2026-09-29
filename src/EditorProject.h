@@ -1,5 +1,7 @@
 #pragma once
 
+#include "TextOverlay.h"
+
 #include <QObject>
 #include <QTimer>
 #include <QUrl>
@@ -122,8 +124,9 @@ public:
     Q_INVOKABLE bool selectText(int index);
     Q_INVOKABLE bool setTextContent(int index, const QString &text);
     Q_INVOKABLE bool setTextPlacement(int index, qint64 startMs, qint64 endMs);
-    // position: "top", "middle" or "bottom"; size: "small", "medium" or "large".
-    Q_INVOKABLE bool setTextStyle(int index, const QString &position, const QString &size);
+    // Merges changes (x, y, size, color, font, style; see TextOverlay) into
+    // the caption; out of range values are clamped, unknown names dropped.
+    Q_INVOKABLE bool setTextStyle(int index, const QVariantMap &changes);
     Q_INVOKABLE bool removeText(int index);
     Q_INVOKABLE bool openProject(const QUrl &url);
     // Back to an empty editor: no clips, no project file, no history.
@@ -177,13 +180,7 @@ private:
         qint64 fadeInMs = 0;
         qint64 fadeOutMs = 0;
     };
-    struct TextItem {
-        QString text;
-        qint64 startMs = 0;
-        qint64 endMs = 0;
-        QString position = QStringLiteral("bottom");
-        QString size = QStringLiteral("medium");
-    };
+    using TextItem = TextOverlay;
     struct Mix {
         QString transition = QStringLiteral("cut");
         int transitionMs = 500;
