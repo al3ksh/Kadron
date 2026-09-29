@@ -21,7 +21,8 @@ public:
     bool visible() const { return m_visible; }
     void setVisible(bool visible);
 
-    // A notification from the tray icon; clicking it counts as activated().
+    // A Windows notification from the tray icon; clicking it emits
+    // messageClicked(). With the icon hidden it is shown just for the message.
     Q_INVOKABLE void showMessage(const QString &title, const QString &text);
 
     // Called by the hidden window that receives the icon's messages.
@@ -30,6 +31,7 @@ public:
 signals:
     void visibleChanged();
     void activated();
+    void messageClicked();
     void quitRequested();
 
 private:
@@ -39,8 +41,10 @@ private:
 
     void *m_window = nullptr;
     void *m_icon = nullptr;
+    void *m_largeIcon = nullptr;
     unsigned m_taskbarCreated = 0;
     bool m_visible = false;
     bool m_added = false;
+    bool m_transient = false;
     bool m_dark = true;
 };

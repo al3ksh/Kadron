@@ -58,6 +58,8 @@ TrayIcon::TrayIcon(QObject *parent)
     m_window = window;
     m_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     m_icon = LoadImageW(instance, L"IDI_ICON1", IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+    // Notifications refuse NIIF_LARGE_ICON with a small icon.
+    m_largeIcon = LoadImageW(instance, L"IDI_ICON1", IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
 }
 
 TrayIcon::~TrayIcon()
@@ -67,6 +69,8 @@ TrayIcon::~TrayIcon()
         DestroyWindow(static_cast<HWND>(m_window));
     if (m_icon)
         DestroyIcon(static_cast<HICON>(m_icon));
+    if (m_largeIcon)
+        DestroyIcon(static_cast<HICON>(m_largeIcon));
 }
 
 bool TrayIcon::supported() const
@@ -79,6 +83,7 @@ void TrayIcon::setVisible(bool visible)
     if (m_visible == visible)
         return;
     m_visible = visible;
+    m_transient = false;
     if (visible)
         add();
     else
@@ -116,15 +121,18 @@ void TrayIcon::remove()
 
 void TrayIcon::showMessage(const QString &title, const QString &text)
 {
-    if (!m_added)
-        return;
+    if (!m_added) {
+        if (!add())
+            return;
+        m_transient = true;
+    }
     NOTIFYICONDATAW data {};
     data.cbSize = sizeof(data);
     data.hWnd = static_cast<HWND>(m_window);
     data.uID = TrayId;
     data.uFlags = NIF_INFO;
     data.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON;
-    data.hBalloonIcon = static_cast<HICON>(m_icon);
+    data.hBalloonIcon = static_cast<HICON>(m_largeIcon ? m_largeIcon : m_icon);
     copyText(data.szInfoTitle, std::size(data.szInfoTitle), title);
     copyText(data.szInfo, std::size(data.szInfo), text);
     Shell_NotifyIconW(NIM_MODIFY, &data);
@@ -158,8 +166,18 @@ long long TrayIcon::handleMessage(unsigned message, unsigned long long wParam, l
     if (message == TrayCallback) {
         switch (LOWORD(lParam)) {
         case WM_LBUTTONUP:
-        case NIN_BALLOONUSERCLICK:
             emit activated();
+            break;
+        case NIN_BALLOONUSERCLICK:
+        case NIN_BALLOONTIMEOUT:
+        case NIN_BALLOONHIDE:
+            // An icon added only for the message leaves with it.
+            if (m_transient && !m_visible) {
+                m_transient = false;
+                remove();
+            }
+            if (LOWORD(lParam) == NIN_BALLOONUSERCLICK)
+                emit messageClicked();
             break;
         case WM_RBUTTONUP:
         case WM_CONTEXTMENU:

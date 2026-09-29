@@ -23,6 +23,9 @@ Settings {
     property bool closeToTray: true
     property bool trayHintShown: false
 
+    // A Windows notification when an export or download ends in the background.
+    property bool notifications: true
+
     // Projects and media opened lately, newest first: a JSON list of {url, project}.
     property string recentFiles: "[]"
 

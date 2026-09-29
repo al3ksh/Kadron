@@ -463,7 +463,7 @@ ApplicationWindow {
     function hideToTray() {
         if (player.playbackState === MediaPlayer.PlayingState) player.pause()
         hide()
-        if (!Prefs.trayHintShown) {
+        if (!Prefs.trayHintShown && Prefs.notifications) {
             Prefs.trayHintShown = true
             trayIcon.showMessage("Kadron is still running", "Click the tray icon to open it again. You can change this in Settings.")
         }
@@ -471,7 +471,8 @@ ApplicationWindow {
     Binding { target: root.trayAvailable ? trayIcon : null; property: "visible"; value: Prefs.closeToTray }
     Binding { target: root.trayAvailable ? trayIcon : null; property: "dark"; value: Theme.dark }
     // Long jobs show on the taskbar button; one ending in the background flashes
-    // it, or raises a tray notification while the window is hidden.
+    // it and raises a Windows notification (unless turned off in Settings)
+    // whose click opens the result.
     readonly property int jobProgress: exporter.busy ? exporter.progress
         : localDownload.busy ? localDownload.progress
         : localTools.busy ? localTools.progress
@@ -481,6 +482,18 @@ ApplicationWindow {
         : localTools.busy ? "Conversion" : localReframe.busy ? "Reframe" : toolsClient.busy ? "Upload"
         : localPdf.busy ? "PDF" : localImages.busy ? "Images" : ""
     property string runningJob: ""
+    property url notifiedFile: ""
+    function jobOutput(name) {
+        switch (name) {
+        case "Export": return exporter.outputUrl
+        case "Download": return localDownload.outputUrl
+        case "Conversion": return localTools.outputUrl
+        case "Reframe": return localReframe.outputUrl
+        case "PDF": return localPdf.outputUrl
+        case "Images": return localImages.outputFolder
+        }
+        return ""
+    }
     onJobProgressChanged: taskbar.setProgress(root, jobProgress)
     onJobNameChanged: {
         if (jobName) {
@@ -490,16 +503,26 @@ ApplicationWindow {
         var finished = runningJob
         runningJob = ""
         if (!finished || root.active) return
+        // A queued download follows at once: one notice when the queue is done.
+        if (finished === "Download" && localDownload.queue.length > 0) return
         var error = editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText
             || localDownload.errorText || localPdf.errorText || localImages.errorText || localReframe.errorText
-        if (!root.visible && root.trayAvailable && Prefs.closeToTray)
-            trayIcon.showMessage(finished + (error ? " failed" : " finished"), error || root.notice || "Open Kadron to see the result.")
-        else
-            taskbar.flash(root)
+        if (root.visible) taskbar.flash(root)
+        if (!root.trayAvailable || !Prefs.notifications) return
+        var output = error ? "" : jobOutput(finished)
+        notifiedFile = output && editorProject.fileExists(output) ? output : ""
+        var name = notifiedFile.toString() ? decodeURIComponent(notifiedFile.toString().split("/").pop()) : ""
+        trayIcon.showMessage(finished + (error ? " failed" : " finished"),
+                             error || (name ? name + "\nClick to open it." : root.notice || "Open Kadron to see the result."))
     }
     Connections {
         target: root.trayAvailable ? trayIcon : null
         function onActivated() { root.showFromTray() }
+        function onMessageClicked() {
+            if (root.notifiedFile.toString() && editorProject.fileExists(root.notifiedFile)) Qt.openUrlExternally(root.notifiedFile)
+            else root.showFromTray()
+            root.notifiedFile = ""
+        }
         function onQuitRequested() { root.quitApp() }
     }
     onClosing: function(event) {

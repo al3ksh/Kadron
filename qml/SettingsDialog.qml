@@ -396,6 +396,13 @@ Dialog {
                             visible: trayCheck.available
                             text: "Exports and downloads carry on in the background. Quit from the tray icon's menu."
                         }
+                        ToolCheck {
+                            objectName: "notificationsCheck"
+                            visible: trayCheck.available
+                            text: "Show a Windows notification when a job finishes in the background"
+                            checked: Prefs.notifications
+                            onToggled: Prefs.notifications = checked
+                        }
                     }
 
                     // About
