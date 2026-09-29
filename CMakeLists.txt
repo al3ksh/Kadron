@@ -80,6 +80,7 @@ qt_add_qml_module(kadron_ui
         qml/Theme.qml
         qml/SnapSpring.qml
         qml/SmoothSpring.qml
+        qml/SegmentedControl.qml
         qml/RevealAnimation.qml
         qml/StudioDialog.qml
         qml/DropZone.qml

@@ -538,28 +538,19 @@ Item {
 
                         Item { Layout.preferredHeight: 8 }
                         Text { Layout.leftMargin: 20; text: "SHAPE"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
-                        RowLayout {
+                        SegmentedControl {
                             Layout.fillWidth: true
                             Layout.leftMargin: 20
                             Layout.rightMargin: 20
-                            spacing: 4
-                            Repeater {
-                                model: page.shapes
-                                delegate: EditorButton {
-                                    required property var modelData
-                                    readonly property bool chosen: page.aspectW === modelData[0] && page.aspectH === modelData[1]
-                                    objectName: "reframeShape_" + modelData[0] + "x" + modelData[1]
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
-                                    leftPadding: 4
-                                    rightPadding: 4
-                                    text: modelData[2]
-                                    primary: chosen
-                                    subtle: !chosen
-                                    onClicked: { page.aspectW = modelData[0]; page.aspectH = modelData[1] }
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: modelData[3]
-                                }
+                            namePrefix: "reframeShape_"
+                            options: page.shapes.map(function(shape) {
+                                return { label: shape[2], value: shape[0] + "x" + shape[1], glyph: shape[0] + ":" + shape[1], tip: shape[3] }
+                            })
+                            current: page.aspectW + "x" + page.aspectH
+                            onActivated: function(shape) {
+                                const sides = shape.split("x").map(Number)
+                                page.aspectW = sides[0]
+                                page.aspectH = sides[1]
                             }
                         }
 

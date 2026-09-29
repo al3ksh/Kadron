@@ -27,6 +27,12 @@ ColumnLayout {
         return 0
     }
 
+    // Height of a quick spot, kept clear of the edge for the text's size.
+    function spotY(at) {
+        const size = item ? item.size : 0.065
+        return at === "top" ? 0.07 + size * 0.6 : at === "middle" ? 0.5 : 0.93 - size * 0.6
+    }
+
     spacing: 6
     // Using a control breaks its binding, so every new item resets them.
     function sync() {
@@ -140,25 +146,20 @@ ColumnLayout {
         }
         Item { Layout.fillWidth: true }
     }
-    RowLayout {
+    // Quick spots; dragging the text on the picture places it anywhere, and
+    // then none of them is lit.
+    SegmentedControl {
         Layout.fillWidth: true
-        spacing: 6
-        Repeater {
-            // Quick spots; dragging the text on the picture places it anywhere.
-            model: [{ label: "Top", at: "top" }, { label: "Middle", at: "middle" }, { label: "Bottom", at: "bottom" }]
-            delegate: EditorButton {
-                required property var modelData
-                Layout.fillWidth: true
-                implicitHeight: 30
-                text: modelData.label
-                subtle: true
-                onClicked: {
-                    const size = editor.item ? editor.item.size : 0.065
-                    const y = modelData.at === "top" ? 0.07 + size * 0.6 : modelData.at === "middle" ? 0.5 : 0.93 - size * 0.6
-                    editor.changeRequested({ x: 0.5, y: y })
-                }
-            }
+        namePrefix: "textSpot_"
+        options: [{ label: "Top", value: "top", glyph: "top" }, { label: "Middle", value: "middle", glyph: "middle" },
+                  { label: "Bottom", value: "bottom", glyph: "bottom" }]
+        current: {
+            if (!editor.item || Math.abs(editor.item.x - 0.5) > 0.001) return ""
+            for (const at of ["top", "middle", "bottom"])
+                if (Math.abs(editor.item.y - editor.spotY(at)) < 0.001) return at
+            return ""
         }
+        onActivated: function(at) { editor.changeRequested({ x: 0.5, y: editor.spotY(at) }) }
     }
 
     ColorDialog {

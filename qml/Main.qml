@@ -1582,22 +1582,13 @@ ApplicationWindow {
                                 Layout.topMargin: 4
                                 spacing: 4
                                 Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 11 }
-                                RowLayout {
+                                SegmentedControl {
                                     Layout.fillWidth: true
-                                    spacing: 4
-                                    Repeater {
-                                        model: [0.5, 1, 1.5, 2]
-                                        delegate: EditorButton {
-                                            required property real modelData
-                                            objectName: "clipSpeed" + modelData
-                                            Layout.fillWidth: true
-                                            text: modelData + "×"
-                                            primary: Math.abs(root.activeSpeed - modelData) < 0.01
-                                            subtle: !primary
-                                            enabled: editorProject.hasMedia && !exporter.busy
-                                            onClicked: editorProject.setClipSpeed(editorProject.activeClipIndex, modelData)
-                                        }
-                                    }
+                                    namePrefix: "clipSpeed"
+                                    options: [0.5, 1, 1.5, 2].map(function(speed) { return { label: speed + "×", value: speed } })
+                                    current: root.activeSpeed
+                                    enabled: editorProject.hasMedia && !exporter.busy
+                                    onActivated: function(speed) { editorProject.setClipSpeed(editorProject.activeClipIndex, speed) }
                                 }
                             }
                             EditorButton {
