@@ -134,24 +134,26 @@ Item {
     }
     onSectionChanged: takeClipboardLink()
     // Enter in the link field skips the save dialog: the file goes straight to
-    // Downloads under the title yt-dlp reports, waiting for the lookup if needed.
-    property bool quickPending: false
+    // Downloads under the video's title, or waits in the queue behind the
+    // current download. The field empties for the next link.
+    readonly property url downloadsFolder: StandardPaths.writableLocation(StandardPaths.DownloadLocation)
+    readonly property string downloadLink: downloadUrl.text.trim()
+    readonly property bool linkIsPlaylist: localDownload.playlist.url === downloadLink && !!localDownload.playlist.entries
+    function gifOptions() {
+        return { gifStart: Number(downloadStart.text), gifDuration: Number(downloadDuration.text), gifFps: Number(downloadFps.text),
+                 gifWidth: Number(downloadWidth.text), gifTargetMB: Number(downloadTarget.text) }
+    }
     function quickDownload() {
-        var link = downloadUrl.text.trim()
-        if (localDownload.busy || !localDownload.available || !/^https?:\/\/\S+/i.test(link)) return
-        if (probeDelay.running || localDownload.probing) {
-            quickPending = true
+        var link = downloadLink
+        if (!localDownload.available || !/^https?:\/\/\S+/i.test(link)) return
+        if (linkIsPlaylist) {
+            downloadPlaylist()
             return
         }
-        quickPending = false
         var info = localDownload.preview.url === link ? localDownload.preview : ({})
-        var folder = StandardPaths.writableLocation(StandardPaths.DownloadLocation).toString()
-        var base = folder + "/" + (info.fileName || "download")
-        var extension = "." + downloadExtension()
-        var target = base + extension
-        for (var n = 2; editorProject.fileExists(target); ++n)
-            target = base + " (" + n + ")" + extension
-        startDownload(target)
+        resultSection = "download"
+        localDownload.enqueue(link, downloadPreset.currentValue, downloadsFolder, info.title || "", gifOptions())
+        downloadUrl.clear()
     }
     function startDownload(target) {
         resultSection = "download"
@@ -159,15 +161,35 @@ Item {
                                Number(downloadStart.text), Number(downloadDuration.text),
                                Number(downloadFps.text), Number(downloadWidth.text), Number(downloadTarget.text))
     }
+    // Which playlist videos are ticked, by index; all of them to start with.
+    property var playlistChecked: []
+    readonly property int playlistSelected: playlistChecked.filter(function(checked) { return checked }).length
+    function setAllPlaylist(checked) {
+        var entries = localDownload.playlist.entries || []
+        playlistChecked = entries.map(function() { return checked })
+    }
     Connections {
         target: localDownload
-        function onPreviewChanged() { if (toolsPage.quickPending && !localDownload.probing) toolsPage.quickDownload() }
+        function onPlaylistChanged() { toolsPage.setAllPlaylist(true) }
+    }
+    function downloadPlaylist() {
+        var playlist = localDownload.playlist
+        var entries = playlist.entries || []
+        var name = localDownload.safeFileName(playlist.title || "") || "Playlist"
+        var folder = downloadsFolder.toString() + "/" + name
+        resultSection = "download"
+        for (var i = 0; i < entries.length; ++i) {
+            if (playlistChecked[i])
+                localDownload.enqueue(entries[i].url, downloadPreset.currentValue, folder, entries[i].title || "", gifOptions())
+        }
+        localDownload.clearPlaylist()
+        downloadUrl.clear()
     }
     // Ctrl+V anywhere on the Download page fills the link field; text fields
     // keep their own paste.
     Shortcut {
         sequence: StandardKey.Paste
-        enabled: toolsPage.visible && toolsPage.section === 1 && !localDownload.busy
+        enabled: toolsPage.visible && toolsPage.section === 1
                  && !(toolsPage.Window.activeFocusItem instanceof TextInput)
         onActivated: toolsPage.pasteLink()
     }
@@ -668,16 +690,12 @@ Item {
                         objectName: "downloadUrl"
                         Layout.fillWidth: true
                         placeholderText: "Paste a link from YouTube, TikTok, Instagram, X… and press Enter"
-                        onTextChanged: {
-                            toolsPage.quickPending = false
-                            probeDelay.restart()
-                        }
+                        onTextChanged: probeDelay.restart()
                         onAccepted: toolsPage.quickDownload()
                     }
                     EditorButton {
                         text: "Paste"
                         iconName: "link"
-                        enabled: !localDownload.busy
                         Layout.preferredHeight: downloadUrl.implicitHeight
                         onClicked: toolsPage.pasteLink()
                     }
@@ -685,11 +703,7 @@ Item {
                 Timer {
                     id: probeDelay
                     interval: 450
-                    onTriggered: {
-                        localDownload.probe(downloadUrl.text)
-                        // An unchanged link is not looked up again, so no preview signal follows.
-                        if (toolsPage.quickPending && !localDownload.probing) toolsPage.quickDownload()
-                    }
+                    onTriggered: localDownload.probe(downloadUrl.text)
                 }
                 // What the link points to, looked up locally before downloading.
                 Rectangle {
@@ -754,8 +768,18 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 visible: text.length > 0
-                                text: [linkPreview.info.uploader, linkPreview.info.source].filter(function(part) { return part }).join(" · ")
+                                text: [linkPreview.info.playlistCount ? "Playlist · " + linkPreview.info.playlistCount + " videos" : "",
+                                       linkPreview.info.uploader, linkPreview.info.source].filter(function(part) { return part }).join(" · ")
                                 color: Theme.textMuted
+                            }
+                            // A video opened from a playlist: its list can be loaded too.
+                            EditorButton {
+                                visible: /[?&]list=/.test(toolsPage.downloadLink) && !linkPreview.info.playlistCount
+                                         && localDownload.playlist.url !== toolsPage.downloadLink
+                                text: "Load playlist"
+                                iconName: "stack"
+                                implicitHeight: 30
+                                onClicked: localDownload.probePlaylist(toolsPage.downloadLink)
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -772,6 +796,86 @@ Item {
                             SkeletonBlock { Layout.alignment: Qt.AlignLeft; visible: linkPreview.lookingUp && !linkPreview.info.title; Layout.preferredWidth: 180; Layout.preferredHeight: 14 }
                             SkeletonBlock { Layout.alignment: Qt.AlignLeft; visible: linkPreview.lookingUp && !linkPreview.info.uploader; Layout.preferredWidth: 120; Layout.preferredHeight: 10 }
                             Item { Layout.fillWidth: true; Layout.preferredHeight: 0 }
+                        }
+                    }
+                }
+                // The videos of a playlist link, ticked for download.
+                Rectangle {
+                    id: playlistPanel
+                    readonly property var list: localDownload.playlist
+                    visible: list.url === toolsPage.downloadLink && toolsPage.downloadLink.length > 0
+                    Layout.fillWidth: true
+                    implicitHeight: playlistColumn.implicitHeight + 20
+                    radius: Theme.radius
+                    color: Theme.field
+                    border.color: Theme.line
+                    ColumnLayout {
+                        id: playlistColumn
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 6
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Text {
+                                Layout.fillWidth: true
+                                text: playlistPanel.list.loading ? "Reading the playlist…"
+                                    : playlistPanel.list.error ? playlistPanel.list.error
+                                    : (playlistPanel.list.title || "Playlist") + " · " + toolsPage.playlistSelected + " of " + (playlistPanel.list.entries || []).length + " selected"
+                                color: playlistPanel.list.error ? Theme.danger : Theme.text
+                                font.pixelSize: 13
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                            EditorButton { visible: toolsPage.linkIsPlaylist; subtle: true; text: "All"; implicitHeight: 30; onClicked: toolsPage.setAllPlaylist(true) }
+                            EditorButton { visible: toolsPage.linkIsPlaylist; subtle: true; text: "None"; implicitHeight: 30; onClicked: toolsPage.setAllPlaylist(false) }
+                        }
+                        ListView {
+                            id: playlistList
+                            visible: toolsPage.linkIsPlaylist
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Math.min(contentHeight, 260)
+                            clip: true
+                            model: playlistPanel.list.entries || []
+                            boundsBehavior: Flickable.StopAtBounds
+                            ScrollBar.vertical: ScrollBar { policy: playlistList.contentHeight > playlistList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+                            delegate: RowLayout {
+                                required property var modelData
+                                required property int index
+                                width: ListView.view.width
+                                spacing: 8
+                                ToolCheck {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 30
+                                    text: (index + 1) + ". " + (modelData.title || modelData.url)
+                                    checked: !!toolsPage.playlistChecked[index]
+                                    onToggled: {
+                                        var next = toolsPage.playlistChecked.slice()
+                                        next[index] = checked
+                                        toolsPage.playlistChecked = next
+                                    }
+                                }
+                                Text {
+                                    visible: (modelData.durationMs || 0) > 0
+                                    text: toolsPage.durationLabel(modelData.durationMs || 0)
+                                    color: Theme.textFaint
+                                    font.pixelSize: 11
+                                    Layout.rightMargin: 6
+                                }
+                            }
+                        }
+                        EditorButton {
+                            visible: toolsPage.linkIsPlaylist
+                            primary: true
+                            text: "Download " + toolsPage.playlistSelected + (toolsPage.playlistSelected === 1 ? " video" : " videos")
+                            enabled: toolsPage.playlistSelected > 0 && localDownload.available
+                            onClicked: toolsPage.downloadPlaylist()
+                        }
+                        Text {
+                            visible: toolsPage.linkIsPlaylist
+                            text: "Saved one after another to Downloads/" + (localDownload.safeFileName(playlistPanel.list.title || "") || "Playlist")
+                            color: Theme.textFaint
+                            font.pixelSize: 11
                         }
                     }
                 }
@@ -820,10 +924,11 @@ Item {
                         Layout.preferredWidth: 120 }
                 }
                 EditorButton {
-                    text: "Download"
+                    visible: !toolsPage.linkIsPlaylist
+                    text: localDownload.busy ? "Add to queue" : "Download"
                     primary: true
-                    enabled: !localDownload.busy && downloadUrl.text.length > 0 && localDownload.available
-                    onClicked: toolsPage.openDownloadSave()
+                    enabled: downloadUrl.text.length > 0 && localDownload.available
+                    onClicked: localDownload.busy ? toolsPage.quickDownload() : toolsPage.openDownloadSave()
                 }
             }
 
@@ -1547,11 +1652,40 @@ Item {
                 visible: toolsPage.section === 1 ? (localDownload.busy || localDownload.errorText || localDownload.outputUrl.toString()) : toolsPage.section === 5 && (localPdf.busy || localPdf.errorText || localPdf.outputUrl.toString())
                 Layout.fillWidth: true
                 spacing: 10
-                Text { text: toolsPage.section === 1 ? (localDownload.errorText || localDownload.stage) : (localPdf.errorText || localPdf.stage); color: toolsPage.section === 1 ? (localDownload.errorText ? Theme.danger : Theme.textSoft) : (localPdf.errorText ? Theme.danger : Theme.textSoft); font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                Text { text: toolsPage.section === 1 ? (localDownload.errorText || (localDownload.currentTitle && localDownload.busy ? localDownload.currentTitle + " · " : "") + localDownload.stage) : (localPdf.errorText || localPdf.stage); color: toolsPage.section === 1 ? (localDownload.errorText ? Theme.danger : Theme.textSoft) : (localPdf.errorText ? Theme.danger : Theme.textSoft); font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                 Text { text: toolsPage.section === 1 ? (localDownload.busy ? localDownload.progress + "%" : localDownload.outputUrl.toString() ? toolsPage.sizeLabel(localDownload.outputBytes) : "") : (localPdf.outputUrl.toString() ? toolsPage.sizeLabel(localPdf.outputBytes) : ""); color: Theme.textMuted; font.pixelSize: 12 }
                 EditorButton { text: "Cancel"; visible: toolsPage.section === 1 ? localDownload.busy : localPdf.busy; danger: true; onClicked: toolsPage.section === 1 ? localDownload.cancel() : localPdf.cancel() }
             }
             StudioProgress { visible: toolsPage.section === 1 && localDownload.busy; value: localDownload.progress / 100; Layout.fillWidth: true }
+            // Links waiting behind the current download.
+            ColumnLayout {
+                visible: toolsPage.section === 1 && localDownload.queue.length > 0
+                Layout.fillWidth: true
+                spacing: 4
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text { text: "Up next · " + localDownload.queue.length; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
+                    EditorButton { text: "Clear queue"; subtle: true; implicitHeight: 30; onClicked: localDownload.clearQueue() }
+                }
+                Repeater {
+                    model: localDownload.queue
+                    delegate: RowLayout {
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text {
+                            text: (index + 1) + ". " + (modelData.title || modelData.url)
+                            color: Theme.textSoft
+                            font.pixelSize: 12
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                        EditorButton { iconName: "close"; subtle: true; implicitHeight: 26; implicitWidth: 26; onClicked: localDownload.removeQueued(modelData.id)
+                                       ToolTip.visible: hovered; ToolTip.text: "Remove from queue" }
+                    }
+                }
+            }
             RowLayout {
                 visible: (toolsPage.section === 1 && toolsPage.resultSection === "download" && localDownload.outputUrl.toString().length > 0 && !localDownload.busy) || (toolsPage.section === 5 && toolsPage.resultSection === "pdf" && localPdf.outputUrl.toString().length > 0 && !localPdf.busy)
                 Layout.fillWidth: true

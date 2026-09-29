@@ -32,6 +32,14 @@ class LocalDownload final : public QObject
     Q_PROPERTY(int progress READ progress NOTIFY changed)
     Q_PROPERTY(QUrl outputUrl READ outputUrl NOTIFY changed)
     Q_PROPERTY(qint64 outputBytes READ outputBytes NOTIFY changed)
+    // The link being downloaded and its title, when known.
+    Q_PROPERTY(QString currentUrl READ currentUrl NOTIFY changed)
+    Q_PROPERTY(QString currentTitle READ currentTitle NOTIFY changed)
+    // Links waiting their turn: [{ id, url, title, preset }].
+    Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
+    // A playlist's videos: { url, title, entries: [{ url, title, durationMs }] },
+    // plus loading or error while it is being read.
+    Q_PROPERTY(QVariantMap playlist READ playlist NOTIFY playlistChanged)
 
 public:
     explicit LocalDownload(QObject *parent = nullptr);
@@ -54,9 +62,15 @@ public:
     QString updateText() const;
     bool probing() const;
     QVariantMap preview() const;
+    QString currentUrl() const { return m_currentUrl; }
+    QString currentTitle() const { return m_currentTitle; }
+    QVariantList queue() const { return m_queue; }
+    QVariantMap playlist() const { return m_playlist; }
 
     // Turns a media title into a safe file name (no path separators or reserved characters).
-    static QString safeFileName(const QString &title);
+    Q_INVOKABLE static QString safeFileName(const QString &title);
+    // `base.extension` in folder, or `base (2).extension` and so on when taken.
+    static QString uniquePath(const QString &folder, const QString &base, const QString &extension);
     // YouTube video id from watch, shorts, embed or youtu.be links; empty otherwise.
     static QString youtubeId(const QString &url);
     // og:/twitter: title and image from a page, resolved against its URL.
@@ -72,6 +86,15 @@ public:
     Q_INVOKABLE bool download(const QString &url, const QString &preset, const QUrl &destination,
                               double gifStart, double gifDuration, int gifFps, int gifWidth, double gifTargetMB);
     Q_INVOKABLE void cancel();
+    // Downloads into a folder under the video's title, now or after the
+    // downloads ahead of it. options may hold the GIF settings.
+    Q_INVOKABLE void enqueue(const QString &url, const QString &preset, const QUrl &folder,
+                             const QString &title = QString(), const QVariantMap &options = {});
+    Q_INVOKABLE void removeQueued(int id);
+    Q_INVOKABLE void clearQueue();
+    // Lists the videos of a playlist link without downloading them.
+    Q_INVOKABLE void probePlaylist(const QString &url);
+    Q_INVOKABLE void clearPlaylist();
     // Updates Kadron's own yt-dlp copy, downloading the official release first if needed.
     Q_INVOKABLE void updateYtDlp();
     Q_INVOKABLE void refreshYtDlpVersion();
@@ -88,6 +111,10 @@ public:
 signals:
     void changed();
     void previewChanged();
+    void queueChanged();
+    void playlistChanged();
+    // A download saved its file.
+    void finished(const QUrl &file, const QString &url, const QString &title);
 
 private:
     void readOutput();
@@ -96,6 +123,9 @@ private:
     void finishUpdate(const QString &message, bool failed = false);
     void runSelfUpdate();
     void fetchPageMetadata(const QString &url);
+    void startNext();
+    void scheduleNext();
+    static QVariantList playlistEntries(const QJsonObject &json);
 
     std::unique_ptr<QTemporaryDir> m_temp;
     QProcess m_process;
@@ -103,6 +133,8 @@ private:
     QString m_ytdlp;
     QString m_ffmpeg;
     QString m_destination;
+    QString m_outputFolder;
+    QString m_extension;
     QString m_downloaded;
     QString m_preset;
     QString m_stage;
@@ -132,4 +164,11 @@ private:
     QPointer<QProcess> m_probeProcess;
     QString m_probeUrl;
     QVariantMap m_preview;
+    QString m_currentUrl;
+    QString m_currentTitle;
+    QString m_folder;
+    QVariantList m_queue;
+    int m_nextQueueId = 1;
+    QVariantMap m_playlist;
+    QPointer<QProcess> m_playlistProcess;
 };

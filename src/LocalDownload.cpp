@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
@@ -12,6 +13,7 @@
 #include <QDateTime>
 #include <QSaveFile>
 #include <QSettings>
+#include <QTimer>
 #include <QVersionNumber>
 
 LocalDownload::LocalDownload(QObject *parent)
@@ -33,6 +35,7 @@ LocalDownload::LocalDownload(QObject *parent)
     connect(&m_gifTools, &LocalMediaTools::changed, this, [this] {
         if (m_cancelled && !m_gifTools.busy()) {
             m_temp.reset();
+            scheduleNext();
             return;
         }
         if (!m_encodingGif)
@@ -52,6 +55,10 @@ LocalDownload::LocalDownload(QObject *parent)
             m_progress = 100;
             m_stage = QStringLiteral("Ready");
             m_temp.reset();
+            emit changed();
+            emit finished(m_outputUrl, m_currentUrl, m_currentTitle);
+            scheduleNext();
+            return;
         }
         emit changed();
     });
@@ -181,11 +188,39 @@ QString LocalDownload::safeFileName(const QString &title)
     return name.left(120).trimmed();
 }
 
+QString LocalDownload::uniquePath(const QString &folder, const QString &base, const QString &extension)
+{
+    const QDir directory(folder);
+    auto path = directory.filePath(base + '.' + extension);
+    for (int number = 2; QFileInfo::exists(path); ++number)
+        path = directory.filePath(QStringLiteral("%1 (%2).%3").arg(base).arg(number).arg(extension));
+    return path;
+}
+
+QVariantList LocalDownload::playlistEntries(const QJsonObject &json)
+{
+    QVariantList entries;
+    for (const auto &value : json.value("entries").toArray()) {
+        const auto entry = value.toObject();
+        auto url = entry.value("url").toString();
+        if (!url.startsWith("http"))
+            url = entry.value("webpage_url").toString();
+        if (!url.startsWith("http"))
+            continue;
+        entries.append(QVariantMap{
+            {"url", url},
+            {"title", entry.value("title").toString()},
+            {"durationMs", qRound64(entry.value("duration").toDouble() * 1000.0)}
+        });
+    }
+    return entries;
+}
+
 QString LocalDownload::clipboardLink()
 {
     const auto clipboard = QGuiApplication::clipboard();
     const auto text = clipboard ? clipboard->text().trimmed() : QString();
-    static const QRegularExpression link(QStringLiteral("^https?://\S+$"), QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression link(QStringLiteral("^https?://\\S+$"), QRegularExpression::CaseInsensitiveOption);
     return text.size() < 2048 && link.match(text).hasMatch() ? text : QString();
 }
 
@@ -294,6 +329,13 @@ void LocalDownload::probe(const QString &url)
             fetchPageMetadata(trimmed);
             return;
         }
+        if (json.value("_type").toString() == "playlist") {
+            // A playlist link: its videos are listed instead of one preview.
+            const auto entries = playlistEntries(json);
+            m_preview.insert("playlistCount", entries.size());
+            m_playlist = {{"url", trimmed}, {"title", json.value("title").toString()}, {"entries", entries}};
+            emit playlistChanged();
+        }
         m_preview.insert("title", json.value("title").toString());
         if (!json.value("thumbnail").toString().isEmpty())
             m_preview.insert("thumbnail", json.value("thumbnail").toString());
@@ -309,8 +351,120 @@ void LocalDownload::probe(const QString &url)
         process->deleteLater();
         emit previewChanged();
     });
-    process->start(m_ytdlp, {"--dump-single-json", "--skip-download", "--no-playlist", "--no-warnings", "--", trimmed});
+    process->start(m_ytdlp, {"--dump-single-json", "--skip-download", "--no-playlist", "--flat-playlist",
+                             "--no-warnings", "--", trimmed});
     emit previewChanged();
+}
+
+void LocalDownload::probePlaylist(const QString &url)
+{
+    const auto trimmed = url.trimmed();
+    if (m_ytdlp.isEmpty() || (m_playlist.value("url") == trimmed && !m_playlist.contains("error")))
+        return;
+    if (m_playlistProcess) {
+        m_playlistProcess->disconnect(this);
+        m_playlistProcess->kill();
+        m_playlistProcess->deleteLater();
+    }
+    m_playlist = {{"url", trimmed}, {"loading", true}};
+    auto *process = new QProcess(this);
+    m_playlistProcess = process;
+    connect(process, &QProcess::finished, this, [this, process, trimmed](int code, QProcess::ExitStatus status) {
+        process->deleteLater();
+        if (m_playlistProcess != process)
+            return;
+        m_playlistProcess = nullptr;
+        const auto json = QJsonDocument::fromJson(process->readAllStandardOutput()).object();
+        const auto entries = playlistEntries(json);
+        if (status != QProcess::NormalExit || code != 0 || entries.isEmpty()) {
+            const auto error = summarizeError(QString::fromUtf8(process->readAllStandardError()));
+            m_playlist = {{"url", trimmed}, {"error", error.isEmpty() ? QStringLiteral("No videos found in this playlist.") : error}};
+        } else {
+            m_playlist = {{"url", trimmed}, {"title", json.value("title").toString()}, {"entries", entries}};
+        }
+        emit playlistChanged();
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process, trimmed](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart || m_playlistProcess != process) return;
+        m_playlistProcess = nullptr;
+        process->deleteLater();
+        m_playlist = {{"url", trimmed}, {"error", QStringLiteral("Could not start yt-dlp.")}};
+        emit playlistChanged();
+    });
+    process->start(m_ytdlp, {"--dump-single-json", "--flat-playlist", "--yes-playlist", "--no-warnings", "--", trimmed});
+    emit playlistChanged();
+}
+
+void LocalDownload::clearPlaylist()
+{
+    if (m_playlistProcess) {
+        m_playlistProcess->disconnect(this);
+        m_playlistProcess->kill();
+        m_playlistProcess->deleteLater();
+        m_playlistProcess = nullptr;
+    }
+    m_playlist.clear();
+    emit playlistChanged();
+}
+
+void LocalDownload::enqueue(const QString &url, const QString &preset, const QUrl &folder,
+                            const QString &title, const QVariantMap &options)
+{
+    auto item = options;
+    item.insert("id", m_nextQueueId++);
+    item.insert("url", url.trimmed());
+    item.insert("preset", preset);
+    item.insert("folder", folder);
+    item.insert("title", title);
+    m_queue.append(item);
+    emit queueChanged();
+    if (!m_busy)
+        startNext();
+}
+
+void LocalDownload::removeQueued(int id)
+{
+    for (int index = 0; index < m_queue.size(); ++index) {
+        if (m_queue.at(index).toMap().value("id").toInt() == id) {
+            m_queue.removeAt(index);
+            emit queueChanged();
+            return;
+        }
+    }
+}
+
+void LocalDownload::clearQueue()
+{
+    if (m_queue.isEmpty())
+        return;
+    m_queue.clear();
+    emit queueChanged();
+}
+
+void LocalDownload::scheduleNext()
+{
+    if (!m_queue.isEmpty())
+        QTimer::singleShot(0, this, [this] { if (!m_busy) startNext(); });
+}
+
+void LocalDownload::startNext()
+{
+    if (m_busy || m_queue.isEmpty() || m_process.state() != QProcess::NotRunning || m_gifTools.busy())
+        return;
+    const auto item = m_queue.takeFirst().toMap();
+    emit queueChanged();
+    const auto folder = item.value("folder").toUrl().toLocalFile();
+    if (!folder.isEmpty())
+        QDir().mkpath(folder);
+    m_folder = folder;
+    download(item.value("url").toString(), item.value("preset").toString(), QUrl(),
+             item.value("gifStart", 0).toDouble(), item.value("gifDuration", 8).toDouble(),
+             item.value("gifFps", 10).toInt(), item.value("gifWidth", 480).toInt(), item.value("gifTargetMB", 8).toDouble());
+    m_folder.clear();
+    if (m_busy) {
+        m_currentTitle = item.value("title").toString();
+        emit changed();
+    }
 }
 
 void LocalDownload::refreshYtDlpVersion()
@@ -421,8 +575,12 @@ bool LocalDownload::download(const QString &url, const QString &preset, const QU
     m_errorText.clear();
     m_outputUrl = QUrl();
     m_outputBytes = 0;
+    m_currentUrl = url.trimmed();
+    m_currentTitle.clear();
     const QUrl source(url.trimmed());
-    const QFileInfo output(destination.toLocalFile());
+    // Without a destination the file is named after the title, in m_folder.
+    const bool autoName = destination.isEmpty() && !m_folder.isEmpty();
+    const QFileInfo output(autoName ? m_folder + "/download." : destination.toLocalFile());
     const bool isGif = preset == "VIDEO_GIF_SOCIAL";
     const bool isAudio = preset.startsWith("AUDIO_");
     const QString extension = isGif ? "gif" : isAudio ? preset.section('_', 1, 1).toLower() : "mp4";
@@ -434,9 +592,9 @@ bool LocalDownload::download(const QString &url, const QString &preset, const QU
                      "AUDIO_MP3_320", "AUDIO_MP3_192", "AUDIO_FLAC_BEST", "AUDIO_WAV_BEST",
                      "AUDIO_OPUS_96", "AUDIO_OPUS_BEST"}.contains(preset)
         || !source.isValid() || !QStringList{"http", "https"}.contains(source.scheme().toLower())
-        || source.host().isEmpty() || !destination.isLocalFile()
-        || output.suffix().compare(extension, Qt::CaseInsensitive) != 0
-        || !output.dir().exists() || output.exists()
+        || source.host().isEmpty() || (!autoName && !destination.isLocalFile())
+        || (!autoName && output.suffix().compare(extension, Qt::CaseInsensitive) != 0)
+        || !output.dir().exists() || (!autoName && output.exists())
         || (isGif && (gifStart < 0 || gifDuration <= 0 || gifFps < 5 || gifFps > 30 || gifWidth < 120 || gifTargetMB < 0))) {
         fail(QStringLiteral("Check the URL, format, and output path. Existing files are never overwritten."));
         return false;
@@ -447,7 +605,9 @@ bool LocalDownload::download(const QString &url, const QString &preset, const QU
         fail(QStringLiteral("Could not create a temporary folder beside the output file."));
         return false;
     }
-    m_destination = output.absoluteFilePath();
+    m_destination = autoName ? QString() : output.absoluteFilePath();
+    m_extension = extension;
+    m_outputFolder = output.absolutePath();
     m_downloaded.clear();
     m_preset = preset;
     m_gifStart = gifStart;
@@ -462,7 +622,8 @@ bool LocalDownload::download(const QString &url, const QString &preset, const QU
     m_cancelled = false;
     m_stage = QStringLiteral("Finding source");
 
-    QStringList arguments{"--no-playlist", "--no-overwrites", "--newline", "--no-colors",
+    QStringList arguments{"--no-playlist", "--no-overwrites", "--newline", "--progress", "--no-colors",
+                          "--print", "after_move:KADRON_TITLE:%(title)s",
                           "--print", "after_move:KADRON_OUTPUT:%(filepath)s",
                           "--ffmpeg-location", m_ffmpeg, "-o", m_temp->path() + "/source.%(ext)s"};
     if (isAudio) {
@@ -491,7 +652,9 @@ void LocalDownload::readOutput()
         if (newline < 0) break;
         const auto line = QString::fromUtf8(m_outputBuffer.left(newline)).trimmed();
         m_outputBuffer.remove(0, newline + 1);
-        if (line.startsWith("KADRON_OUTPUT:")) {
+        if (line.startsWith("KADRON_TITLE:")) {
+            if (m_currentTitle.isEmpty()) m_currentTitle = line.mid(13).trimmed();
+        } else if (line.startsWith("KADRON_OUTPUT:")) {
             m_downloaded = line.mid(14).trimmed();
             m_stage = QStringLiteral("Finalizing");
         } else {
@@ -514,11 +677,16 @@ void LocalDownload::finishDownload(int exitCode, QProcess::ExitStatus exitStatus
 {
     if (m_cancelled) {
         m_temp.reset();
+        scheduleNext();
         return;
     }
     if (!m_busy)
         return;
     readOutput();
+    if (m_destination.isEmpty()) {
+        const auto base = safeFileName(m_currentTitle);
+        m_destination = uniquePath(m_outputFolder, base.isEmpty() ? QStringLiteral("download") : base, m_extension);
+    }
     if (exitStatus != QProcess::NormalExit || exitCode != 0) {
         auto detail = summarizeError(QString::fromUtf8(m_errorBuffer));
         if (ytDlpOutdated())
@@ -554,6 +722,8 @@ void LocalDownload::finishDownload(int exitCode, QProcess::ExitStatus exitStatus
     m_busy = false;
     m_temp.reset();
     emit changed();
+    emit finished(m_outputUrl, m_currentUrl, m_currentTitle);
+    scheduleNext();
 }
 
 void LocalDownload::fail(const QString &message)
@@ -564,6 +734,7 @@ void LocalDownload::fail(const QString &message)
     m_errorText = message;
     m_temp.reset();
     emit changed();
+    scheduleNext();
 }
 
 void LocalDownload::cancel()
