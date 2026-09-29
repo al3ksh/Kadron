@@ -36,7 +36,7 @@ QString ThumbnailStrip::itemDirectory(const QString &path, Kind kind, qint64 dur
     const auto identity = QStringLiteral("%1|%2|%3").arg(info.absoluteFilePath()).arg(info.size())
                               .arg(info.lastModified().toMSecsSinceEpoch());
     const auto key = QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha1).toHex().left(20);
-    const auto suffix = kind == Kind::Frames ? QStringLiteral("-f%1").arg(durationMs) : QStringLiteral("-w");
+    const auto suffix = kind == Kind::Frames ? QStringLiteral("-f%1").arg(durationMs) : QStringLiteral("-w2");
     return m_directory + '/' + QString::fromLatin1(key) + suffix;
 }
 
@@ -183,7 +183,7 @@ void ThumbnailStrip::startNext()
                   << "-q:v" << "6" << "-y" << directory + "/f_%04d.jpg";
     } else {
         arguments << "-i" << job.path
-                  << "-filter_complex" << "aformat=channel_layouts=mono,showwavespic=s=2400x120:colors=0xffffff:draw=full:filter=peak"
+                  << "-filter_complex" << "aformat=channel_layouts=mono,showwavespic=s=2400x120:colors=0xffffff:draw=full:filter=peak:scale=sqrt"
                   << "-frames:v" << "1" << "-y" << directory + "/wave.png";
     }
 

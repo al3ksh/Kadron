@@ -139,6 +139,15 @@ Item {
     property int audioLufs: 0
     property bool audioMono: false
     readonly property bool audioLossless: audioFormatName === "wav" || audioFormatName === "flac"
+    // The extra options in use, for the folded header.
+    readonly property string audioExtras: {
+        const parts = []
+        if (audioFadeIn > 0) parts.push("fade in " + audioFadeIn + " s")
+        if (audioFadeOut > 0) parts.push("fade out " + audioFadeOut + " s")
+        if (audioLufs !== 0) parts.push(({ "-16": "Podcast", "-14": "Music", "-9": "Loud" })[audioLufs] + " loudness")
+        if (audioMono) parts.push("mono")
+        return parts.join(" · ")
+    }
     readonly property real audioSelectionSec: audioPreview.duration > 0 ? Math.max(0, audioEndMs - audioStartMs) / 1000 : 0
     // Roughly what the output weighs: the bitrate over the selection, or
     // CD-quality PCM for WAV, which FLAC packs to about 60 %.
@@ -1080,13 +1089,13 @@ Item {
                         font.pixelSize: 12
                         font.features: { "tnum": 1 }
                     }
-                    Text { text: "from"; color: Theme.textFaint; font.pixelSize: 12; Layout.leftMargin: 6 }
-                    EditorField { id: audioStart; objectName: "audioStart"; text: "0"; validator: DoubleValidator { bottom: 0 }
+                    Text { visible: Prefs.audioMoreOptions; text: "from"; color: Theme.textFaint; font.pixelSize: 12; Layout.leftMargin: 6 }
+                    EditorField { id: audioStart; objectName: "audioStart"; visible: Prefs.audioMoreOptions; text: "0"; validator: DoubleValidator { bottom: 0 }
                         Layout.preferredWidth: 78 }
-                    Text { text: "to"; color: Theme.textFaint; font.pixelSize: 12 }
-                    EditorField { id: audioEnd; objectName: "audioEnd"; text: "0"; validator: DoubleValidator { bottom: 0 }
+                    Text { visible: Prefs.audioMoreOptions; text: "to"; color: Theme.textFaint; font.pixelSize: 12 }
+                    EditorField { id: audioEnd; objectName: "audioEnd"; visible: Prefs.audioMoreOptions; text: "0"; validator: DoubleValidator { bottom: 0 }
                         Layout.preferredWidth: 78 }
-                    Text { text: "s"; color: Theme.textFaint; font.pixelSize: 12 }
+                    Text { visible: Prefs.audioMoreOptions; text: "s"; color: Theme.textFaint; font.pixelSize: 12 }
                     Item { Layout.fillWidth: true }
                     VolumeControl { id: audioVolume; objectName: "audioVolume" }
                     ToolCheck { text: "Loop"; checked: toolsPage.audioLooping; onToggled: toolsPage.audioLooping = checked }
@@ -1216,9 +1225,52 @@ Item {
                             font.pixelSize: 12
                         }
                     }
+                }
 
-                    Text { text: "Fade in"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
-                    Text { text: "Fade out"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
+                // Everything past format and quality folds away.
+                Item {
+                    objectName: "audioMoreToggle"
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    implicitHeight: 30
+                    HoverHandler { id: audioMoreHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: Prefs.audioMoreOptions = !Prefs.audioMoreOptions }
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 6
+                        ToolIcon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "chevron"
+                            width: 14
+                            height: 14
+                            tint: audioMoreHover.hovered ? Theme.text : Theme.textMuted
+                            rotation: Prefs.audioMoreOptions ? 0 : -90
+                            Behavior on rotation { SmoothSpring {} }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Prefs.audioMoreOptions ? "Fewer options" : "More options"
+                            color: audioMoreHover.hovered ? Theme.text : Theme.textMuted
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Prefs.audioMoreOptions ? "" : toolsPage.audioExtras || "fades, loudness, channels, exact times"
+                            color: toolsPage.audioExtras ? Theme.accent : Theme.textFaint
+                            font.pixelSize: 12
+                        }
+                    }
+                }
+
+                GridLayout {
+                    visible: Prefs.audioMoreOptions
+                    columns: 2
+                    columnSpacing: 28
+                    rowSpacing: 7
+
+                    Text { text: "Fade in"; color: Theme.textMuted; font.pixelSize: 12 }
+                    Text { text: "Fade out"; color: Theme.textMuted; font.pixelSize: 12 }
                     SegmentedControl {
                         Layout.preferredWidth: 380
                         namePrefix: "audioFadeIn_"

@@ -36,6 +36,8 @@ Settings {
     property string downloadHistory: "[]"
     // The Recent downloads list is folded to its header.
     property bool downloadHistoryFolded: false
+    // Convert audio shows fades, loudness, channels and exact times.
+    property bool audioMoreOptions: false
 
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"
