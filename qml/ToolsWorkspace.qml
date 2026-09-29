@@ -315,10 +315,12 @@ Item {
         // own drags must reach the slots underneath to reorder.
         keys: ["text/uri-list", "text/plain"]
         enabled: toolsPage.fileSection || toolsPage.section === 1
+        // A result dragged out of Kadron passes over its own window first.
+        onEntered: function(drag) { if (drag.source) drag.accepted = false }
         onDropped: function(drop) {
             if (toolsPage.section === 1) {
                 var link = drop.hasUrls && !drop.urls[0].toString().startsWith("file:") ? drop.urls[0].toString() : drop.text
-                if (link) downloadUrl.text = link.trim()
+                if (link && !/^file:/i.test(link.trim())) downloadUrl.text = link.trim()
             } else if (drop.hasUrls) toolsPage.acceptDrop(drop.urls)
             drop.accept()
         }
@@ -1657,7 +1659,8 @@ Item {
             RowLayout {
                 visible: toolsPage.section >= 2 && toolsPage.section <= 4 && toolsPage.resultSection === (toolsPage.section === 2 ? "audio" : toolsPage.section === 3 ? "compress" : "gif") && localTools.outputUrl.toString().length > 0 && !localTools.busy
                 Layout.fillWidth: true
-                Text { text: toolsPage.filename(localTools.outputUrl); color: Theme.textSoft; font.pixelSize: 12; Layout.fillWidth: true }
+                Text { text: toolsPage.filename(localTools.outputUrl); color: Theme.textSoft; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true
+                       DragOutFile { anchors.fill: parent; file: localTools.outputUrl } }
                 EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(localTools.outputUrl) }
                 EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(localTools.outputUrl) }
             }
@@ -1702,7 +1705,8 @@ Item {
             RowLayout {
                 visible: (toolsPage.section === 1 && toolsPage.resultSection === "download" && localDownload.outputUrl.toString().length > 0 && !localDownload.busy) || (toolsPage.section === 5 && toolsPage.resultSection === "pdf" && localPdf.outputUrl.toString().length > 0 && !localPdf.busy)
                 Layout.fillWidth: true
-                Text { text: toolsPage.filename(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl); color: Theme.textSoft; font.pixelSize: 12; Layout.fillWidth: true }
+                Text { text: toolsPage.filename(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl); color: Theme.textSoft; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true
+                       DragOutFile { anchors.fill: parent; file: toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl } }
                 EditorButton { text: "Open in editor"; iconName: "edit"; visible: toolsPage.section === 1 && toolsPage.downloadIsMedia; onClicked: toolsPage.openInEditor(localDownload.outputUrl) }
                 EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
                 EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
@@ -1729,6 +1733,7 @@ Item {
                         radius: 8
                         color: rowHover.hovered ? Theme.hover : "transparent"
                         HoverHandler { id: rowHover }
+                        DragOutFile { anchors.fill: parent; file: historyRow.present ? historyRow.modelData.file : "" }
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: 10

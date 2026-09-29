@@ -64,6 +64,7 @@ qt_add_qml_module(kadron_ui
     QML_FILES
         qml/Main.qml
         qml/EditorButton.qml
+        qml/DragOutFile.qml
         qml/EditorField.qml
         qml/Timeline.qml
         qml/ToolsWorkspace.qml
