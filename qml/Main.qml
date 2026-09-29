@@ -701,6 +701,7 @@ ApplicationWindow {
         id: settingsDialog
         objectName: "settingsDialog"
         onTutorialRequested: tutorial.start()
+        onUpdateRequested: updateCard.act()
     }
 
     Tutorial {
@@ -1471,7 +1472,7 @@ ApplicationWindow {
                     width: inspectorScroll.availableWidth - 7
                     spacing: 11
                     Text { text: root.inspectorMode !== 0 ? "Publish & share" : root.activeText ? "Text settings" : "Clip settings"; color: Theme.text; font.pixelSize: 16; font.weight: Font.DemiBold }
-                    Text { text: root.inspectorMode !== 0 ? "Send only when you choose to" : root.activeText ? "Double-click the text on the video to type" : "Adjust the active clip"; color: Theme.textMuted; font.pixelSize: 11 }
+                    Text { text: root.inspectorMode !== 0 ? "Send only when you choose to" : root.activeText ? "Click beside the text or Done to go back" : "Adjust the active clip"; color: Theme.textMuted; font.pixelSize: 11 }
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.topMargin: 5; Layout.bottomMargin: 5 }
 
                     ColumnLayout {
@@ -1813,6 +1814,10 @@ ApplicationWindow {
                                 readonly property string savedText: root.activeText ? root.activeText.text : ""
                                 onSavedTextChanged: if (text !== savedText) text = savedText
                                 Component.onCompleted: text = savedText
+                                // Typed characters go into the text, not to the J/K/L/Space shortcuts.
+                                Keys.onShortcutOverride: function(event) {
+                                    event.accepted = event.text.length > 0 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier))
+                                }
                                 // Enter keeps the text, Shift+Enter starts a new line.
                                 Keys.onPressed: function(event) {
                                     if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {

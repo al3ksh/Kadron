@@ -31,11 +31,16 @@ Item {
              : font === "mono" ? "Consolas" : "Segoe UI"
     }
 
-    // A click beside the text being typed keeps what was typed.
+    // A click beside the text being typed keeps what was typed; a click on
+    // the empty picture lets go of the selected text (picked(-1)).
     MouseArea {
+        objectName: "overlayBackground"
         anchors.fill: parent
-        enabled: overlay.editingIndex >= 0
-        onPressed: overlay.editingIndex = -1
+        enabled: overlay.editable && (overlay.editingIndex >= 0 || overlay.selectedIndex >= 0)
+        onPressed: {
+            if (overlay.editingIndex >= 0) overlay.editingIndex = -1
+            else overlay.picked(-1)
+        }
     }
 
     Repeater {
@@ -120,8 +125,12 @@ Item {
                 selectByMouse: true
                 selectionColor: Theme.accent
                 selectedTextColor: Theme.accentInk
-                // An open tooltip would close on Esc and swallow it.
-                Keys.onShortcutOverride: function(event) { event.accepted = event.key === Qt.Key_Escape }
+                // Typed characters and Esc belong to the text, not to the editor's
+                // one-key shortcuts (J, K, L, Space...) or an open tooltip.
+                Keys.onShortcutOverride: function(event) {
+                    event.accepted = event.key === Qt.Key_Escape
+                        || (event.text.length > 0 && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier)))
+                }
                 Keys.onPressed: function(event) {
                     if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {
                         event.accepted = true

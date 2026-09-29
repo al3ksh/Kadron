@@ -606,7 +606,9 @@ void UiTests::textOverlayDrag()
                       " property real movedX: -1\n property real movedY: -1\n property int pickedIndex: -1\n"
                       " onPicked: function(i) { pickedIndex = i }\n"
                       " onMoved: function(i, x, y) { movedX = x; movedY = y }\n"
-                      " property string editedText: \"\"\n onEdited: function(i, text) { editedText = text }\n}", QUrl());
+                      " property string editedText: \"\"\n onEdited: function(i, text) { editedText = text }\n"
+                      // Like the editor's J/K/L keys, which must not eat letters being typed.
+                      " property bool shortcutFired: false\n Shortcut { sequence: \"J\"; onActivated: shortcutFired = true }\n}", QUrl());
     std::unique_ptr<QObject> root(component.create());
     auto *layer = qobject_cast<QQuickItem *>(root.get());
     QVERIFY2(layer, qPrintable(component.errorString()));
@@ -635,10 +637,12 @@ void UiTests::textOverlayDrag()
     QTest::mouseDClick(&window, Qt::LeftButton, {}, QPoint(200, 100));
     QTRY_COMPARE(layer->property("editingIndex").toInt(), 0);
     QTest::keyClick(&window, 'H');
+    QTest::keyClick(&window, 'j');
     QTest::keyClick(&window, 'i');
     QTest::keyClick(&window, Qt::Key_Return);
     QCOMPARE(layer->property("editingIndex").toInt(), -1);
-    QCOMPARE(root->property("editedText").toString(), QString("Hi"));
+    QCOMPARE(root->property("editedText").toString(), QString("Hji"));
+    QVERIFY(!root->property("shortcutFired").toBool());
     // Esc goes back without a change.
     root->setProperty("editedText", QString());
     QMetaObject::invokeMethod(layer, "edit", Q_ARG(QVariant, 0));
@@ -647,6 +651,10 @@ void UiTests::textOverlayDrag()
     QTest::keyClick(&window, Qt::Key_Escape);
     QCOMPARE(layer->property("editingIndex").toInt(), -1);
     QVERIFY(root->property("editedText").toString().isEmpty());
+    // A click on the empty picture lets go of the selected text.
+    layer->setProperty("selectedIndex", 0);
+    QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(20, 20));
+    QCOMPARE(root->property("pickedIndex").toInt(), -1);
 }
 
 void UiTests::imagesWorkspace()

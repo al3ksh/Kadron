@@ -9,6 +9,8 @@ Dialog {
     id: dialog
     property int section: 0
     signal tutorialRequested()
+    // The same step as the sidebar's update card: download, then restart.
+    signal updateRequested()
     readonly property string repoUrl: "https://github.com/al3ksh/Kadron"
     readonly property string authorUrl: "https://github.com/al3ksh"
 
@@ -452,6 +454,17 @@ Dialog {
                                 subtle: true
                                 enabled: !appUpdater.checking
                                 onClicked: appUpdater.check()
+                            }
+                            EditorButton {
+                                objectName: "aboutUpdate"
+                                visible: appUpdater.updateAvailable
+                                primary: true
+                                enabled: !appUpdater.downloading
+                                iconName: appUpdater.ready ? "rotateRight" : appUpdater.canInstall ? "download" : "link"
+                                text: appUpdater.downloading ? "Downloading " + Math.round(appUpdater.progress * 100) + "%"
+                                      : appUpdater.ready ? "Restart to update"
+                                      : appUpdater.canInstall ? "Update" : "Open release"
+                                onClicked: dialog.updateRequested()
                             }
                             Text {
                                 Layout.fillWidth: true
