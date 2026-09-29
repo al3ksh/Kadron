@@ -248,6 +248,24 @@ Item {
     readonly property real gifStartMs: Math.max(0, Number(gifStart.text) * 1000)
     readonly property real gifEndMs: Math.min(gifPreview.duration > 0 ? gifPreview.duration : Infinity, gifStartMs + Math.max(0.1, Number(gifDuration.text)) * 1000)
     property bool gifLooping: true
+    // GIF settings; a limit of 0 leaves the size open.
+    property int gifFps: 10
+    property int gifWidthPx: 480
+    property real gifLimitMB: 10
+    property real gifSpeed: 1
+    property bool gifBounce: false
+    property bool gifOnce: false
+    // How long the GIF runs and how tall it comes out.
+    readonly property real gifOutSec: Math.max(0, gifEndMs - gifStartMs) / 1000 / gifSpeed * (gifBounce ? 2 : 1)
+    readonly property int gifHeightPx: gifVideo.sourceRect.width > 0
+                                       ? Math.round(gifWidthPx * gifVideo.sourceRect.height / gifVideo.sourceRect.width / 2) * 2 : 0
+    readonly property string gifExtras: {
+        const parts = []
+        if (gifSpeed !== 1) parts.push(gifSpeed + "× speed")
+        if (gifBounce) parts.push("bounce")
+        if (gifOnce) parts.push("plays once")
+        return parts.join(" · ")
+    }
     // Audio trim range in milliseconds; an end of 0 means the whole file.
     readonly property real audioStartMs: Math.max(0, Number(audioStart.text) * 1000)
     readonly property real audioEndMs: Number(audioEnd.text) > 0 ? Math.min(audioPreview.duration > 0 ? audioPreview.duration : Infinity, Number(audioEnd.text) * 1000)
@@ -321,6 +339,7 @@ Item {
         videoOutput: gifVideo
         audioOutput: AudioOutput { muted: true }
         loops: 1
+        playbackRate: toolsPage.gifSpeed
         property string startedSource: ""
         onSourceChanged: if (!source.toString()) startedSource = ""
         onMediaStatusChanged: {
@@ -471,8 +490,9 @@ Item {
                                     toolsPage.compressWidth, compressNoAudio.checked)
             else
                 localTools.createGif(toolsPage.sourceUrl, selectedFile, Number(gifStart.text),
-                                     Number(gifDuration.text), Number(gifFps.text),
-                                     Number(gifWidth.text), Number(gifTarget.text))
+                                     Number(gifDuration.text), toolsPage.gifFps,
+                                     toolsPage.gifWidthPx, toolsPage.gifLimitMB,
+                                     { speed: toolsPage.gifSpeed, bounce: toolsPage.gifBounce, once: toolsPage.gifOnce })
         }
     }
     FileDialog {
@@ -1559,30 +1579,219 @@ Item {
                         onSeekRequested: function(ms) { gifPreview.position = ms }
                     }
                 }
-                GridLayout {
-                    columns: 3
-                    columnSpacing: 14
-                    rowSpacing: 7
-                    Text { text: "Start (s)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "Duration (s)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "FPS"; color: Theme.textMuted; font.pixelSize: 12 }
-                    EditorField { id: gifStart; text: "0"; validator: DoubleValidator { bottom: 0 }
-                        Layout.preferredWidth: 160 }
-                    EditorField { id: gifDuration; text: "8"; validator: DoubleValidator { bottom: 0.1 }
-                        Layout.preferredWidth: 160 }
-                    EditorField { id: gifFps; text: "10"; validator: IntValidator { bottom: 5; top: 30 }
-                        Layout.preferredWidth: 160 }
-                    Text { text: "Width (px)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "Max file size (MB, 0 = none)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Item { Layout.preferredWidth: 160; Layout.preferredHeight: 1 }
-                    EditorField { id: gifWidth; text: "480"; validator: IntValidator { bottom: 120; top: 1080 }
-                        Layout.preferredWidth: 160 }
-                    EditorField { id: gifTarget; text: "8"; validator: DoubleValidator { bottom: 0 }
-                        Layout.preferredWidth: 160 }
+                // The clip going in and the GIF coming out.
+                Rectangle {
+                    objectName: "gifMeter"
+                    Layout.fillWidth: true
+                    implicitHeight: gifMeterRow.implicitHeight + 28
+                    radius: Theme.radius + 2
+                    color: Theme.field
+                    border.color: Theme.line
+                    RowLayout {
+                        id: gifMeterRow
+                        x: 18
+                        y: 14
+                        width: parent.width - 36
+                        spacing: 14
+                        Column {
+                            spacing: 2
+                            Text { text: "CLIP"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
+                            Text {
+                                text: ((toolsPage.gifEndMs - toolsPage.gifStartMs) / 1000).toFixed(2) + " s"
+                                color: Theme.text
+                                font.pixelSize: 20
+                                font.weight: Font.DemiBold
+                                font.features: { "tnum": 1 }
+                            }
+                            Text {
+                                text: "from " + toolsPage.clockLabel(toolsPage.gifStartMs)
+                                color: Theme.textMuted
+                                font.pixelSize: 11
+                                font.features: { "tnum": 1 }
+                            }
+                        }
+                        ToolIcon { name: "chevron"; rotation: -90; tint: Theme.textFaint; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
+                        Column {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text { text: "GIF"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
+                            Text {
+                                objectName: "gifOutSize"
+                                text: toolsPage.gifWidthPx + (toolsPage.gifHeightPx > 0 ? " × " + toolsPage.gifHeightPx : " px wide")
+                                color: Theme.accent
+                                font.pixelSize: 20
+                                font.weight: Font.DemiBold
+                                font.features: { "tnum": 1 }
+                            }
+                            Text {
+                                text: toolsPage.gifOutSec.toFixed(2) + " s · " + Math.round(toolsPage.gifOutSec * toolsPage.gifFps) + " frames"
+                                      + (toolsPage.gifExtras ? " · " + toolsPage.gifExtras : "")
+                                color: Theme.textMuted
+                                font.pixelSize: 11
+                                font.features: { "tnum": 1 }
+                            }
+                        }
+                        Rectangle {
+                            Layout.preferredWidth: gifLimitText.implicitWidth + 20
+                            Layout.preferredHeight: 26
+                            radius: 13
+                            color: toolsPage.gifLimitMB > 0 ? Theme.accentWash : Theme.field
+                            border.color: toolsPage.gifLimitMB > 0 ? Theme.accentEdge : Theme.lineStrong
+                            Text {
+                                id: gifLimitText
+                                anchors.centerIn: parent
+                                text: toolsPage.gifLimitMB > 0 ? "≤ " + toolsPage.gifLimitMB + " MB" : "No size limit"
+                                color: toolsPage.gifLimitMB > 0 ? Theme.accent : Theme.textSoft
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                    }
                 }
+
+                GridLayout {
+                    columns: 2
+                    columnSpacing: 28
+                    rowSpacing: 7
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    Text { text: "Size"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    Text { text: "Smoothness"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        namePrefix: "gifWidth_"
+                        options: [
+                            { label: "320", value: 320, tip: "Chats and reactions" },
+                            { label: "480", value: 480, tip: "The usual GIF size" },
+                            { label: "720", value: 720, tip: "Sharp, but heavier" },
+                            { label: "1080", value: 1080, tip: "Full HD width; big files" }
+                        ]
+                        current: toolsPage.gifWidthPx
+                        onActivated: function(width) { toolsPage.gifWidthPx = width }
+                    }
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        namePrefix: "gifFps_"
+                        options: [
+                            { label: "10 fps", value: 10, tip: "Light, the classic GIF look" },
+                            { label: "15 fps", value: 15, tip: "Smoother motion" },
+                            { label: "24 fps", value: 24, tip: "Film-smooth; about twice the size of 10 fps" }
+                        ]
+                        current: toolsPage.gifFps
+                        onActivated: function(fps) { toolsPage.gifFps = fps }
+                    }
+                    Text { text: "Size limit"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    Item { Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        namePrefix: "gifLimit_"
+                        options: [
+                            { label: "None", value: 0 },
+                            { label: "2 MB", value: 2, tip: "Small enough for most chats" },
+                            { label: "5 MB", value: 5 },
+                            { label: "10 MB", value: 10, tip: "Discord's upload limit" }
+                        ]
+                        current: toolsPage.gifLimitMB
+                        onActivated: function(mb) { toolsPage.gifLimitMB = mb }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        text: toolsPage.gifLimitMB > 0 ? "Shrinks size and frame rate until it fits." : ""
+                        color: Theme.textFaint
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                // Speed, playback and exact times fold away.
+                Item {
+                    objectName: "gifMoreToggle"
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    implicitHeight: 30
+                    HoverHandler { id: gifMoreHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: Prefs.gifMoreOptions = !Prefs.gifMoreOptions }
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 6
+                        ToolIcon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "chevron"
+                            width: 14
+                            height: 14
+                            tint: gifMoreHover.hovered ? Theme.text : Theme.textMuted
+                            rotation: Prefs.gifMoreOptions ? 0 : -90
+                            Behavior on rotation { SmoothSpring {} }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Prefs.gifMoreOptions ? "Fewer options" : "More options"
+                            color: gifMoreHover.hovered ? Theme.text : Theme.textMuted
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: Prefs.gifMoreOptions ? "" : toolsPage.gifExtras || "speed, bounce, exact times"
+                            color: toolsPage.gifExtras ? Theme.accent : Theme.textFaint
+                            font.pixelSize: 12
+                        }
+                    }
+                }
+
+                GridLayout {
+                    visible: Prefs.gifMoreOptions
+                    columns: 2
+                    columnSpacing: 28
+                    rowSpacing: 7
+                    Layout.fillWidth: true
+                    Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    Text { text: "Playback"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        namePrefix: "gifSpeed_"
+                        options: [
+                            { label: "0.5×", value: 0.5, tip: "Slow motion" },
+                            { label: "1×", value: 1 },
+                            { label: "1.5×", value: 1.5 },
+                            { label: "2×", value: 2, glyph: "bolt", boltSize: 12 }
+                        ]
+                        current: toolsPage.gifSpeed
+                        onActivated: function(speed) { toolsPage.gifSpeed = speed }
+                    }
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        namePrefix: "gifPlayback_"
+                        options: [
+                            { label: "Loop", value: "loop", tip: "Plays forward, over and over" },
+                            { label: "Bounce", value: "bounce", tip: "Forward, then backward, like a boomerang" },
+                            { label: "Once", value: "once", tip: "Plays one time and stops on the last frame" }
+                        ]
+                        current: toolsPage.gifOnce ? "once" : toolsPage.gifBounce ? "bounce" : "loop"
+                        onActivated: function(mode) {
+                            toolsPage.gifBounce = mode === "bounce"
+                            toolsPage.gifOnce = mode === "once"
+                        }
+                    }
+                    Text { text: "Start (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    Text { text: "Length (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    EditorField { id: gifStart; objectName: "gifStart"; text: "0"; validator: DoubleValidator { bottom: 0 }
+                        Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    EditorField { id: gifDuration; objectName: "gifDuration"; text: "8"; validator: DoubleValidator { bottom: 0.1 }
+                        Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                }
+
                 EditorButton {
                     text: "Create GIF"
+                    iconName: "gif"
                     primary: true
+                    Layout.topMargin: 6
                     enabled: toolsPage.sourceUrl.toString() && localTools.available && !localTools.busy
                     onClicked: toolsPage.beginLocal("gif")
                 }

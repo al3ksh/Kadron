@@ -1097,6 +1097,16 @@ void CoreTests::localMediaOperations()
     QVERIFY(QFileInfo(gif).size() > 0);
     QVERIFY(QFileInfo(gif).size() <= 0.5 * 1024 * 1024);
 
+    // Twice as fast and bouncing back, played once: one second of source
+    // becomes a one-second GIF.
+    const auto bounce = directory.path() + "/bounce.gif";
+    QVERIFY(tools.createGif(QUrl::fromLocalFile(source), QUrl::fromLocalFile(bounce), 0, 1.0, 10, 160, 0,
+                            QVariantMap{{"speed", 2}, {"bounce", true}, {"once", true}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 30000);
+    QCOMPARE(tools.errorText(), QString());
+    QImageReader bounceReader(bounce);
+    QVERIFY(bounceReader.imageCount() >= 8 && bounceReader.imageCount() <= 12);
+
     const auto gifWithoutWidth = directory.path() + "/unlimited-width.gif";
     QVERIFY(tools.compress(QUrl::fromLocalFile(source), QUrl::fromLocalFile(gifWithoutWidth), "gif", 75, 0, 0, true));
     QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 30000);

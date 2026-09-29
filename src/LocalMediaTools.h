@@ -39,8 +39,11 @@ public:
                                   const QVariantMap &options = {});
     Q_INVOKABLE bool compress(const QUrl &source, const QUrl &destination, const QString &format,
                               int quality, double targetMB, int maxWidth, bool stripAudio);
+    // options: speed (0.25 to 4, 1 by default), bounce (plays forward then
+    // back) and once (plays a single time instead of looping).
     Q_INVOKABLE bool createGif(const QUrl &source, const QUrl &destination, double startSec,
-                               double durationSec, int fps, int width, double targetMB);
+                               double durationSec, int fps, int width, double targetMB,
+                               const QVariantMap &options = {});
     // Turns a video into another shape. options: mode ("crop" follows the
     // keyframed frame, "blur" fits the whole picture over a blurred copy,
     // "split" stacks two regions: panels [{x, y, w, h}] top then bottom,
@@ -76,6 +79,7 @@ private:
     void probe();
     void encode();
     QStringList arguments() const;
+    double gifOutputSec() const;
     void onFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void readProgress();
     void fail(const QString &message);
@@ -108,6 +112,9 @@ private:
     double m_startSec = 0;
     double m_endSec = 0;
     double m_gifDurationSec = 8;
+    double m_gifSpeed = 1;
+    bool m_gifBounce = false;
+    bool m_gifOnce = false;
     bool m_normalize = false;
     double m_lufs = -14;
     double m_fadeInSec = 0;

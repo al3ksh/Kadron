@@ -38,6 +38,8 @@ Settings {
     property bool downloadHistoryFolded: false
     // Convert audio shows fades, loudness, channels and exact times.
     property bool audioMoreOptions: false
+    // GIF Studio shows speed, playback and exact times.
+    property bool gifMoreOptions: false
 
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"

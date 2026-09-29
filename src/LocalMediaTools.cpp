@@ -158,11 +158,15 @@ bool LocalMediaTools::compress(const QUrl &source, const QUrl &destination, cons
     m_endSec = 0;
     m_fps = 10;
     m_gifDurationSec = 0;
+    m_gifSpeed = 1;
+    m_gifBounce = false;
+    m_gifOnce = false;
     return true;
 }
 
 bool LocalMediaTools::createGif(const QUrl &source, const QUrl &destination, double startSec,
-                                double durationSec, int fps, int width, double targetMB)
+                                double durationSec, int fps, int width, double targetMB,
+                                const QVariantMap &options)
 {
     if (busy())
         return false;
@@ -176,6 +180,9 @@ bool LocalMediaTools::createGif(const QUrl &source, const QUrl &destination, dou
     m_format = "gif";
     m_startSec = startSec;
     m_gifDurationSec = durationSec;
+    m_gifSpeed = qBound(0.25, options.value("speed", 1).toDouble(), 4.0);
+    m_gifBounce = options.value("bounce").toBool();
+    m_gifOnce = options.value("once").toBool();
     m_fps = fps;
     m_maxWidth = width;
     m_targetBytes = qRound64(targetMB * 1024 * 1024);
@@ -348,6 +355,11 @@ void LocalMediaTools::probe()
     });
 }
 
+double LocalMediaTools::gifOutputSec() const
+{
+    return m_gifDurationSec / m_gifSpeed * (m_gifBounce ? 2 : 1);
+}
+
 QStringList LocalMediaTools::arguments() const
 {
     QStringList args{"-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1", "-y"};
@@ -406,11 +418,19 @@ QStringList LocalMediaTools::arguments() const
              << "-c:v" << "libx264" << "-preset" << "medium" << "-crf" << "19" << "-movflags" << "+faststart"
              << "-c:a" << "aac" << "-b:a" << "192k";
     } else if (m_operation == Operation::Gif) {
+        // The source range is cut before the speed change, so the output
+        // runs for the range over the speed, twice over when it bounces.
+        QString frames = QString("[0:v]");
         if (m_gifDurationSec > 0)
-            args << "-t" << QString::number(m_gifDurationSec, 'f', 3);
-        const auto filters = QString("[0:v]fps=%1,scale=%2:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=5[v]")
-            .arg(m_fps).arg(m_maxWidth);
-        args << "-filter_complex" << filters << "-map" << "[v]" << "-an" << "-loop" << "0";
+            frames += QString("trim=duration=%1,").arg(m_gifDurationSec, 0, 'f', 3);
+        frames += QString("setpts=(PTS-STARTPTS)/%1,fps=%2,scale=%3:-1:flags=lanczos")
+            .arg(m_gifSpeed, 0, 'f', 3).arg(m_fps).arg(m_maxWidth);
+        if (m_gifBounce)
+            frames += ",split[f][r];[r]reverse[back];[f][back]concat=n=2:v=1:a=0";
+        const auto filters = frames + ",split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=5[v]";
+        if (m_gifDurationSec > 0)
+            args << "-t" << QString::number(gifOutputSec(), 'f', 3);
+        args << "-filter_complex" << filters << "-map" << "[v]" << "-an" << "-loop" << (m_gifOnce ? "-1" : "0");
     }
     args << m_partialPath;
     return args;
@@ -455,7 +475,7 @@ void LocalMediaTools::readProgress()
         bool valid = false;
         const auto microseconds = line.mid(line.indexOf('=') + 1).toLongLong(&valid);
         const auto workMs = m_operation == Operation::Gif && m_gifDurationSec > 0
-            ? qRound64(m_gifDurationSec * 1000) : m_operation == Operation::Audio && m_endSec > m_startSec
+            ? qRound64(gifOutputSec() * 1000) : m_operation == Operation::Audio && m_endSec > m_startSec
                 ? qRound64((m_endSec - m_startSec) * 1000) : m_durationMs;
         if (valid && workMs > 0) {
             const auto next = qBound(0, static_cast<int>(microseconds / (workMs * 10)), 99);
