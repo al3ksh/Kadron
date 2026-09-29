@@ -32,8 +32,11 @@ public:
     QUrl outputUrl() const;
     qint64 outputBytes() const;
 
+    // options: fadeIn and fadeOut in seconds, lufs (the loudness target when
+    // normalizing, -14 by default) and mono.
     Q_INVOKABLE bool convertAudio(const QUrl &source, const QUrl &destination, const QString &format,
-                                  int bitrate, bool normalize, double startSec, double endSec);
+                                  int bitrate, bool normalize, double startSec, double endSec,
+                                  const QVariantMap &options = {});
     Q_INVOKABLE bool compress(const QUrl &source, const QUrl &destination, const QString &format,
                               int quality, double targetMB, int maxWidth, bool stripAudio);
     Q_INVOKABLE bool createGif(const QUrl &source, const QUrl &destination, double startSec,
@@ -106,6 +109,10 @@ private:
     double m_endSec = 0;
     double m_gifDurationSec = 8;
     bool m_normalize = false;
+    double m_lufs = -14;
+    double m_fadeInSec = 0;
+    double m_fadeOutSec = 0;
+    bool m_mono = false;
     bool m_stripAudio = false;
     bool m_cancelled = false;
     QVariantMap m_reframe;

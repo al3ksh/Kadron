@@ -129,8 +129,24 @@ Item {
     property string resultSection: ""
     property string pendingAction: ""
     property bool isImage: /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(sourceUrl.toString())
-    property string selectedFormat: section === 2 ? audioFormat.currentText.toLowerCase()
+    property string selectedFormat: section === 2 ? audioFormatName
                                   : section === 3 ? compressFormatName.toLowerCase() : "gif"
+    // Audio settings; a loudness of 0 leaves the level alone.
+    property string audioFormatName: "mp3"
+    property int audioKbps: 192
+    property real audioFadeIn: 0
+    property real audioFadeOut: 0
+    property int audioLufs: 0
+    property bool audioMono: false
+    readonly property bool audioLossless: audioFormatName === "wav" || audioFormatName === "flac"
+    readonly property real audioSelectionSec: audioPreview.duration > 0 ? Math.max(0, audioEndMs - audioStartMs) / 1000 : 0
+    // Roughly what the output weighs: the bitrate over the selection, or
+    // CD-quality PCM for WAV, which FLAC packs to about 60 %.
+    readonly property real audioEstimateBytes: {
+        const pcm = 1411 / (audioMono ? 2 : 1)
+        const kbps = audioFormatName === "wav" ? pcm : audioFormatName === "flac" ? pcm * 0.6 : audioKbps
+        return kbps * 125 * audioSelectionSec
+    }
     // Compress aims for a size (videos) or a quality, in a format and width.
     property string compressGoal: "size"
     property real compressMB: 8
@@ -140,7 +156,7 @@ Item {
     readonly property var compressFormats: isImage ? ["WebP", "JPG", "PNG", "GIF"] : ["MP4", "WebM", "GIF"]
     readonly property string compressFormatName: compressFormats.indexOf(compressPick) >= 0 ? compressPick : compressFormats[0]
     readonly property bool compressToSize: compressGoal === "size" && !isImage && compressMB > 0
-    readonly property real sourceBytes: section === 3 && hasSource ? localTools.fileBytes(sourceUrl) : 0
+    readonly property real sourceBytes: (section === 2 || section === 3) && hasSource ? localTools.fileBytes(sourceUrl) : 0
     // What the file should weigh against what it does now, 0..1.
     readonly property real compressShare: compressToSize && sourceBytes > 0 ? Math.min(1, compressMB * 1048576 / sourceBytes) : 1
     function qualityName(quality) {
@@ -395,7 +411,7 @@ Item {
     }
     function formatLabel(extension) {
         return ({mp4: "MP4 video (*.mp4)", webm: "WebM video (*.webm)", gif: "GIF animation (*.gif)",
-                 mp3: "MP3 audio (*.mp3)", flac: "FLAC audio (*.flac)", wav: "WAV audio (*.wav)", opus: "Opus audio (*.opus)",
+                 mp3: "MP3 audio (*.mp3)", m4a: "AAC audio (*.m4a)", flac: "FLAC audio (*.flac)", wav: "WAV audio (*.wav)", opus: "Opus audio (*.opus)",
                  webp: "WebP image (*.webp)", jpg: "JPEG image (*.jpg *.jpeg)", png: "PNG image (*.png)"})[extension]
                || extension.toUpperCase() + " file (*." + extension + ")"
     }
@@ -436,8 +452,10 @@ Item {
             toolsPage.resultSection = toolsPage.pendingAction
             if (toolsPage.pendingAction === "audio")
                 localTools.convertAudio(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
-                                        Number(audioBitrate.text), audioNormalize.checked,
-                                        Number(audioStart.text), Number(audioEnd.text))
+                                        toolsPage.audioKbps, toolsPage.audioLufs !== 0,
+                                        Number(audioStart.text), Number(audioEnd.text),
+                                        { fadeIn: toolsPage.audioFadeIn, fadeOut: toolsPage.audioFadeOut,
+                                          lufs: toolsPage.audioLufs || -14, mono: toolsPage.audioMono })
             else if (toolsPage.pendingAction === "compress")
                 localTools.compress(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
                                     toolsPage.compressQuality, toolsPage.compressToSize ? toolsPage.compressMB : 0,
@@ -1062,6 +1080,13 @@ Item {
                         font.pixelSize: 12
                         font.features: { "tnum": 1 }
                     }
+                    Text { text: "from"; color: Theme.textFaint; font.pixelSize: 12; Layout.leftMargin: 6 }
+                    EditorField { id: audioStart; objectName: "audioStart"; text: "0"; validator: DoubleValidator { bottom: 0 }
+                        Layout.preferredWidth: 78 }
+                    Text { text: "to"; color: Theme.textFaint; font.pixelSize: 12 }
+                    EditorField { id: audioEnd; objectName: "audioEnd"; text: "0"; validator: DoubleValidator { bottom: 0 }
+                        Layout.preferredWidth: 78 }
+                    Text { text: "s"; color: Theme.textFaint; font.pixelSize: 12 }
                     Item { Layout.fillWidth: true }
                     VolumeControl { id: audioVolume; objectName: "audioVolume" }
                     ToolCheck { text: "Loop"; checked: toolsPage.audioLooping; onToggled: toolsPage.audioLooping = checked }
@@ -1072,26 +1097,171 @@ Item {
                         onClicked: { audioStart.text = "0"; audioEnd.text = "0" }
                     }
                 }
-                Text { text: "Output format"; color: Theme.textMuted; font.pixelSize: 12 }
-                ToolCombo { id: audioFormat; model: ["MP3", "WAV", "FLAC", "Opus"]; Layout.preferredWidth: 250 }
-                GridLayout {
-                    columns: 3
-                    columnSpacing: 14
-                    rowSpacing: 7
-                    Text { text: "Bitrate (kbps)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "Start (s)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "End (s, 0 = full)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    EditorField { id: audioBitrate; text: "192"; validator: IntValidator { bottom: 64; top: 320 }
-                        Layout.preferredWidth: 155 }
-                    EditorField { id: audioStart; text: "0"; validator: DoubleValidator { bottom: 0 }
-                        Layout.preferredWidth: 155 }
-                    EditorField { id: audioEnd; text: "0"; validator: DoubleValidator { bottom: 0 }
-                        Layout.preferredWidth: 155 }
+                // What goes in and roughly what comes out.
+                Rectangle {
+                    objectName: "audioMeter"
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    implicitHeight: audioMeterRow.implicitHeight + 28
+                    radius: Theme.radius + 2
+                    color: Theme.field
+                    border.color: Theme.line
+                    RowLayout {
+                        id: audioMeterRow
+                        x: 18
+                        y: 14
+                        width: parent.width - 36
+                        spacing: 14
+                        Column {
+                            spacing: 2
+                            Text { text: "NOW"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
+                            Text {
+                                text: toolsPage.sourceBytes > 0 ? toolsPage.sizeLabel(toolsPage.sourceBytes) : "—"
+                                color: Theme.text
+                                font.pixelSize: 20
+                                font.weight: Font.DemiBold
+                            }
+                            Text {
+                                text: audioPreview.duration > 0 ? toolsPage.clockLabel(audioPreview.duration) : " "
+                                color: Theme.textMuted
+                                font.pixelSize: 11
+                                font.features: { "tnum": 1 }
+                            }
+                        }
+                        ToolIcon { name: "chevron"; rotation: -90; tint: Theme.textFaint; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
+                        Column {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text { text: "OUT"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
+                            Text {
+                                objectName: "audioEstimate"
+                                text: toolsPage.audioEstimateBytes > 0 ? "≈ " + toolsPage.sizeLabel(toolsPage.audioEstimateBytes) : "—"
+                                color: Theme.accent
+                                font.pixelSize: 20
+                                font.weight: Font.DemiBold
+                            }
+                            Text {
+                                text: toolsPage.audioSelectionSec > 0
+                                      ? toolsPage.clockLabel(toolsPage.audioSelectionSec * 1000) + " · " + toolsPage.audioFormatName.replace("m4a", "aac").toUpperCase()
+                                        + (toolsPage.audioLossless ? " lossless" : " " + toolsPage.audioKbps + " kbps") + (toolsPage.audioMono ? " · mono" : "")
+                                      : " "
+                                color: Theme.textMuted
+                                font.pixelSize: 11
+                                font.features: { "tnum": 1 }
+                            }
+                        }
+                        // Smaller or bigger than the source, by how much.
+                        Rectangle {
+                            readonly property real change: toolsPage.sourceBytes > 0 && toolsPage.audioEstimateBytes > 0
+                                                           ? toolsPage.audioEstimateBytes / toolsPage.sourceBytes - 1 : 0
+                            visible: Math.abs(change) >= 0.05
+                            Layout.preferredWidth: audioChange.implicitWidth + 20
+                            Layout.preferredHeight: 26
+                            radius: 13
+                            color: change < 0 ? Theme.accentWash : Theme.field
+                            border.color: change < 0 ? Theme.accentEdge : Theme.lineStrong
+                            Text {
+                                id: audioChange
+                                anchors.centerIn: parent
+                                text: (parent.change < 0 ? "−" : "+") + Math.round(Math.abs(parent.change) * 100) + "%"
+                                color: parent.change < 0 ? Theme.accent : Theme.textSoft
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                    }
                 }
-                ToolCheck { id: audioNormalize; text: "Normalize loudness"; checked: false }
+
+                GridLayout {
+                    columns: 2
+                    columnSpacing: 28
+                    rowSpacing: 7
+                    Layout.topMargin: 4
+                    Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12 }
+                    Text { text: toolsPage.audioLossless ? "Quality" : "Quality (kbps)"; color: Theme.textMuted; font.pixelSize: 12 }
+                    SegmentedControl {
+                        Layout.preferredWidth: 380
+                        namePrefix: "audioFormat_"
+                        options: [
+                            { label: "MP3", value: "mp3", tip: "Plays everywhere" },
+                            { label: "AAC", value: "m4a", tip: "Apple devices and phones; smaller than MP3 at the same quality" },
+                            { label: "Opus", value: "opus", tip: "Best quality for its size; web and voice" },
+                            { label: "WAV", value: "wav", tip: "Uncompressed, for further editing" },
+                            { label: "FLAC", value: "flac", tip: "Lossless and smaller than WAV" }
+                        ]
+                        current: toolsPage.audioFormatName
+                        onActivated: function(format) { toolsPage.audioFormatName = format }
+                    }
+                    Item {
+                        Layout.preferredWidth: 380
+                        implicitHeight: 34
+                        SegmentedControl {
+                            visible: !toolsPage.audioLossless
+                            anchors.fill: parent
+                            namePrefix: "audioKbps_"
+                            options: [
+                                { label: "96", value: 96, tip: "Voice and podcasts" },
+                                { label: "128", value: 128, tip: "Good for music" },
+                                { label: "192", value: 192, tip: "High quality" },
+                                { label: "320", value: 320, tip: "The most MP3 can do" }
+                            ]
+                            current: toolsPage.audioKbps
+                            onActivated: function(kbps) { toolsPage.audioKbps = kbps }
+                        }
+                        Text {
+                            visible: toolsPage.audioLossless
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Lossless · keeps every detail of the source"
+                            color: Theme.textSoft
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    Text { text: "Fade in"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
+                    Text { text: "Fade out"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
+                    SegmentedControl {
+                        Layout.preferredWidth: 380
+                        namePrefix: "audioFadeIn_"
+                        options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
+                        current: toolsPage.audioFadeIn
+                        onActivated: function(sec) { toolsPage.audioFadeIn = sec }
+                    }
+                    SegmentedControl {
+                        Layout.preferredWidth: 380
+                        namePrefix: "audioFadeOut_"
+                        options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
+                        current: toolsPage.audioFadeOut
+                        onActivated: function(sec) { toolsPage.audioFadeOut = sec }
+                    }
+
+                    Text { text: "Loudness"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
+                    Text { text: "Channels"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
+                    SegmentedControl {
+                        Layout.preferredWidth: 380
+                        namePrefix: "audioLufs_"
+                        options: [
+                            { label: "As is", value: 0 },
+                            { label: "Podcast", value: -16, tip: "−16 LUFS, the spoken-word standard" },
+                            { label: "Music", value: -14, tip: "−14 LUFS, what Spotify and YouTube play at" },
+                            { label: "Loud", value: -9, tip: "−9 LUFS, for clips that must cut through" }
+                        ]
+                        current: toolsPage.audioLufs
+                        onActivated: function(lufs) { toolsPage.audioLufs = lufs }
+                    }
+                    SegmentedControl {
+                        Layout.preferredWidth: 380
+                        namePrefix: "audioChannels_"
+                        options: [{ label: "Stereo", value: false }, { label: "Mono", value: true, tip: "One channel; fine for voice" }]
+                        current: toolsPage.audioMono
+                        onActivated: function(mono) { toolsPage.audioMono = mono }
+                    }
+                }
+
                 EditorButton {
                     text: "Convert audio"
+                    iconName: "audio"
                     primary: true
+                    Layout.topMargin: 6
                     enabled: toolsPage.sourceUrl.toString() && localTools.available && !localTools.busy
                     onClicked: toolsPage.beginLocal("audio")
                 }

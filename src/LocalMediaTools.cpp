@@ -98,15 +98,16 @@ bool LocalMediaTools::begin(const QUrl &source, const QUrl &destination, Operati
 }
 
 bool LocalMediaTools::convertAudio(const QUrl &source, const QUrl &destination, const QString &format,
-                                   int bitrate, bool normalize, double startSec, double endSec)
+                                   int bitrate, bool normalize, double startSec, double endSec,
+                                   const QVariantMap &options)
 {
     if (busy())
         return false;
     const auto selected = format.toLower();
-    if (!QStringList{"mp3", "wav", "flac", "opus"}.contains(selected)
+    if (!QStringList{"mp3", "m4a", "wav", "flac", "opus"}.contains(selected)
         || QFileInfo(destination.toLocalFile()).suffix().toLower() != selected
         || startSec < 0 || (endSec > 0 && endSec <= startSec)) {
-        fail(QStringLiteral("Choose MP3, WAV, FLAC or Opus and a valid time range."));
+        fail(QStringLiteral("Choose MP3, AAC, WAV, FLAC or Opus and a valid time range."));
         return false;
     }
     if (!begin(source, destination, Operation::Audio))
@@ -114,6 +115,10 @@ bool LocalMediaTools::convertAudio(const QUrl &source, const QUrl &destination, 
     m_format = selected;
     m_bitrate = qBound(64, bitrate, 320);
     m_normalize = normalize;
+    m_lufs = qBound(-30.0, options.value("lufs", -14).toDouble(), -5.0);
+    m_fadeInSec = qMax(0.0, options.value("fadeIn").toDouble());
+    m_fadeOutSec = qMax(0.0, options.value("fadeOut").toDouble());
+    m_mono = options.value("mono").toBool();
     m_startSec = startSec;
     m_endSec = endSec;
     return true;
@@ -354,9 +359,23 @@ QStringList LocalMediaTools::arguments() const
         if (m_endSec > m_startSec)
             args << "-t" << QString::number(m_endSec - m_startSec, 'f', 3);
         args << "-vn";
+        QStringList filters;
         if (m_normalize)
-            args << "-af" << "loudnorm=I=-14:TP=-1.5:LRA=11";
+            filters << QString("loudnorm=I=%1:TP=-1.5:LRA=11").arg(m_lufs);
+        if (m_fadeInSec > 0)
+            filters << QString("afade=t=in:st=0:d=%1").arg(m_fadeInSec, 0, 'f', 3);
+        // The fade out ends with the output, so it needs the output's length.
+        const double lengthSec = m_endSec > m_startSec ? m_endSec - m_startSec : m_durationMs / 1000.0 - m_startSec;
+        if (m_fadeOutSec > 0 && lengthSec > 0) {
+            const double fade = qMin(m_fadeOutSec, lengthSec);
+            filters << QString("afade=t=out:st=%1:d=%2").arg(lengthSec - fade, 0, 'f', 3).arg(fade, 0, 'f', 3);
+        }
+        if (!filters.isEmpty())
+            args << "-af" << filters.join(',');
+        if (m_mono)
+            args << "-ac" << "1";
         if (m_format == "mp3") args << "-c:a" << "libmp3lame" << "-b:a" << QString::number(m_bitrate) + "k";
+        else if (m_format == "m4a") args << "-c:a" << "aac" << "-b:a" << QString::number(m_bitrate) + "k";
         else if (m_format == "wav") args << "-c:a" << "pcm_s16le";
         else if (m_format == "flac") args << "-c:a" << "flac";
         else args << "-c:a" << "libopus" << "-b:a" << QString::number(m_bitrate) + "k";

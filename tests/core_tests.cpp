@@ -1075,6 +1075,14 @@ void CoreTests::localMediaOperations()
     QCOMPARE(tools.errorText(), QString());
     QVERIFY(QFileInfo(audio).size() > 0);
 
+    // AAC in mono with fades and a podcast loudness target, over the whole file.
+    const auto aac = directory.path() + "/voice.m4a";
+    QVERIFY(tools.convertAudio(QUrl::fromLocalFile(source), QUrl::fromLocalFile(aac), "m4a", 96, true, 0, 0,
+                               QVariantMap{{"fadeIn", 0.5}, {"fadeOut", 1.0}, {"lufs", -16}, {"mono", true}}));
+    QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 30000);
+    QCOMPARE(tools.errorText(), QString());
+    QVERIFY(QFileInfo(aac).size() > 0);
+
     const auto video = directory.path() + "/small.mp4";
     QVERIFY(tools.compress(QUrl::fromLocalFile(source), QUrl::fromLocalFile(video), "mp4", 60, 0.5, 240, true));
     QTRY_VERIFY_WITH_TIMEOUT(!tools.busy(), 30000);
