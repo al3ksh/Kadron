@@ -135,6 +135,9 @@ int main(int argc, char *argv[])
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, screenshotSettings.path());
         if (auto *prefs = engine.singletonInstance<QObject *>("Kadron", "Prefs")) {
+            // The welcome tour would cover the page and take it back to the editor.
+            if (!qEnvironmentVariableIsSet("KADRON_SCREENSHOT_TUTORIAL"))
+                prefs->setProperty("tutorialDone", true);
             if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_THEME"))
                 prefs->setProperty("themeMode", qEnvironmentVariable("KADRON_SCREENSHOT_THEME"));
             if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_ACCENT"))
@@ -339,7 +342,7 @@ int main(int argc, char *argv[])
             const auto source = QUrl::fromLocalFile(QFileInfo(qEnvironmentVariable("KADRON_SCREENSHOT_GIF_SOURCE")).absoluteFilePath());
             QTimer::singleShot(300, &app, [mainWindow, source] {
                 if (auto *tools = mainWindow->findChild<QObject *>("toolsArea"))
-                    tools->setProperty("sourceUrl", source);
+                    QMetaObject::invokeMethod(tools, "setSource", Q_ARG(QVariant, source));
             });
         }
         const auto screenshotDelay = qEnvironmentVariableIntValue("KADRON_SCREENSHOT_DELAY_MS");
