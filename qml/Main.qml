@@ -1586,7 +1586,7 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     namePrefix: "clipSpeed"
                                     options: [0.5, 1, 1.5, 2].map(function(speed) {
-                                        return { label: speed + "×", value: speed, glyph: speed > 1 ? "bolt" : "", bolts: speed >= 2 ? 2 : 1 }
+                                        return { label: speed + "×", value: speed, glyph: speed > 1 ? "bolt" : "", boltSize: speed >= 2 ? 15 : 11 }
                                     })
                                     current: root.activeSpeed
                                     enabled: editorProject.hasMedia && !exporter.busy
