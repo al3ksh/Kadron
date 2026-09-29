@@ -91,6 +91,7 @@ qt_add_qml_module(kadron_ui
         qml/FileBoard.qml
         qml/PagePicker.qml
         qml/Intro.qml
+        qml/Tutorial.qml
         qml/ImagesWorkspace.qml
         qml/ReframeWorkspace.qml
         qml/RegionFrame.qml

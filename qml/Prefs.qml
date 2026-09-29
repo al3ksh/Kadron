@@ -16,6 +16,9 @@ Settings {
     // The animated intro while the app starts (read by main.cpp at launch).
     property bool startupIntro: true
 
+    // The short tour shown once on first run.
+    property bool tutorialDone: false
+
     // Background checks for Kadron and yt-dlp releases (read by AppUpdater and LocalDownload).
     property bool autoUpdateCheck: true
 

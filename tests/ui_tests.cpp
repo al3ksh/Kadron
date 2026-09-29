@@ -32,6 +32,7 @@ private slots:
     void updateCard();
     void appearance();
     void intro();
+    void tutorial();
     void imagesWorkspace();
     void reframeWorkspace();
     void fileBoardReorder();
@@ -543,6 +544,46 @@ void UiTests::intro()
     QVERIFY(!intro->property("leaving").toBool());
     intro->setProperty("appReady", true);
     QVERIFY(intro->property("leaving").toBool());
+}
+
+void UiTests::tutorial()
+{
+    QQmlEngine engine;
+    auto *prefs = engine.singletonInstance<QObject *>("Kadron", "Prefs");
+    QVERIFY(prefs);
+    prefs->setProperty("tutorialDone", false);
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick\nimport Kadron\nItem {\n width: 900; height: 600\n"
+                      " property alias tour: tour\n property int page: -1\n"
+                      " Tutorial { id: tour; onPageRequested: function(p) { parent.page = p } }\n}", QUrl());
+    std::unique_ptr<QObject> root(component.create());
+    auto *item = qobject_cast<QQuickItem *>(root.get());
+    QVERIFY(item);
+    QQuickWindow window;
+    window.setGeometry(50, 50, 900, 600);
+    item->setParentItem(window.contentItem());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto *tour = root->property("tour").value<QObject *>();
+    QVERIFY(tour);
+    QMetaObject::invokeMethod(tour, "start");
+    QTRY_VERIFY(tour->property("visible").toBool());
+    QCOMPARE(tour->property("step").toInt(), 0);
+    QCOMPARE(root->property("page").toInt(), 0);
+
+    // Each step shows its page behind the card; the last one closes the tour for good.
+    const auto count = tour->property("steps").toList().size();
+    QVERIFY(count >= 3);
+    for (int i = 1; i < count; ++i) {
+        tour->setProperty("step", i);
+        if (i == 2) QCOMPARE(root->property("page").toInt(), 1);
+    }
+    QVERIFY(!prefs->property("tutorialDone").toBool());
+    QMetaObject::invokeMethod(tour, "finish");
+    QVERIFY(prefs->property("tutorialDone").toBool());
+    QTRY_VERIFY(!tour->property("visible").toBool());
+    prefs->setProperty("tutorialDone", false);
 }
 
 void UiTests::imagesWorkspace()

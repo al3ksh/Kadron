@@ -132,6 +132,7 @@ ApplicationWindow {
         recovery = editorProject.recoveryInfo()
         if (recovery.name && !editorProject.hasMedia) recoveryDialog.open()
         else if (recovery.name) editorProject.discardRecovery()
+        if (!Prefs.tutorialDone && !recoveryDialog.opened && !editorProject.hasMedia) tutorial.start()
     }
     property int inspectorMode: 0
     property int workspace: 0
@@ -689,6 +690,13 @@ ApplicationWindow {
     SettingsDialog {
         id: settingsDialog
         objectName: "settingsDialog"
+        onTutorialRequested: tutorial.start()
+    }
+
+    Tutorial {
+        id: tutorial
+        objectName: "tutorial"
+        onPageRequested: function(page) { root.workspace = page; root.inspectorMode = 0 }
     }
 
     CommandPalette {
@@ -705,6 +713,7 @@ ApplicationWindow {
             { title: "Export MP4…", group: "File", enabled: editorProject.canExport && !exporter.busy && exporter.available, run: function() { root.workspace = 0; exportSheet.open() } },
             { title: "Close project", group: "File", keys: "Ctrl+W", enabled: editorProject.hasMedia, run: root.closeEditing },
             { title: "Settings", group: "App", keys: "Ctrl+,", run: function() { settingsDialog.open() } },
+            { title: "Show the tutorial", group: "App", run: function() { tutorial.start() } },
             { title: "About Kadron", group: "App", run: function() { settingsDialog.show(3) } }
         ]
         var pages = ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code", "Clips", "Drop", "Shortener", "Images", "Reframe"]

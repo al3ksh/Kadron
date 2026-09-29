@@ -8,6 +8,7 @@ import QtQuick.Dialogs
 Dialog {
     id: dialog
     property int section: 0
+    signal tutorialRequested()
     readonly property string repoUrl: "https://github.com/al3ksh/Kadron"
     readonly property string authorUrl: "https://github.com/al3ksh"
 
@@ -361,6 +362,15 @@ Dialog {
                             text: "Play the intro when Kadron starts"
                             checked: Prefs.startupIntro
                             onToggled: Prefs.startupIntro = checked
+                        }
+                        EditorButton {
+                            objectName: "showTutorialButton"
+                            text: "Show the tutorial"
+                            iconName: "info"
+                            onClicked: {
+                                dialog.close()
+                                dialog.tutorialRequested()
+                            }
                         }
                         SectionLabel { text: "UPDATES" }
                         ToolCheck {
