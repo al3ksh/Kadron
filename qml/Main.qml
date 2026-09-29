@@ -204,6 +204,16 @@ ApplicationWindow {
         if (editorProject.hasMedia ? editorProject.appendMedia(url) : editorProject.importMedia(url))
             root.notice = "Clip added to sequence"
     }
+    // New text goes on at the given time and opens for typing on the video.
+    function addTextAt(ms) {
+        const index = editorProject.addText(ms)
+        if (index >= 0) typeText(index)
+    }
+    function typeText(index) {
+        if (player.playbackState === MediaPlayer.PlayingState) root.togglePlayback()
+        editorProject.selectText(index)
+        Qt.callLater(function() { captionLayer.edit(index) })
+    }
     function togglePlayback() {
         if (player.playbackState === MediaPlayer.PlayingState) {
             sequencePlaying = false
@@ -1302,6 +1312,7 @@ ApplicationWindow {
                         editable: !exporter.busy
                         onPicked: function(index) { editorProject.selectText(index) }
                         onMoved: function(index, x, y) { editorProject.setTextStyle(index, { x: x, y: y }) }
+                        onEdited: function(index, text) { editorProject.setTextContent(index, text) }
                     }
                     Column {
                         anchors.centerIn: parent
@@ -1459,8 +1470,8 @@ ApplicationWindow {
                     ColumnLayout {
                     width: inspectorScroll.availableWidth - 7
                     spacing: 11
-                    Text { text: root.inspectorMode === 0 ? "Clip settings" : "Publish & share"; color: Theme.text; font.pixelSize: 16; font.weight: Font.DemiBold }
-                    Text { text: root.inspectorMode === 0 ? "Adjust the active clip" : "Send only when you choose to"; color: Theme.textMuted; font.pixelSize: 11 }
+                    Text { text: root.inspectorMode !== 0 ? "Publish & share" : root.activeText ? "Text settings" : "Clip settings"; color: Theme.text; font.pixelSize: 16; font.weight: Font.DemiBold }
+                    Text { text: root.inspectorMode !== 0 ? "Send only when you choose to" : root.activeText ? "Double-click the text on the video to type" : "Adjust the active clip"; color: Theme.textMuted; font.pixelSize: 11 }
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.topMargin: 5; Layout.bottomMargin: 5 }
 
                     ColumnLayout {
@@ -1468,291 +1479,298 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         spacing: 10
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 9
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Text { text: "In point · s"; color: Theme.textMuted; font.pixelSize: 11 }
-                                EditorField {
-                                    id: inField
-                                    Layout.fillWidth: true
-                                    enabled: editorProject.durationMs > 0 && !exporter.busy
-                                    validator: DoubleValidator { bottom: 0; decimals: 3 }
-                                    onEditingFinished: editorProject.setInMs(Math.round(Number(text) * 1000))
-                                }
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Text { text: "Out point · s"; color: Theme.textMuted; font.pixelSize: 11 }
-                                EditorField {
-                                    id: outField
-                                    Layout.fillWidth: true
-                                    enabled: editorProject.durationMs > 0 && !exporter.busy
-                                    validator: DoubleValidator { bottom: 0; decimals: 3 }
-                                    onEditingFinished: editorProject.setOutMs(Math.round(Number(text) * 1000))
-                                }
-                            }
-                        }
-                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.topMargin: 5 }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Text { text: "Selected duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
-                            Text { text: root.timecode((editorProject.outMs - editorProject.inMs) / root.activeSpeed); color: Theme.accentSoft; font.pixelSize: 17; font.weight: Font.DemiBold }
-                        }
-                        EditorButton {
-                            Layout.fillWidth: true
-                            text: "Split at playhead  Ctrl+K"
-                            enabled: editorProject.hasMedia && !exporter.busy && player.position > editorProject.inMs + 100 && player.position < editorProject.outMs - 100
-                            onClicked: editorProject.splitAt(player.position)
-                        }
-
-                        // Clip volume.
+                        // A selected text takes the panel; the clip settings come back
+                        // when it is let go.
                         ColumnLayout {
+                            visible: root.activeText === null
                             Layout.fillWidth: true
-                            Layout.topMargin: 4
-                            spacing: 2
+                            spacing: 10
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text { text: "Clip volume"; color: Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true }
-                                Text {
-                                    objectName: "clipVolumeLabel"
-                                    text: !root.activeClip ? "" : root.activeClip.muted ? "Muted" : Math.round((root.clipVolumeDrag >= 0 ? root.clipVolumeDrag : root.activeClip.volume) * 100) + "%"
-                                    color: root.activeClip && root.activeClip.muted ? Theme.warning : Theme.text
-                                    font.pixelSize: 12
-                                    font.weight: Font.DemiBold
+                                spacing: 9
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Text { text: "In point · s"; color: Theme.textMuted; font.pixelSize: 11 }
+                                    EditorField {
+                                        id: inField
+                                        Layout.fillWidth: true
+                                        enabled: editorProject.durationMs > 0 && !exporter.busy
+                                        validator: DoubleValidator { bottom: 0; decimals: 3 }
+                                        onEditingFinished: editorProject.setInMs(Math.round(Number(text) * 1000))
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Text { text: "Out point · s"; color: Theme.textMuted; font.pixelSize: 11 }
+                                    EditorField {
+                                        id: outField
+                                        Layout.fillWidth: true
+                                        enabled: editorProject.durationMs > 0 && !exporter.busy
+                                        validator: DoubleValidator { bottom: 0; decimals: 3 }
+                                        onEditingFinished: editorProject.setOutMs(Math.round(Number(text) * 1000))
+                                    }
                                 }
                             }
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.topMargin: 5 }
                             RowLayout {
+                                Layout.fillWidth: true
+                                Text { text: "Selected duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
+                                Text { text: root.timecode((editorProject.outMs - editorProject.inMs) / root.activeSpeed); color: Theme.accentSoft; font.pixelSize: 17; font.weight: Font.DemiBold }
+                            }
+                            EditorButton {
+                                Layout.fillWidth: true
+                                text: "Split at playhead  Ctrl+K"
+                                enabled: editorProject.hasMedia && !exporter.busy && player.position > editorProject.inMs + 100 && player.position < editorProject.outMs - 100
+                                onClicked: editorProject.splitAt(player.position)
+                            }
+
+                            // Clip volume.
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 4
+                                spacing: 2
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text { text: "Clip volume"; color: Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true }
+                                    Text {
+                                        objectName: "clipVolumeLabel"
+                                        text: !root.activeClip ? "" : root.activeClip.muted ? "Muted" : Math.round((root.clipVolumeDrag >= 0 ? root.clipVolumeDrag : root.activeClip.volume) * 100) + "%"
+                                        color: root.activeClip && root.activeClip.muted ? Theme.warning : Theme.text
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+                                    EditorButton {
+                                        objectName: "clipMuteButton"
+                                        iconName: root.activeClip && root.activeClip.muted ? "mute" : "volume"
+                                        subtle: true
+                                        enabled: editorProject.hasMedia && !exporter.busy
+                                        onClicked: editorProject.setClipMuted(editorProject.activeClipIndex, !root.activeClip.muted)
+                                        ToolTip.visible: hovered
+                                        ToolTip.delay: 500
+                                        ToolTip.text: root.activeClip && root.activeClip.muted ? "Unmute this clip" : "Mute this clip"
+                                    }
+                                    ToolSlider {
+                                        objectName: "clipVolumeSlider"
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 2
+                                        stepSize: 0.05
+                                        enabled: editorProject.hasMedia && !exporter.busy
+                                        value: root.activeClip ? root.activeClip.volume : 1
+                                        opacity: root.activeClip && root.activeClip.muted ? 0.5 : 1
+                                        onMoved: {
+                                            if (pressed) root.clipVolumeDrag = value
+                                            else editorProject.setClipVolume(editorProject.activeClipIndex, value)
+                                        }
+                                        onPressedChanged: {
+                                            if (pressed || root.clipVolumeDrag < 0) return
+                                            editorProject.setClipVolume(editorProject.activeClipIndex, root.clipVolumeDrag)
+                                            root.clipVolumeDrag = -1
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Clip speed.
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 4
+                                spacing: 4
+                                Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 11 }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+                                    Repeater {
+                                        model: [0.5, 1, 1.5, 2]
+                                        delegate: EditorButton {
+                                            required property real modelData
+                                            objectName: "clipSpeed" + modelData
+                                            Layout.fillWidth: true
+                                            text: modelData + "×"
+                                            primary: Math.abs(root.activeSpeed - modelData) < 0.01
+                                            subtle: !primary
+                                            enabled: editorProject.hasMedia && !exporter.busy
+                                            onClicked: editorProject.setClipSpeed(editorProject.activeClipIndex, modelData)
+                                        }
+                                    }
+                                }
+                            }
+                            EditorButton {
+                                objectName: "removeSilenceButton"
+                                Layout.fillWidth: true
+                                text: editorProject.findingSilence ? "Listening for silence…" : "Remove silence"
+                                iconName: "audio"
+                                subtle: true
+                                enabled: editorProject.hasMedia && !exporter.busy && !editorProject.findingSilence && !(root.activeClip && root.activeClip.muted)
+                                onClicked: editorProject.removeSilence(editorProject.activeClipIndex)
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                ToolTip.text: "Cut parts quieter than -35 dB lasting over 0.6 s. Undo brings them back."
+                            }
+
+                            // How clips meet.
+                            ColumnLayout {
+                                visible: editorProject.clipCount > 1
                                 Layout.fillWidth: true
                                 spacing: 6
-                                EditorButton {
-                                    objectName: "clipMuteButton"
-                                    iconName: root.activeClip && root.activeClip.muted ? "mute" : "volume"
-                                    subtle: true
-                                    enabled: editorProject.hasMedia && !exporter.busy
-                                    onClicked: editorProject.setClipMuted(editorProject.activeClipIndex, !root.activeClip.muted)
-                                    ToolTip.visible: hovered
-                                    ToolTip.delay: 500
-                                    ToolTip.text: root.activeClip && root.activeClip.muted ? "Unmute this clip" : "Mute this clip"
-                                }
-                                ToolSlider {
-                                    objectName: "clipVolumeSlider"
+                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
+                                Text { text: "Between clips"; color: Theme.textMuted; font.pixelSize: 11 }
+                                ToolCombo {
+                                    objectName: "transitionCombo"
                                     Layout.fillWidth: true
-                                    from: 0
-                                    to: 2
-                                    stepSize: 0.05
-                                    enabled: editorProject.hasMedia && !exporter.busy
-                                    value: root.activeClip ? root.activeClip.volume : 1
-                                    opacity: root.activeClip && root.activeClip.muted ? 0.5 : 1
-                                    onMoved: {
-                                        if (pressed) root.clipVolumeDrag = value
-                                        else editorProject.setClipVolume(editorProject.activeClipIndex, value)
-                                    }
-                                    onPressedChanged: {
-                                        if (pressed || root.clipVolumeDrag < 0) return
-                                        editorProject.setClipVolume(editorProject.activeClipIndex, root.clipVolumeDrag)
-                                        root.clipVolumeDrag = -1
-                                    }
+                                    enabled: !exporter.busy
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    model: [{ value: "cut", label: "Cut" }, { value: "fade", label: "Fade through black" }, { value: "crossfade", label: "Crossfade" }]
+                                    currentIndex: ["cut", "fade", "crossfade"].indexOf(editorProject.transition)
+                                    onActivated: editorProject.setTransition(currentValue)
                                 }
-                            }
-                        }
-
-                        // Clip speed.
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.topMargin: 4
-                            spacing: 4
-                            Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 11 }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 4
-                                Repeater {
-                                    model: [0.5, 1, 1.5, 2]
-                                    delegate: EditorButton {
-                                        required property real modelData
-                                        objectName: "clipSpeed" + modelData
+                                RowLayout {
+                                    visible: editorProject.transition !== "cut"
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    ToolSlider {
+                                        objectName: "transitionSlider"
                                         Layout.fillWidth: true
-                                        text: modelData + "×"
-                                        primary: Math.abs(root.activeSpeed - modelData) < 0.01
-                                        subtle: !primary
-                                        enabled: editorProject.hasMedia && !exporter.busy
-                                        onClicked: editorProject.setClipSpeed(editorProject.activeClipIndex, modelData)
+                                        from: 200
+                                        to: 2000
+                                        stepSize: 100
+                                        enabled: !exporter.busy
+                                        value: editorProject.transitionMs
+                                        onMoved: {
+                                            if (pressed) root.transitionDrag = value
+                                            else editorProject.setTransitionMs(value)
+                                        }
+                                        onPressedChanged: {
+                                            if (pressed || root.transitionDrag < 0) return
+                                            editorProject.setTransitionMs(root.transitionDrag)
+                                            root.transitionDrag = -1
+                                        }
+                                    }
+                                    Text {
+                                        text: ((root.transitionDrag >= 0 ? root.transitionDrag : editorProject.transitionMs) / 1000).toFixed(1) + " s"
+                                        color: Theme.text
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                        Layout.preferredWidth: 34
+                                        horizontalAlignment: Text.AlignRight
                                     }
                                 }
                             }
-                        }
-                        EditorButton {
-                            objectName: "removeSilenceButton"
-                            Layout.fillWidth: true
-                            text: editorProject.findingSilence ? "Listening for silence…" : "Remove silence"
-                            iconName: "audio"
-                            subtle: true
-                            enabled: editorProject.hasMedia && !exporter.busy && !editorProject.findingSilence && !(root.activeClip && root.activeClip.muted)
-                            onClicked: editorProject.removeSilence(editorProject.activeClipIndex)
-                            ToolTip.visible: hovered
-                            ToolTip.delay: 500
-                            ToolTip.text: "Cut parts quieter than -35 dB lasting over 0.6 s. Undo brings them back."
-                        }
 
-                        // How clips meet.
-                        ColumnLayout {
-                            visible: editorProject.clipCount > 1
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
-                            Text { text: "Between clips"; color: Theme.textMuted; font.pixelSize: 11 }
-                            ToolCombo {
-                                objectName: "transitionCombo"
+                            // Audio track: music and sounds placed on the sequence.
+                            ColumnLayout {
+                                visible: editorProject.hasMedia
                                 Layout.fillWidth: true
-                                enabled: !exporter.busy
-                                textRole: "label"
-                                valueRole: "value"
-                                model: [{ value: "cut", label: "Cut" }, { value: "fade", label: "Fade through black" }, { value: "crossfade", label: "Crossfade" }]
-                                currentIndex: ["cut", "fade", "crossfade"].indexOf(editorProject.transition)
-                                onActivated: editorProject.setTransition(currentValue)
-                            }
-                            RowLayout {
-                                visible: editorProject.transition !== "cut"
-                                Layout.fillWidth: true
-                                spacing: 8
-                                ToolSlider {
-                                    objectName: "transitionSlider"
-                                    Layout.fillWidth: true
-                                    from: 200
-                                    to: 2000
-                                    stepSize: 100
-                                    enabled: !exporter.busy
-                                    value: editorProject.transitionMs
-                                    onMoved: {
-                                        if (pressed) root.transitionDrag = value
-                                        else editorProject.setTransitionMs(value)
-                                    }
-                                    onPressedChanged: {
-                                        if (pressed || root.transitionDrag < 0) return
-                                        editorProject.setTransitionMs(root.transitionDrag)
-                                        root.transitionDrag = -1
-                                    }
-                                }
-                                Text {
-                                    text: ((root.transitionDrag >= 0 ? root.transitionDrag : editorProject.transitionMs) / 1000).toFixed(1) + " s"
-                                    color: Theme.text
-                                    font.pixelSize: 12
-                                    font.weight: Font.DemiBold
-                                    Layout.preferredWidth: 34
-                                    horizontalAlignment: Text.AlignRight
-                                }
-                            }
-                        }
-
-                        // Audio track: music and sounds placed on the sequence.
-                        ColumnLayout {
-                            visible: editorProject.hasMedia
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
-                            Text { text: "Audio track"; color: Theme.textMuted; font.pixelSize: 11 }
-                            EditorButton {
-                                objectName: "addMusicButton"
-                                Layout.fillWidth: true
-                                text: "Add audio at playhead…"
-                                iconName: "music"
-                                enabled: !exporter.busy
-                                onClicked: {
-                                    root.audioAddMs = root.sequencePositionMs
-                                    musicDialog.open()
-                                }
-                            }
-                            RowLayout {
-                                visible: root.activeAudio !== null
-                                Layout.fillWidth: true
-                                spacing: 4
-                                ToolIcon { name: "music"; tint: Theme.accent; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                                Text {
-                                    objectName: "musicName"
-                                    text: root.activeAudio ? root.activeAudio.name : ""
-                                    color: Theme.text
-                                    font.pixelSize: 12
-                                    elide: Text.ElideMiddle
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: 4
-                                }
+                                spacing: 6
+                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
+                                Text { text: "Audio track"; color: Theme.textMuted; font.pixelSize: 11 }
                                 EditorButton {
-                                    objectName: "removeMusicButton"
-                                    iconName: "close"
-                                    subtle: true
-                                    enabled: !exporter.busy
-                                    onClicked: editorProject.removeAudio(editorProject.activeAudioIndex)
-                                    ToolTip.visible: hovered
-                                    ToolTip.delay: 500
-                                    ToolTip.text: "Remove from the audio track (Delete)"
-                                }
-                            }
-                            Text {
-                                visible: root.activeAudio !== null
-                                text: root.activeAudio ? "From " + root.timecode(root.activeAudio.startMs) + " for " + root.timecode(root.activeAudio.lengthMs) : ""
-                                color: Theme.textFaint
-                                font.pixelSize: 11
-                                // Fill and wrap, so the text never widens the panel.
-                                Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                            }
-                            RowLayout {
-                                visible: root.activeAudio !== null
-                                Layout.fillWidth: true
-                                spacing: 8
-                                ToolSlider {
-                                    objectName: "musicVolumeSlider"
+                                    objectName: "addMusicButton"
                                     Layout.fillWidth: true
-                                    from: 0
-                                    to: 2
-                                    stepSize: 0.05
+                                    text: "Add audio at playhead…"
+                                    iconName: "music"
                                     enabled: !exporter.busy
-                                    value: root.activeAudio ? root.activeAudio.volume : 0.5
-                                    onMoved: {
-                                        if (pressed) root.audioVolumeDrag = value
-                                        else editorProject.setAudioVolume(editorProject.activeAudioIndex, value)
+                                    onClicked: {
+                                        root.audioAddMs = root.sequencePositionMs
+                                        musicDialog.open()
                                     }
-                                    onPressedChanged: {
-                                        if (pressed || root.audioVolumeDrag < 0) return
-                                        editorProject.setAudioVolume(editorProject.activeAudioIndex, root.audioVolumeDrag)
-                                        root.audioVolumeDrag = -1
+                                }
+                                RowLayout {
+                                    visible: root.activeAudio !== null
+                                    Layout.fillWidth: true
+                                    spacing: 4
+                                    ToolIcon { name: "music"; tint: Theme.accent; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
+                                    Text {
+                                        objectName: "musicName"
+                                        text: root.activeAudio ? root.activeAudio.name : ""
+                                        color: Theme.text
+                                        font.pixelSize: 12
+                                        elide: Text.ElideMiddle
+                                        Layout.fillWidth: true
+                                        Layout.leftMargin: 4
+                                    }
+                                    EditorButton {
+                                        objectName: "removeMusicButton"
+                                        iconName: "close"
+                                        subtle: true
+                                        enabled: !exporter.busy
+                                        onClicked: editorProject.removeAudio(editorProject.activeAudioIndex)
+                                        ToolTip.visible: hovered
+                                        ToolTip.delay: 500
+                                        ToolTip.text: "Remove from the audio track (Delete)"
                                     }
                                 }
                                 Text {
-                                    text: root.activeAudio ? Math.round((root.audioVolumeDrag >= 0 ? root.audioVolumeDrag : root.activeAudio.volume) * 100) + "%" : ""
-                                    color: Theme.text
-                                    font.pixelSize: 12
-                                    font.weight: Font.DemiBold
-                                    Layout.preferredWidth: 34
-                                    horizontalAlignment: Text.AlignRight
+                                    visible: root.activeAudio !== null
+                                    text: root.activeAudio ? "From " + root.timecode(root.activeAudio.startMs) + " for " + root.timecode(root.activeAudio.lengthMs) : ""
+                                    color: Theme.textFaint
+                                    font.pixelSize: 11
+                                    // Fill and wrap, so the text never widens the panel.
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
                                 }
-                            }
-                            Text {
-                                visible: root.activeAudio !== null
-                                text: root.activeAudio ? "Fade in " + (root.activeAudio.fadeInMs / 1000).toFixed(1) + " s · fade out " + (root.activeAudio.fadeOutMs / 1000).toFixed(1) + " s"
-                                                         + (root.activeAudio.fadeInMs + root.activeAudio.fadeOutMs === 0 ? " · drag the dots at the top corners" : "") : ""
-                                color: Theme.textFaint
-                                font.pixelSize: 11
-                                Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                            }
-                            ToolCheck {
-                                objectName: "musicDuckCheck"
-                                visible: editorProject.audioCount > 0
-                                text: "Quieter while someone speaks"
-                                enabled: !exporter.busy
-                                checked: editorProject.musicDuck
-                                onToggled: editorProject.setMusicDuck(checked)
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: editorProject.audioCount === 0
-                                      ? "Drop music or sounds on the audio track under the clips, or add them here."
-                                      : "Drag items on the audio track to move them and their edges to trim. Sound past the end of the video fades out."
-                                wrapMode: Text.WordWrap
-                                color: Theme.textFaint
-                                font.pixelSize: 10
+                                RowLayout {
+                                    visible: root.activeAudio !== null
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    ToolSlider {
+                                        objectName: "musicVolumeSlider"
+                                        Layout.fillWidth: true
+                                        from: 0
+                                        to: 2
+                                        stepSize: 0.05
+                                        enabled: !exporter.busy
+                                        value: root.activeAudio ? root.activeAudio.volume : 0.5
+                                        onMoved: {
+                                            if (pressed) root.audioVolumeDrag = value
+                                            else editorProject.setAudioVolume(editorProject.activeAudioIndex, value)
+                                        }
+                                        onPressedChanged: {
+                                            if (pressed || root.audioVolumeDrag < 0) return
+                                            editorProject.setAudioVolume(editorProject.activeAudioIndex, root.audioVolumeDrag)
+                                            root.audioVolumeDrag = -1
+                                        }
+                                    }
+                                    Text {
+                                        text: root.activeAudio ? Math.round((root.audioVolumeDrag >= 0 ? root.audioVolumeDrag : root.activeAudio.volume) * 100) + "%" : ""
+                                        color: Theme.text
+                                        font.pixelSize: 12
+                                        font.weight: Font.DemiBold
+                                        Layout.preferredWidth: 34
+                                        horizontalAlignment: Text.AlignRight
+                                    }
+                                }
+                                Text {
+                                    visible: root.activeAudio !== null
+                                    text: root.activeAudio ? "Fade in " + (root.activeAudio.fadeInMs / 1000).toFixed(1) + " s · fade out " + (root.activeAudio.fadeOutMs / 1000).toFixed(1) + " s"
+                                                             + (root.activeAudio.fadeInMs + root.activeAudio.fadeOutMs === 0 ? " · drag the dots at the top corners" : "") : ""
+                                    color: Theme.textFaint
+                                    font.pixelSize: 11
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                }
+                                ToolCheck {
+                                    objectName: "musicDuckCheck"
+                                    visible: editorProject.audioCount > 0
+                                    text: "Quieter while someone speaks"
+                                    enabled: !exporter.busy
+                                    checked: editorProject.musicDuck
+                                    onToggled: editorProject.setMusicDuck(checked)
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: editorProject.audioCount === 0
+                                          ? "Drop music or sounds on the audio track under the clips, or add them here."
+                                          : "Drag items on the audio track to move them and their edges to trim. Sound past the end of the video fades out."
+                                    wrapMode: Text.WordWrap
+                                    color: Theme.textFaint
+                                    font.pixelSize: 10
+                                }
                             }
                         }
 
@@ -1761,20 +1779,16 @@ ApplicationWindow {
                             visible: editorProject.hasMedia
                             Layout.fillWidth: true
                             spacing: 6
-                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
+                            Rectangle { visible: root.activeText === null; Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
                             Text { text: "Text on video"; color: Theme.textMuted; font.pixelSize: 11 }
                             EditorButton {
                                 objectName: "addTextButton"
+                                visible: root.activeText === null
                                 Layout.fillWidth: true
                                 text: "Add text at playhead"
                                 iconName: "plus"
                                 enabled: !exporter.busy && editorProject.sequenceDurationMs >= 200
-                                onClicked: {
-                                    if (editorProject.addText(root.sequencePositionMs) >= 0) {
-                                        captionField.forceActiveFocus()
-                                        captionField.selectAll()
-                                    }
-                                }
+                                onClicked: root.addTextAt(root.sequencePositionMs)
                             }
                             TextArea {
                                 id: captionField
@@ -1799,6 +1813,14 @@ ApplicationWindow {
                                 readonly property string savedText: root.activeText ? root.activeText.text : ""
                                 onSavedTextChanged: if (text !== savedText) text = savedText
                                 Component.onCompleted: text = savedText
+                                // Enter keeps the text, Shift+Enter starts a new line.
+                                Keys.onPressed: function(event) {
+                                    if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {
+                                        event.accepted = true
+                                        editingFinished()
+                                        sequenceTimeline.forceActiveFocus()
+                                    }
+                                }
                                 onEditingFinished: {
                                     if (!root.activeText) return
                                     if (!editorProject.setTextContent(editorProject.activeTextIndex, text)) text = savedText
@@ -1827,6 +1849,12 @@ ApplicationWindow {
                                     ToolTip.visible: hovered
                                     ToolTip.delay: 500
                                     ToolTip.text: "Remove the text (Delete on the timeline)"
+                                }
+                                EditorButton {
+                                    objectName: "doneTextButton"
+                                    Layout.fillWidth: true
+                                    text: "Done"
+                                    onClicked: editorProject.selectText(-1)
                                 }
                             }
                             Text {
@@ -2023,6 +2051,16 @@ ApplicationWindow {
                     EditorButton { iconName: "undo"; subtle: true; enabled: editorProject.canUndo && !exporter.busy; onClicked: editorProject.undo(); ToolTip.visible: hovered; ToolTip.text: "Undo (Ctrl+Z)" }
                     EditorButton { iconName: "redo"; subtle: true; enabled: editorProject.canRedo && !exporter.busy; onClicked: editorProject.redo(); ToolTip.visible: hovered; ToolTip.text: "Redo (Ctrl+Shift+Z)" }
                     EditorButton { text: "Add clip"; iconName: "plus"; enabled: !exporter.busy; onClicked: addClipDialog.open() }
+                    EditorButton {
+                        objectName: "timelineTextButton"
+                        text: "Text"
+                        iconName: "edit"
+                        enabled: editorProject.hasMedia && !exporter.busy && editorProject.sequenceDurationMs >= 200
+                        onClicked: root.addTextAt(root.sequencePositionMs)
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        ToolTip.text: "Add text at the playhead and type it on the video"
+                    }
                     EditorButton { text: "Fit"; subtle: true; visible: sequenceTimeline.zoom > 1; onClicked: sequenceTimeline.zoom = 1 }
                     EditorButton { text: "From start"; iconName: "play"; enabled: editorProject.canExport && !exporter.busy; onClicked: root.previewSequence() }
                     EditorButton { text: "Split"; iconName: "split"; enabled: editorProject.hasMedia && !exporter.busy && player.position > editorProject.inMs + 100 && player.position < editorProject.outMs - 100; onClicked: editorProject.splitAt(player.position) }
@@ -2059,12 +2097,8 @@ ApplicationWindow {
                     onTextRemoveRequested: function(index) { editorProject.removeText(index) }
                     onTextSplitRequested: function(index, atMs) { editorProject.splitText(index, Math.round(atMs)) }
                     onTextDuplicateRequested: function(index) { editorProject.duplicateText(index) }
-                    onTextAddRequested: function(startMs) {
-                        if (editorProject.addText(startMs) >= 0) {
-                            captionField.forceActiveFocus()
-                            captionField.selectAll()
-                        }
-                    }
+                    onTextAddRequested: function(startMs) { root.addTextAt(startMs) }
+                    onTextEditRequested: function(index) { root.typeText(index) }
                     onScrubRequested: function(ms) { root.beginScrub(ms) }
                     onScrubFinished: root.scrubbing = false
                     onSelectRequested: function(index) {

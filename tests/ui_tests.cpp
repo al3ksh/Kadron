@@ -605,7 +605,8 @@ void UiTests::textOverlayDrag()
     component.setData("import QtQuick\nimport Kadron\nTextOverlayLayer {\n width: 400; height: 200\n"
                       " property real movedX: -1\n property real movedY: -1\n property int pickedIndex: -1\n"
                       " onPicked: function(i) { pickedIndex = i }\n"
-                      " onMoved: function(i, x, y) { movedX = x; movedY = y }\n}", QUrl());
+                      " onMoved: function(i, x, y) { movedX = x; movedY = y }\n"
+                      " property string editedText: \"\"\n onEdited: function(i, text) { editedText = text }\n}", QUrl());
     std::unique_ptr<QObject> root(component.create());
     auto *layer = qobject_cast<QQuickItem *>(root.get());
     QVERIFY2(layer, qPrintable(component.errorString()));
@@ -627,6 +628,25 @@ void UiTests::textOverlayDrag()
     QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(300, 60));
     QVERIFY(qAbs(root->property("movedX").toDouble() - 0.75) < 0.01);
     QVERIFY(qAbs(root->property("movedY").toDouble() - 0.3) < 0.01);
+
+    // A double-click types over the text in place; Enter keeps it.
+    window.requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    QTest::mouseDClick(&window, Qt::LeftButton, {}, QPoint(200, 100));
+    QTRY_COMPARE(layer->property("editingIndex").toInt(), 0);
+    QTest::keyClick(&window, 'H');
+    QTest::keyClick(&window, 'i');
+    QTest::keyClick(&window, Qt::Key_Return);
+    QCOMPARE(layer->property("editingIndex").toInt(), -1);
+    QCOMPARE(root->property("editedText").toString(), QString("Hi"));
+    // Esc goes back without a change.
+    root->setProperty("editedText", QString());
+    QMetaObject::invokeMethod(layer, "edit", Q_ARG(QVariant, 0));
+    QTRY_COMPARE(layer->property("editingIndex").toInt(), 0);
+    QTest::keyClick(&window, 'x');
+    QTest::keyClick(&window, Qt::Key_Escape);
+    QCOMPARE(layer->property("editingIndex").toInt(), -1);
+    QVERIFY(root->property("editedText").toString().isEmpty());
 }
 
 void UiTests::imagesWorkspace()

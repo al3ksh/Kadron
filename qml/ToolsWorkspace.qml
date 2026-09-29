@@ -126,13 +126,6 @@ Item {
                                   : section === 3 ? compressFormat.currentText.toLowerCase() : "gif"
     signal publishFile(url fileUrl)
     signal openInEditor(url fileUrl)
-    // A link copied before opening the Download page fills the empty field.
-    function takeClipboardLink() {
-        if (section !== 1 || !visible || downloadUrl.text.length > 0 || localDownload.busy) return
-        var link = localDownload.clipboardLink()
-        if (link) downloadUrl.text = link
-    }
-    onSectionChanged: takeClipboardLink()
     // Enter in the link field skips the save dialog: the file goes straight to
     // Downloads under the video's title, or waits in the queue behind the
     // current download. The field empties for the next link.
@@ -200,7 +193,6 @@ Item {
         downloadUrl.text = downloadUrl.text.trim()
         downloadUrl.forceActiveFocus()
     }
-    onVisibleChanged: takeClipboardLink()
     readonly property bool downloadIsMedia: /\.(mp4|mkv|webm|mov|m4a|mp3|opus|ogg|wav|flac|aac)$/i.test(localDownload.outputUrl.toString())
     readonly property bool hasSource: sourceUrl.toString().length > 0
     readonly property bool fileSection: section >= 2 && section <= 5

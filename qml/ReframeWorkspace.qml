@@ -659,6 +659,7 @@ Item {
                                     editable: !localReframe.busy
                                     onPicked: function(index) { page.textIndex = index }
                                     onMoved: function(index, x, y) { page.updateText(index, { x: x, y: y }) }
+                                    onEdited: function(index, text) { page.updateText(index, { text: text.slice(0, 500) }) }
                                 }
                             }
                             Rectangle { id: phoneMask; width: phone.width; height: phone.height; radius: 10; visible: false; layer.enabled: true }

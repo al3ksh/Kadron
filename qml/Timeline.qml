@@ -46,6 +46,7 @@ FocusScope {
     signal textRemoveRequested(int index)
     signal textSplitRequested(int index, real atMs)
     signal textDuplicateRequested(int index)
+    signal textEditRequested(int index)
 
     readonly property real totalMs: {
         var total = 0
@@ -1015,6 +1016,10 @@ FocusScope {
                             cursorShape: textBlock.editing ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                             property real pressX: 0
                             property bool moved: false
+                            // Double-click opens the text for typing on the video.
+                            onDoubleClicked: function(mouse) {
+                                if (mouse.button === Qt.LeftButton) timeline.textEditRequested(textBlock.index)
+                            }
                             onPressed: function(mouse) {
                                 timeline.forceActiveFocus()
                                 pressX = mapToItem(timeline, mouse.x, 0).x

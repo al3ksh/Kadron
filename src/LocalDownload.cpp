@@ -3,8 +3,6 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QClipboard>
-#include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -214,14 +212,6 @@ QVariantList LocalDownload::playlistEntries(const QJsonObject &json)
         });
     }
     return entries;
-}
-
-QString LocalDownload::clipboardLink()
-{
-    const auto clipboard = QGuiApplication::clipboard();
-    const auto text = clipboard ? clipboard->text().trimmed() : QString();
-    static const QRegularExpression link(QStringLiteral("^https?://\\S+$"), QRegularExpression::CaseInsensitiveOption);
-    return text.size() < 2048 && link.match(text).hasMatch() ? text : QString();
 }
 
 QString LocalDownload::youtubeId(const QString &url)
