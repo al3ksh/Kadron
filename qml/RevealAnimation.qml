@@ -1,6 +1,6 @@
 import QtQuick
 
-// Workspace entrance: a short fade while the content settles upward on a spring.
+// Workspace entrance: a short fade while the content settles upward.
 ParallelAnimation {
     id: reveal
     property Item target

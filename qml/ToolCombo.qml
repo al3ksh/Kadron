@@ -53,7 +53,7 @@ ComboBox {
         width: control.width
         implicitHeight: Math.min(contentItem.implicitHeight, 320)
         padding: 1
-        enter: Transition { ParallelAnimation { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.fadeFast } SmoothSpring { property: "y"; from: control.height - 8; to: control.height - 1 } } }
+        enter: Transition { ParallelAnimation { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.fadeFast } NumberAnimation { property: "y"; from: control.height - 8; to: control.height - 1; duration: Theme.fade; easing.type: Easing.OutCubic } } }
         exit: Transition { NumberAnimation { property: "opacity"; to: 0; duration: Theme.fadeFast } }
         contentItem: ListView {
             clip: true

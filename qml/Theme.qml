@@ -88,13 +88,9 @@ QtObject {
     readonly property int radiusLarge: 16
     readonly property string fontFamily: "Segoe UI"
 
-    // Motion. Springs are used for anything that travels so interrupted
-    // gestures keep their velocity; presses ease out (SnapSpring) without
-    // overshooting; colors cross-fade over a short duration.
-    readonly property real springSmooth: 4.2        // indicators, panels, playhead follow
-    readonly property real dampingSmooth: 0.36
-    readonly property real springMass: 1.0
-    readonly property real springEpsilon: 0.01
+    // Motion. Everything that moves or scales eases out without overshooting
+    // (SnapSpring for presses, SmoothSpring for travel); colors cross-fade
+    // over a short duration.
     readonly property int fadeFast: 120
     readonly property int fade: 150
     readonly property int reveal: 180

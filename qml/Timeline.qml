@@ -132,7 +132,7 @@ FocusScope {
     // The drawn playhead eases toward the requested position unless playback
     // is driving it, so scrubbing reads as one continuous motion.
     property real shownMs: playheadMs
-    Behavior on shownMs { enabled: !timeline.playing; SmoothSpring { epsilon: 0.5; spring: 9; damping: 0.7 } }
+    Behavior on shownMs { enabled: !timeline.playing; SpringAnimation { epsilon: 0.5; spring: 9; damping: 0.7 } }
     onShownMsChanged: {
         if (!playing || zoom <= 1) return
         var x = shownMs * pxPerMs

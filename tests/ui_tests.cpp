@@ -289,6 +289,8 @@ void UiTests::toolControls()
     QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(20, 18));
     QVERIFY(comboItem->property("popup").value<QObject *>()->property("visible").toBool());
     QTest::keyClick(&window, Qt::Key_Escape);
+    // Let the list fade out before clicking what it covered.
+    QTest::qWait(250);
     QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(20, 92));
     QVERIFY(checkItem->property("checked").toBool());
 

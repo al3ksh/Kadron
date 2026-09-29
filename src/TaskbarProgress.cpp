@@ -37,6 +37,10 @@ void TaskbarProgress::setProgress(QObject *window, int percent, bool error)
         return;
     const auto taskbar = static_cast<ITaskbarList3 *>(m_taskbar);
     const auto hwnd = reinterpret_cast<HWND>(qwindow->winId());
+    if (percent == -2) {
+        taskbar->SetProgressState(hwnd, TBPF_INDETERMINATE);
+        return;
+    }
     if (percent < 0) {
         taskbar->SetProgressState(hwnd, TBPF_NOPROGRESS);
         return;

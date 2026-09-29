@@ -11,7 +11,8 @@ public:
     explicit TaskbarProgress(QObject *parent = nullptr);
     ~TaskbarProgress() override;
 
-    // percent 0-100 shows a bar; a negative value clears it. error paints it red.
+    // percent 0-100 shows a bar; -2 shows a moving bar for work of unknown
+    // length; any other negative value clears it. error paints it red.
     Q_INVOKABLE void setProgress(QObject *window, int percent, bool error = false);
     // Flashes the taskbar button until the window is activated, unless it already is.
     Q_INVOKABLE void flash(QObject *window);

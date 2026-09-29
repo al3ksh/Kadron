@@ -12,7 +12,7 @@ Dialog {
     // The same step as the sidebar's update card: download, then restart.
     signal updateRequested()
     readonly property string repoUrl: "https://github.com/al3ksh/Kadron"
-    readonly property string authorUrl: "https://github.com/al3ksh"
+    readonly property string authorUrl: "https://aleksh.xyz"
 
     modal: true
     focus: true
@@ -493,7 +493,7 @@ Dialog {
                         LinkRow {
                             objectName: "aboutAuthor"
                             title: "Made by al3ksh"
-                            detail: "github.com/al3ksh"
+                            detail: "aleksh.xyz"
                             iconName: "link"
                             url: dialog.authorUrl
                         }

@@ -482,14 +482,17 @@ ApplicationWindow {
     }
     Binding { target: root.trayAvailable ? trayIcon : null; property: "visible"; value: Prefs.closeToTray }
     Binding { target: root.trayAvailable ? trayIcon : null; property: "dark"; value: Theme.dark }
-    // Long jobs show on the taskbar button; one ending in the background flashes
-    // it and raises a Windows notification (unless turned off in Settings)
-    // whose click opens the result.
+    // Long jobs show on the taskbar button (a moving bar when the length is
+    // unknown); one ending in the background flashes it and raises a Windows
+    // notification (unless turned off in Settings) whose click opens the
+    // result. A failure leaves the button red until Kadron is opened.
     readonly property int jobProgress: exporter.busy ? exporter.progress
         : localDownload.busy ? localDownload.progress
         : localTools.busy ? localTools.progress
         : localReframe.busy ? localReframe.progress
-        : toolsClient.busy ? toolsClient.progress : -1
+        : toolsClient.busy ? toolsClient.progress
+        : localImages.busy ? localImages.progress
+        : localPdf.busy ? -2 : -1
     readonly property string jobName: exporter.busy ? "Export" : localDownload.busy ? "Download"
         : localTools.busy ? "Conversion" : localReframe.busy ? "Reframe" : toolsClient.busy ? "Upload"
         : localPdf.busy ? "PDF" : localImages.busy ? "Images" : ""
@@ -507,6 +510,7 @@ ApplicationWindow {
         return ""
     }
     onJobProgressChanged: taskbar.setProgress(root, jobProgress)
+    onActiveChanged: if (active && jobProgress === -1) taskbar.setProgress(root, -1)
     onJobNameChanged: {
         if (jobName) {
             runningJob = jobName
@@ -519,6 +523,7 @@ ApplicationWindow {
         if (finished === "Download" && localDownload.queue.length > 0) return
         var error = editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText
             || localDownload.errorText || localPdf.errorText || localImages.errorText || localReframe.errorText
+        if (error) taskbar.setProgress(root, 100, true)
         if (root.visible) taskbar.flash(root)
         if (!root.trayAvailable || !Prefs.notifications) return
         var output = error ? "" : jobOutput(finished)
