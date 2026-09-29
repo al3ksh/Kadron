@@ -62,7 +62,11 @@ Item {
                 }
             }
         }
-        SkeletonBlock { anchors.fill: parent; radius: 0; visible: strip.waveLoading && strip.waveform.length === 0 }
+        SkeletonBlock {
+            anchors.fill: parent
+            radius: 0
+            visible: strip.waveMode ? strip.waveform.length === 0 : strip.durationMs > 0 && strip.frames.length === 0
+        }
         Image {
             id: waveImage
             anchors.fill: parent

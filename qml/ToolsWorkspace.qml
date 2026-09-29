@@ -1026,6 +1026,7 @@ Item {
                 visible: toolsPage.section >= 2 && toolsPage.section <= 4 && !toolsPage.hasSource
                 Layout.fillWidth: true
                 active: pageDrop.containsDrag
+                iconName: ["drop", "drop", "audio", "compress", "gif"][Math.min(toolsPage.section, 4)]
                 heading: ["", "", "Drop an audio or video file", "Drop a video or image", "Drop a video to turn into a GIF"][Math.min(toolsPage.section, 4)]
                 formats: ["", "", "MP3 · WAV · FLAC · M4A · OGG · MP4 · MOV · MKV", "MP4 · MOV · MKV · WEBM · JPG · PNG · WEBP", "MP4 · MOV · MKV · WEBM · GIF"][Math.min(toolsPage.section, 4)]
                 onBrowseRequested: sourceDialog.open()

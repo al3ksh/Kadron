@@ -15,7 +15,7 @@ Item {
         "download": "M10 2v10 M6 9l4 4l4-4 M3 14v3h14v-3",
         "audio": "M4 13V7 M7 16V4 M10 12V8 M13 17V3 M16 13V7",
         "compress": "M3 7h4V3 M17 7h-4V3 M3 13h4v4 M17 13h-4v4",
-        "gif": "M2 4h16v12H2z",
+        "gif": "M2.5 6.5h12v10h-12z M5.5 3.5h12v10",
         "pdf": "M5 2h7l4 4v12H5z M12 2v4h4 M7.5 11h6 M7.5 14H12",
         "qr": "M2 2h6v6H2z M12 2h6v6h-6z M2 12h6v6H2z M12 12h2v2h-2z M18 12v6h-5",
         "publish": "M10 14V3 M6 7l4-4l4 4 M3 13v4h14v-4",
@@ -59,7 +59,7 @@ Item {
         "palette": "M10 2.5a7.5 7.5 0 1 0 0 15c1 0 1.6-.7 1.6-1.5c0-1.1-.9-1.3-.9-2.3c0-.9.7-1.5 1.6-1.5H14a3.5 3.5 0 0 0 3.5-3.5C17.5 5.4 14.2 2.5 10 2.5z M6 9.5h.01 M8 6h.01 M12 6h.01"
     })
     readonly property var fills: ({
-        "gif": "M8 8l4.5 2L8 12z",
+        "gif": "M7 9l4.5 2.5L7 14z",
         "bolt": "M11.5 1.5L4 11h5.2l-1 7.5L16 9h-5.3z",
         "play": "M6 3.5l10 6.5l-10 6.5z"
     })
