@@ -1184,12 +1184,14 @@ Item {
                 GridLayout {
                     columns: 2
                     columnSpacing: 28
+                    Layout.fillWidth: true
                     rowSpacing: 7
                     Layout.topMargin: 4
-                    Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: toolsPage.audioLossless ? "Quality" : "Quality (kbps)"; color: Theme.textMuted; font.pixelSize: 12 }
+                    Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    Text { text: toolsPage.audioLossless ? "Quality" : "Quality (kbps)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
                     SegmentedControl {
-                        Layout.preferredWidth: 380
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         namePrefix: "audioFormat_"
                         options: [
                             { label: "MP3", value: "mp3", tip: "Plays everywhere" },
@@ -1202,7 +1204,8 @@ Item {
                         onActivated: function(format) { toolsPage.audioFormatName = format }
                     }
                     Item {
-                        Layout.preferredWidth: 380
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         implicitHeight: 34
                         SegmentedControl {
                             visible: !toolsPage.audioLossless
@@ -1267,29 +1270,33 @@ Item {
                     visible: Prefs.audioMoreOptions
                     columns: 2
                     columnSpacing: 28
+                    Layout.fillWidth: true
                     rowSpacing: 7
 
-                    Text { text: "Fade in"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "Fade out"; color: Theme.textMuted; font.pixelSize: 12 }
+                    Text { text: "Fade in"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    Text { text: "Fade out"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
                     SegmentedControl {
-                        Layout.preferredWidth: 380
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         namePrefix: "audioFadeIn_"
                         options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
                         current: toolsPage.audioFadeIn
                         onActivated: function(sec) { toolsPage.audioFadeIn = sec }
                     }
                     SegmentedControl {
-                        Layout.preferredWidth: 380
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         namePrefix: "audioFadeOut_"
                         options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
                         current: toolsPage.audioFadeOut
                         onActivated: function(sec) { toolsPage.audioFadeOut = sec }
                     }
 
-                    Text { text: "Loudness"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
-                    Text { text: "Channels"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
+                    Text { text: "Loudness"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                    Text { text: "Channels"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
                     SegmentedControl {
-                        Layout.preferredWidth: 380
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         namePrefix: "audioLufs_"
                         options: [
                             { label: "As is", value: 0 },
@@ -1301,7 +1308,8 @@ Item {
                         onActivated: function(lufs) { toolsPage.audioLufs = lufs }
                     }
                     SegmentedControl {
-                        Layout.preferredWidth: 380
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         namePrefix: "audioChannels_"
                         options: [{ label: "Stereo", value: false }, { label: "Mono", value: true, tip: "One channel; fine for voice" }]
                         current: toolsPage.audioMono
