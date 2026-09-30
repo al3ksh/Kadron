@@ -42,6 +42,8 @@ class EditorProject final : public QObject
     // Captions over the video, each shown from startMs to endMs of the sequence.
     Q_PROPERTY(QVariantList textItems READ textItems NOTIFY changed)
     Q_PROPERTY(int activeTextIndex READ activeTextIndex NOTIFY changed)
+    // Sequence times (ms) marked with N, kept sorted and saved with the project.
+    Q_PROPERTY(QVariantList markers READ markers NOTIFY changed)
     // Whether an export needs the full sequence pipeline rather than a plain trim.
     Q_PROPERTY(bool mixed READ mixed NOTIFY changed)
     // True while quiet parts of a clip are being looked for.
@@ -74,6 +76,7 @@ public:
     bool musicDuck() const;
     QVariantList textItems() const;
     int activeTextIndex() const { return m_activeTextIndex; }
+    QVariantList markers() const;
     bool mixed() const;
     // Transition and music settings for ExportController::startSequence.
     Q_INVOKABLE QVariantMap exportOptions() const;
@@ -134,6 +137,10 @@ public:
     // A copy right after the caption, or over it when there is no room.
     Q_INVOKABLE int duplicateText(int index);
     Q_INVOKABLE bool removeText(int index);
+    // Adds a marker at atMs, or removes the one within toleranceMs of it.
+    Q_INVOKABLE bool toggleMarker(qint64 atMs, qint64 toleranceMs = 150);
+    Q_INVOKABLE bool removeMarker(int index);
+    Q_INVOKABLE void clearMarkers();
     Q_INVOKABLE bool openProject(const QUrl &url);
     // Back to an empty editor: no clips, no project file, no history.
     Q_INVOKABLE void closeProject();
@@ -193,6 +200,7 @@ private:
         QVector<AudioItem> audio;
         bool musicDuck = true;
         QVector<TextItem> texts;
+        QVector<qint64> markers;
     };
     const Clip *active() const;
     Clip *active();

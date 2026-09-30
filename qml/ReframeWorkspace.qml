@@ -28,6 +28,7 @@ Item {
     property rect camArea: Qt.rect(0.7, 0.05, 0.26, 0.34)
     property rect mainArea: Qt.rect(0.25, 0, 0.5, 1)
     property bool camOnTop: true
+    RememberedOptions { target: page; category: "reframeOptions"; names: ["mode", "aspectW", "aspectH", "camOnTop"] }
     readonly property bool splitAllowed: aspectW <= aspectH
     readonly property real camShare: {
         var camAspect = camArea.width * videoAspect / Math.max(0.001, camArea.height)
@@ -525,6 +526,7 @@ Item {
 
                 ScrollView {
                     id: settingsScroll
+                    readonly property SoftBounds softBounds: SoftBounds { flickable: settingsScroll.contentItem }
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.fillHeight: true
@@ -935,9 +937,15 @@ Item {
                             visible: !localReframe.busy && localReframe.outputUrl.toString().length > 0
                             iconName: "folder"
                             subtle: true
-                            onClicked: Qt.openUrlExternally(localReframe.outputUrl.toString().replace(/\/[^\/]*$/, ""))
+                            onClicked: shellIntegration.reveal(localReframe.outputUrl)
                             ToolTip.visible: hovered
-                            ToolTip.text: "Open the folder"
+                            ToolTip.text: "Show in folder"
+                        }
+                        CopyButton {
+                            visible: !localReframe.busy && localReframe.outputUrl.toString().length > 0
+                            compact: true
+                            subtle: true
+                            file: localReframe.outputUrl
                         }
                         EditorButton {
                             iconName: "close"

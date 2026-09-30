@@ -39,6 +39,9 @@ public:
     // Writes the current code as PNG or SVG (by file suffix). Never overwrites.
     Q_INVOKABLE bool save(const QUrl &destination, int size, const QColor &foreground, const QColor &background, int margin = 2);
     Q_INVOKABLE void cancel();
+    // Puts the current code on the clipboard as a picture (and a PNG file for
+    // apps that paste files), without touching outputUrl.
+    Q_INVOKABLE bool copyImage(int size, const QColor &foreground, const QColor &background, int margin = 2);
 
     QImage render(int size, const QColor &foreground, const QColor &background, int margin = 2) const;
     QString svg(const QColor &foreground, const QColor &background, int margin = 2) const;

@@ -67,6 +67,11 @@ qt_add_qml_module(kadron_ui
         qml/Main.qml
         qml/EditorButton.qml
         qml/DragOutFile.qml
+        qml/CopyButton.qml
+        qml/ResultEntrance.qml
+        qml/Collapsible.qml
+        qml/SoftBounds.qml
+        qml/RememberedOptions.qml
         qml/EditorField.qml
         qml/Timeline.qml
         qml/ToolsWorkspace.qml

@@ -24,6 +24,7 @@ Item {
     property int quality: 82
     property string resizeMode: "none"
     property string view: "crop"
+    RememberedOptions { target: imagesPage; category: "imageOptions"; names: ["format", "quality", "resizeMode"] }
 
     readonly property var aspects: [["free", "Free", 0], ["original", "Original", -1], ["1:1", "1:1", 1], ["4:5", "4:5", 0.8],
                                    ["3:2", "3:2", 1.5], ["16:9", "16:9", 16 / 9], ["9:16", "9:16", 9 / 16]]
@@ -503,6 +504,7 @@ Item {
 
                 ScrollView {
                     id: settingsScroll
+                    readonly property SoftBounds softBounds: SoftBounds { flickable: settingsScroll.contentItem }
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.fillHeight: true
@@ -811,6 +813,13 @@ Item {
                             onClicked: Qt.openUrlExternally(localImages.outputFolder)
                             ToolTip.visible: hovered
                             ToolTip.text: "Open the folder"
+                        }
+                        // One finished picture goes straight to the clipboard.
+                        CopyButton {
+                            visible: !localImages.busy && localImages.results.length === 1 && !localImages.results[0].error
+                            compact: true
+                            subtle: true
+                            file: localImages.results.length === 1 ? localImages.results[0].output : ""
                         }
                         EditorButton { iconName: "trash"; subtle: true; enabled: !localImages.busy; onClicked: imagesPage.clearAll(); ToolTip.visible: hovered; ToolTip.text: "Remove all images" }
                     }

@@ -126,6 +126,15 @@ Item {
         pdfSave.selectedFile = folder + "/" + base + suffix + ".pdf"
         pdfSave.open()
     }
+    // Output options come back on the next run when Settings says so.
+    RememberedOptions {
+        target: toolsPage
+        category: "toolOptions"
+        names: ["audioFormatName", "audioKbps", "audioLufs", "audioMono", "compressGoal", "compressMB", "compressQuality",
+                "compressWidth", "gifFps", "gifWidthPx", "gifLimitMB", "qrFg", "qrBg", "qrLevel", "qrSize", "downloadPresetIndex"]
+    }
+    property int downloadPresetIndex: 0
+    onCompressMBChanged: if (Number(compressTarget.text) !== compressMB) compressTarget.text = String(compressMB)
     property string resultSection: ""
     property string pendingAction: ""
     property bool isImage: /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(sourceUrl.toString())
@@ -628,6 +637,7 @@ Item {
     }
     ScrollView {
         id: scroll
+        readonly property SoftBounds softBounds: SoftBounds { flickable: scroll.contentItem }
         anchors.fill: parent
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -974,6 +984,8 @@ Item {
                 ToolCombo {
                     id: downloadPreset
                     Layout.preferredWidth: 360
+                    currentIndex: toolsPage.downloadPresetIndex
+                    onActivated: toolsPage.downloadPresetIndex = currentIndex
                     textRole: "label"
                     valueRole: "value"
                     model: [
@@ -1287,54 +1299,56 @@ Item {
                     }
                 }
 
-                GridLayout {
-                    visible: Prefs.audioMoreOptions
-                    columns: 2
-                    columnSpacing: 28
-                    Layout.fillWidth: true
-                    rowSpacing: 7
+                Collapsible {
+                    open: Prefs.audioMoreOptions
+                    GridLayout {
+                        columns: 2
+                        columnSpacing: 28
+                        Layout.fillWidth: true
+                        rowSpacing: 7
 
-                    Text { text: "Fade in"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    Text { text: "Fade out"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "audioFadeIn_"
-                        options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
-                        current: toolsPage.audioFadeIn
-                        onActivated: function(sec) { toolsPage.audioFadeIn = sec }
-                    }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "audioFadeOut_"
-                        options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
-                        current: toolsPage.audioFadeOut
-                        onActivated: function(sec) { toolsPage.audioFadeOut = sec }
-                    }
+                        Text { text: "Fade in"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        Text { text: "Fade out"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            namePrefix: "audioFadeIn_"
+                            options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
+                            current: toolsPage.audioFadeIn
+                            onActivated: function(sec) { toolsPage.audioFadeIn = sec }
+                        }
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            namePrefix: "audioFadeOut_"
+                            options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
+                            current: toolsPage.audioFadeOut
+                            onActivated: function(sec) { toolsPage.audioFadeOut = sec }
+                        }
 
-                    Text { text: "Loudness"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    Text { text: "Channels"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "audioLufs_"
-                        options: [
-                            { label: "As is", value: 0 },
-                            { label: "Podcast", value: -16, tip: "−16 LUFS, the spoken-word standard" },
-                            { label: "Music", value: -14, tip: "−14 LUFS, what Spotify and YouTube play at" },
-                            { label: "Loud", value: -9, tip: "−9 LUFS, for clips that must cut through" }
-                        ]
-                        current: toolsPage.audioLufs
-                        onActivated: function(lufs) { toolsPage.audioLufs = lufs }
-                    }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "audioChannels_"
-                        options: [{ label: "Stereo", value: false }, { label: "Mono", value: true, tip: "One channel; fine for voice" }]
-                        current: toolsPage.audioMono
-                        onActivated: function(mono) { toolsPage.audioMono = mono }
+                        Text { text: "Loudness"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        Text { text: "Channels"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            namePrefix: "audioLufs_"
+                            options: [
+                                { label: "As is", value: 0 },
+                                { label: "Podcast", value: -16, tip: "−16 LUFS, the spoken-word standard" },
+                                { label: "Music", value: -14, tip: "−14 LUFS, what Spotify and YouTube play at" },
+                                { label: "Loud", value: -9, tip: "−9 LUFS, for clips that must cut through" }
+                            ]
+                            current: toolsPage.audioLufs
+                            onActivated: function(lufs) { toolsPage.audioLufs = lufs }
+                        }
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            namePrefix: "audioChannels_"
+                            options: [{ label: "Stereo", value: false }, { label: "Mono", value: true, tip: "One channel; fine for voice" }]
+                            current: toolsPage.audioMono
+                            onActivated: function(mono) { toolsPage.audioMono = mono }
+                        }
                     }
                 }
 
@@ -1744,48 +1758,50 @@ Item {
                     }
                 }
 
-                GridLayout {
-                    visible: Prefs.gifMoreOptions
-                    columns: 2
-                    columnSpacing: 28
-                    rowSpacing: 7
-                    Layout.fillWidth: true
-                    Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    Text { text: "Playback"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    SegmentedControl {
+                Collapsible {
+                    open: Prefs.gifMoreOptions
+                    GridLayout {
+                        columns: 2
+                        columnSpacing: 28
+                        rowSpacing: 7
                         Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "gifSpeed_"
-                        options: [
-                            { label: "0.5×", value: 0.5, tip: "Slow motion" },
-                            { label: "1×", value: 1 },
-                            { label: "1.5×", value: 1.5 },
-                            { label: "2×", value: 2, glyph: "bolt", boltSize: 12 }
-                        ]
-                        current: toolsPage.gifSpeed
-                        onActivated: function(speed) { toolsPage.gifSpeed = speed }
-                    }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "gifPlayback_"
-                        options: [
-                            { label: "Loop", value: "loop", tip: "Plays forward, over and over" },
-                            { label: "Bounce", value: "bounce", tip: "Forward, then backward, like a boomerang" },
-                            { label: "Once", value: "once", tip: "Plays one time and stops on the last frame" }
-                        ]
-                        current: toolsPage.gifOnce ? "once" : toolsPage.gifBounce ? "bounce" : "loop"
-                        onActivated: function(mode) {
-                            toolsPage.gifBounce = mode === "bounce"
-                            toolsPage.gifOnce = mode === "once"
+                        Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        Text { text: "Playback"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            namePrefix: "gifSpeed_"
+                            options: [
+                                { label: "0.5×", value: 0.5, tip: "Slow motion" },
+                                { label: "1×", value: 1 },
+                                { label: "1.5×", value: 1.5 },
+                                { label: "2×", value: 2, glyph: "bolt", boltSize: 12 }
+                            ]
+                            current: toolsPage.gifSpeed
+                            onActivated: function(speed) { toolsPage.gifSpeed = speed }
                         }
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            namePrefix: "gifPlayback_"
+                            options: [
+                                { label: "Loop", value: "loop", tip: "Plays forward, over and over" },
+                                { label: "Bounce", value: "bounce", tip: "Forward, then backward, like a boomerang" },
+                                { label: "Once", value: "once", tip: "Plays one time and stops on the last frame" }
+                            ]
+                            current: toolsPage.gifOnce ? "once" : toolsPage.gifBounce ? "bounce" : "loop"
+                            onActivated: function(mode) {
+                                toolsPage.gifBounce = mode === "bounce"
+                                toolsPage.gifOnce = mode === "once"
+                            }
+                        }
+                        Text { text: "Start (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        Text { text: "Length (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        EditorField { id: gifStart; objectName: "gifStart"; text: "0"; validator: DoubleValidator { bottom: 0 }
+                            Layout.fillWidth: true; Layout.preferredWidth: 1 }
+                        EditorField { id: gifDuration; objectName: "gifDuration"; text: "8"; validator: DoubleValidator { bottom: 0.1 }
+                            Layout.fillWidth: true; Layout.preferredWidth: 1 }
                     }
-                    Text { text: "Start (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    Text { text: "Length (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    EditorField { id: gifStart; objectName: "gifStart"; text: "0"; validator: DoubleValidator { bottom: 0 }
-                        Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    EditorField { id: gifDuration; objectName: "gifDuration"; text: "8"; validator: DoubleValidator { bottom: 0.1 }
-                        Layout.fillWidth: true; Layout.preferredWidth: 1 }
                 }
 
                 EditorButton {
@@ -2205,6 +2221,16 @@ Item {
                         spacing: 8
                         EditorButton { text: "Save PNG"; iconName: "save"; primary: true; enabled: localQr.modules > 0; onClicked: toolsPage.openQrSave("png") }
                         EditorButton { text: "Save SVG"; iconName: "save"; enabled: localQr.modules > 0; onClicked: toolsPage.openQrSave("svg") }
+                        EditorButton {
+                            id: qrCopy
+                            property bool copied: false
+                            text: copied ? "Copied" : "Copy"
+                            iconName: copied ? "check" : "copy"
+                            enabled: localQr.modules > 0
+                            ToolTip.visible: hovered; ToolTip.delay: 500; ToolTip.text: "Copy the code as a picture · Ctrl+V to paste"
+                            onClicked: if (localQr.copyImage(toolsPage.qrSize, toolsPage.qrFg, toolsPage.qrBg)) { copied = true; qrCopyReset.restart() }
+                            Timer { id: qrCopyReset; interval: 1400; onTriggered: qrCopy.copied = false }
+                        }
                         EditorButton { text: "Open file"; subtle: true; visible: localQr.outputUrl.toString().length > 0; onClicked: Qt.openUrlExternally(localQr.outputUrl) }
                     }
                     Text { visible: localQr.errorText.length > 0; text: localQr.errorText; color: Theme.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
@@ -2265,10 +2291,15 @@ Item {
             }
             StudioProgress { visible: toolsPage.section >= 2 && toolsPage.section <= 4 && localTools.busy; value: localTools.progress / 100; Layout.fillWidth: true }
             RowLayout {
+                id: toolResultRow
                 visible: toolsPage.section >= 2 && toolsPage.section <= 4 && toolsPage.resultSection === (toolsPage.section === 2 ? "audio" : toolsPage.section === 3 ? "compress" : "gif") && localTools.outputUrl.toString().length > 0 && !localTools.busy
                 Layout.fillWidth: true
+                ResultEntrance { target: toolResultRow; file: localTools.busy ? "" : localTools.outputUrl }
                 Text { text: toolsPage.filename(localTools.outputUrl); color: Theme.textSoft; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true
                        DragOutFile { anchors.fill: parent; file: localTools.outputUrl } }
+                EditorButton { iconName: "folder"; subtle: true; implicitWidth: 38; onClicked: shellIntegration.reveal(localTools.outputUrl)
+                               ToolTip.visible: hovered; ToolTip.text: "Show in folder" }
+                CopyButton { file: localTools.outputUrl }
                 EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(localTools.outputUrl) }
                 EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(localTools.outputUrl) }
             }
@@ -2311,10 +2342,16 @@ Item {
                 }
             }
             RowLayout {
+                id: fileResultRow
+                readonly property url file: toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl
                 visible: (toolsPage.section === 1 && toolsPage.resultSection === "download" && localDownload.outputUrl.toString().length > 0 && !localDownload.busy) || (toolsPage.section === 5 && toolsPage.resultSection === "pdf" && localPdf.outputUrl.toString().length > 0 && !localPdf.busy)
                 Layout.fillWidth: true
+                ResultEntrance { target: fileResultRow; file: localDownload.busy || localPdf.busy ? "" : fileResultRow.file }
                 Text { text: toolsPage.filename(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl); color: Theme.textSoft; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true
                        DragOutFile { anchors.fill: parent; file: toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl } }
+                EditorButton { iconName: "folder"; subtle: true; implicitWidth: 38; onClicked: shellIntegration.reveal(fileResultRow.file)
+                               ToolTip.visible: hovered; ToolTip.text: "Show in folder" }
+                CopyButton { file: fileResultRow.file }
                 EditorButton { text: "Open in editor"; iconName: "edit"; visible: toolsPage.section === 1 && toolsPage.downloadIsMedia; onClicked: toolsPage.openInEditor(localDownload.outputUrl) }
                 EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
                 EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
@@ -2356,50 +2393,54 @@ Item {
                     }
                     EditorButton { text: "Clear"; subtle: true; implicitHeight: 30; visible: !Prefs.downloadHistoryFolded; onClicked: toolsPage.forgetDownloads() }
                 }
-                Repeater {
-                    model: Prefs.downloadHistoryFolded ? [] : toolsPage.downloadHistory
-                    delegate: Rectangle {
-                        id: historyRow
-                        required property var modelData
-                        readonly property bool present: editorProject.fileExists(modelData.file)
-                        Layout.fillWidth: true
-                        implicitHeight: 38
-                        radius: 8
-                        color: rowHover.hovered ? Theme.hover : "transparent"
-                        HoverHandler { id: rowHover }
-                        DragOutFile { anchors.fill: parent; file: historyRow.present ? historyRow.modelData.file : "" }
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 4
-                            spacing: 4
-                            ToolIcon { name: "file"; implicitWidth: 14; implicitHeight: 14; tint: Theme.textMuted; opacity: historyRow.present ? 1 : 0.4 }
-                            Text {
-                                text: historyRow.modelData.title
-                                color: historyRow.present ? Theme.textSoft : Theme.textMuted
-                                font.pixelSize: 12
-                                font.strikeout: !historyRow.present
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                                Layout.leftMargin: 4
+                Collapsible {
+                    open: !Prefs.downloadHistoryFolded
+                    spacing: 2
+                    Repeater {
+                        model: toolsPage.downloadHistory
+                        delegate: Rectangle {
+                            id: historyRow
+                            required property var modelData
+                            readonly property bool present: editorProject.fileExists(modelData.file)
+                            Layout.fillWidth: true
+                            implicitHeight: 38
+                            radius: 8
+                            color: rowHover.hovered ? Theme.hover : "transparent"
+                            HoverHandler { id: rowHover }
+                            DragOutFile { anchors.fill: parent; file: historyRow.present ? historyRow.modelData.file : "" }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 4
+                                spacing: 4
+                                ToolIcon { name: "file"; implicitWidth: 14; implicitHeight: 14; tint: Theme.textMuted; opacity: historyRow.present ? 1 : 0.4 }
+                                Text {
+                                    text: historyRow.modelData.title
+                                    color: historyRow.present ? Theme.textSoft : Theme.textMuted
+                                    font.pixelSize: 12
+                                    font.strikeout: !historyRow.present
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 4
+                                }
+                                EditorButton { iconName: "external"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: historyRow.present
+                                               onClicked: Qt.openUrlExternally(historyRow.modelData.file)
+                                               ToolTip.visible: hovered; ToolTip.text: "Open" }
+                                EditorButton { iconName: "folder"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: historyRow.present
+                                               onClicked: shellIntegration.reveal(historyRow.modelData.file)
+                                               ToolTip.visible: hovered; ToolTip.text: "Show in folder" }
+                                EditorButton { iconName: "edit"; subtle: true; implicitWidth: 30; implicitHeight: 30
+                                               visible: historyRow.present && toolsPage.isMediaFile(historyRow.modelData.file)
+                                               onClicked: toolsPage.openInEditor(historyRow.modelData.file)
+                                               ToolTip.visible: hovered; ToolTip.text: "Open in editor" }
+                                EditorButton { iconName: "download"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: !!historyRow.modelData.url
+                                               onClicked: {
+                                                   toolsPage.resultSection = "download"
+                                                   localDownload.enqueue(historyRow.modelData.url, downloadPreset.currentValue, toolsPage.downloadsFolder,
+                                                                         historyRow.modelData.title, toolsPage.gifOptions())
+                                               }
+                                               ToolTip.visible: hovered; ToolTip.text: "Download again" }
                             }
-                            EditorButton { iconName: "external"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: historyRow.present
-                                           onClicked: Qt.openUrlExternally(historyRow.modelData.file)
-                                           ToolTip.visible: hovered; ToolTip.text: "Open" }
-                            EditorButton { iconName: "folder"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: historyRow.present
-                                           onClicked: shellIntegration.reveal(historyRow.modelData.file)
-                                           ToolTip.visible: hovered; ToolTip.text: "Show in folder" }
-                            EditorButton { iconName: "edit"; subtle: true; implicitWidth: 30; implicitHeight: 30
-                                           visible: historyRow.present && toolsPage.isMediaFile(historyRow.modelData.file)
-                                           onClicked: toolsPage.openInEditor(historyRow.modelData.file)
-                                           ToolTip.visible: hovered; ToolTip.text: "Open in editor" }
-                            EditorButton { iconName: "download"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: !!historyRow.modelData.url
-                                           onClicked: {
-                                               toolsPage.resultSection = "download"
-                                               localDownload.enqueue(historyRow.modelData.url, downloadPreset.currentValue, toolsPage.downloadsFolder,
-                                                                     historyRow.modelData.title, toolsPage.gifOptions())
-                                           }
-                                           ToolTip.visible: hovered; ToolTip.text: "Download again" }
                         }
                     }
                 }

@@ -3,7 +3,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 
-// App settings: appearance, editor and export defaults, general behaviour and About.
+// App settings: appearance, editor and export defaults, general behaviour, the
+// keyboard map and About.
 // Every change applies immediately and is remembered through Prefs.
 Dialog {
     id: dialog
@@ -104,6 +105,71 @@ Dialog {
         }
     }
 
+    // One key as a small cap; "Ctrl+Shift+C" becomes three.
+    component KeyCap: Rectangle {
+        property alias label: capText.text
+        implicitWidth: Math.max(22, capText.implicitWidth + 12)
+        implicitHeight: 22
+        radius: 5
+        color: Theme.field
+        border.color: Theme.lineStrong
+        Text {
+            id: capText
+            anchors.centerIn: parent
+            color: Theme.textSoft
+            font.pixelSize: 11
+            font.weight: Font.DemiBold
+        }
+    }
+    // Everything the keyboard does, grouped as the app is laid out. Each row is
+    // [what it does, [alternatives]], an alternative being keys joined by "+".
+    readonly property var shortcutMap: [
+        { group: "EVERYWHERE", rows: [
+            ["Command palette", ["Ctrl+P"]],
+            ["Settings", ["Ctrl+,"]],
+            ["This keyboard map", ["Ctrl+/"]],
+            ["Import media", ["Ctrl+O"]],
+            ["Save project", ["Ctrl+S"]],
+            ["Close project", ["Ctrl+W"]]
+        ] },
+        { group: "PLAYBACK", rows: [
+            ["Play or pause", ["Space"]],
+            ["Play · pause", ["L", "K"]],
+            ["Back 5 seconds", ["J"]],
+            ["Previous · next frame", [",", "."]],
+            ["Back · forward 1 second", ["Shift+←", "Shift+→"]],
+            ["Timeline focused: step 1 s, with Shift 0.1 s", ["←", "→"]],
+            ["Timeline focused: start · end", ["Home", "End"]]
+        ] },
+        { group: "EDITING", rows: [
+            ["Mark in · mark out", ["I", "O"]],
+            ["Split at playhead", ["Ctrl+K"]],
+            ["Undo", ["Ctrl+Z"]],
+            ["Redo", ["Ctrl+Y", "Ctrl+Shift+Z"]],
+            ["Remove the selected clip, text or sound", ["Delete"]],
+            ["Cancel a trim in progress", ["Esc"]]
+        ] },
+        { group: "MARKERS & FRAMES", rows: [
+            ["Add or remove a marker", ["N"]],
+            ["Previous · next marker", ["[", "]"]],
+            ["Save the frame as PNG", ["Ctrl+Shift+S"]],
+            ["Copy the frame", ["Ctrl+Shift+C"]]
+        ] },
+        { group: "PREVIEW", rows: [
+            ["Fullscreen preview (or double-click it)", ["F"]],
+            ["Leave fullscreen", ["Esc"]],
+            ["Mute", ["M"]],
+            ["Volume up · down", ["↑", "↓"]],
+            ["Zoom the timeline", ["Ctrl+Wheel"]]
+        ] },
+        { group: "TOOLS", rows: [
+            ["Download: paste a link", ["Ctrl+V"]],
+            ["PDF page preview: previous · next page", ["←", "→"]],
+            ["PDF page preview: rotate right · left", ["R", "Shift+R"]],
+            ["PDF page preview: remove the page", ["Delete"]]
+        ] }
+    ]
+
     contentItem: RowLayout {
         spacing: 0
 
@@ -130,7 +196,7 @@ Dialog {
                     Layout.bottomMargin: 14
                 }
                 Repeater {
-                    model: [["Appearance", "palette"], ["Editor & export", "edit"], ["General", "sliders"], ["About", "info"]]
+                    model: [["Appearance", "palette"], ["Editor & export", "edit"], ["General", "sliders"], ["Shortcuts", "keyboard"], ["About", "info"]]
                     delegate: NavItem {
                         required property var modelData
                         required property int index
@@ -173,7 +239,7 @@ Dialog {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 8
-                    text: ["Appearance", "Editor & export", "General", "About"][dialog.section]
+                    text: ["Appearance", "Editor & export", "General", "Shortcuts", "About"][dialog.section]
                     color: Theme.text
                     font.family: Theme.fontFamily
                     font.pixelSize: 15
@@ -193,6 +259,7 @@ Dialog {
 
             ScrollView {
                 id: scroller
+                readonly property SoftBounds softBounds: SoftBounds { flickable: scroller.contentItem }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 contentWidth: availableWidth
@@ -382,6 +449,14 @@ Dialog {
                             onToggled: Prefs.autoUpdateCheck = checked
                         }
                         Hint { text: "Only asks GitHub for the newest release number. Nothing is downloaded until you choose to update." }
+                        SectionLabel { text: "TOOLS" }
+                        ToolCheck {
+                            objectName: "rememberToolOptionsCheck"
+                            text: "Remember tool options between runs"
+                            checked: Prefs.rememberToolOptions
+                            onToggled: Prefs.rememberToolOptions = checked
+                        }
+                        Hint { text: "Formats, quality, sizes and QR colors in Tools, Images and Reframe start as you left them." }
                         SectionLabel {
                             text: "WINDOWS"
                             visible: explorerCheck.available || trayCheck.available
@@ -417,9 +492,61 @@ Dialog {
                         }
                     }
 
-                    // About
+                    // Shortcuts
                     ColumnLayout {
                         visible: dialog.section === 3
+                        Layout.fillWidth: true
+                        Layout.topMargin: 10
+                        Layout.bottomMargin: 26
+                        spacing: 4
+                        Repeater {
+                            model: dialog.shortcutMap
+                            delegate: ColumnLayout {
+                                id: keyGroup
+                                required property var modelData
+                                required property int index
+                                Layout.fillWidth: true
+                                Layout.topMargin: index > 0 ? 12 : 0
+                                spacing: 2
+                                SectionLabel { text: keyGroup.modelData.group; Layout.bottomMargin: 4 }
+                                Repeater {
+                                    model: keyGroup.modelData.rows
+                                    delegate: RowLayout {
+                                        id: keyRow
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        Layout.minimumHeight: 28
+                                        spacing: 4
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: keyRow.modelData[0]
+                                            color: Theme.textSoft
+                                            font.pixelSize: 12
+                                            elide: Text.ElideRight
+                                        }
+                                        Repeater {
+                                            model: keyRow.modelData[1]
+                                            delegate: RowLayout {
+                                                id: keyCombo
+                                                required property string modelData
+                                                required property int index
+                                                spacing: 3
+                                                Text { visible: keyCombo.index > 0; text: "/"; color: Theme.textFaint; font.pixelSize: 11; Layout.leftMargin: 3; Layout.rightMargin: 3 }
+                                                Repeater {
+                                                    model: keyCombo.modelData.split("+")
+                                                    delegate: KeyCap { required property string modelData; label: modelData }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // About
+                    ColumnLayout {
+                        visible: dialog.section === 4
                         Layout.fillWidth: true
                         Layout.topMargin: 10
                         Layout.bottomMargin: 26

@@ -37,6 +37,10 @@ public:
 
     // Opens the file's folder in Explorer with the file selected.
     Q_INVOKABLE static void reveal(const QUrl &file);
+    // Puts the file on the clipboard, so Ctrl+V pastes it in Explorer, chat
+    // apps and editors. Still pictures also go on as an image; GIFs stay a
+    // file so the paste keeps the animation.
+    Q_INVOKABLE static bool copyFile(const QUrl &file);
 
     // `executable` is the kadron.exe the menu should start.
     static bool install(const QString &executable);

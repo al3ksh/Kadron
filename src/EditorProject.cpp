@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QtGlobal>
+#include <algorithm>
 #include <limits>
 #include <QProcess>
 #include "MediaTools.h"
@@ -135,6 +136,50 @@ QVariantList EditorProject::textItems() const
     for (const auto &item : m_mix.texts)
         result.append(item.toMap());
     return result;
+}
+
+QVariantList EditorProject::markers() const
+{
+    QVariantList result;
+    for (const auto at : m_mix.markers)
+        result.append(at);
+    return result;
+}
+
+bool EditorProject::toggleMarker(qint64 atMs, qint64 toleranceMs)
+{
+    if (m_clips.isEmpty())
+        return false;
+    atMs = qBound<qint64>(0, atMs, sequenceDurationMs());
+    for (int i = 0; i < m_mix.markers.size(); ++i) {
+        if (qAbs(m_mix.markers[i] - atMs) <= toleranceMs) {
+            m_mix.markers.removeAt(i);
+            markChanged();
+            return true;
+        }
+    }
+    if (m_mix.markers.size() >= 500)
+        return false;
+    m_mix.markers.insert(std::lower_bound(m_mix.markers.begin(), m_mix.markers.end(), atMs), atMs);
+    markChanged();
+    return true;
+}
+
+bool EditorProject::removeMarker(int index)
+{
+    if (index < 0 || index >= m_mix.markers.size())
+        return false;
+    m_mix.markers.removeAt(index);
+    markChanged();
+    return true;
+}
+
+void EditorProject::clearMarkers()
+{
+    if (m_mix.markers.isEmpty())
+        return;
+    m_mix.markers.clear();
+    markChanged();
 }
 
 bool EditorProject::mixed() const
@@ -968,6 +1013,12 @@ bool EditorProject::openProject(const QUrl &url)
         if (mix.texts.size() > 1000)
             break;
     }
+    for (const auto &entry : object.value("markers").toArray()) {
+        mix.markers.append(qMax<qint64>(0, entry.toVariant().toLongLong()));
+        if (mix.markers.size() >= 500)
+            break;
+    }
+    std::sort(mix.markers.begin(), mix.markers.end());
 
     m_clips = parsedClips;
     m_mix = mix;
@@ -1054,6 +1105,12 @@ QByteArray EditorProject::serialize(const QString &directory) const
                        {"audio", audioEntries}, {"duck", m_mix.musicDuck}};
     if (!textEntries.isEmpty())
         object.insert("texts", textEntries);
+    if (!m_mix.markers.isEmpty()) {
+        QJsonArray markerEntries;
+        for (const auto at : m_mix.markers)
+            markerEntries.append(static_cast<double>(at));
+        object.insert("markers", markerEntries);
+    }
     return QJsonDocument(object).toJson(QJsonDocument::Indented);
 }
 

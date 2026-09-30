@@ -41,6 +41,9 @@ Settings {
     // GIF Studio shows speed, playback and exact times.
     property bool gifMoreOptions: false
 
+    // Tools, Images and Reframe start with the options used last time.
+    property bool rememberToolOptions: false
+
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"
     property bool exportLoudnorm: false

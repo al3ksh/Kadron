@@ -1,6 +1,10 @@
 #include "ShellIntegration.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
+#include <QGuiApplication>
+#include <QImage>
+#include <QMimeData>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
@@ -60,6 +64,29 @@ void ShellIntegration::reveal(const QUrl &file)
     }
 #endif
     QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+}
+
+bool ShellIntegration::copyFile(const QUrl &file)
+{
+    const QFileInfo info(file.toLocalFile());
+    if (!file.isLocalFile() || !info.isFile())
+        return false;
+    auto *data = new QMimeData;
+    data->setUrls({QUrl::fromLocalFile(info.absoluteFilePath())});
+    static const QStringList stills{"png", "jpg", "jpeg", "bmp", "webp"};
+    if (stills.contains(info.suffix().toLower())) {
+        const QImage image(info.absoluteFilePath());
+        if (!image.isNull())
+            data->setImageData(image);
+    }
+#ifdef Q_OS_WIN
+    // Explorer pastes a copy rather than moving the file.
+    const quint32 copyEffect = DROPEFFECT_COPY;
+    data->setData(QStringLiteral("application/x-qt-windows-mime;value=\"Preferred DropEffect\""),
+                  QByteArray(reinterpret_cast<const char *>(&copyEffect), sizeof(copyEffect)));
+#endif
+    QGuiApplication::clipboard()->setMimeData(data);
+    return true;
 }
 
 bool ShellIntegration::supported() const

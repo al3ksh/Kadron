@@ -144,6 +144,7 @@ ApplicationWindow {
     readonly property bool shareWorkspace: workspace >= 7 && workspace <= 9
     readonly property bool anyBusy: exporter.busy || toolsClient.busy || localTools.busy || localDownload.busy || localPdf.busy || localQr.busy || localImages.busy || localReframe.busy
     onWorkspaceChanged: {
+        if (workspace !== 0) previewFullscreen = false
         if (workspace === 0) editorEnter.restart()
         else if (workspace === 10) imagesEnter.restart()
         else if (workspace === 11) reframeEnter.restart()
@@ -599,6 +600,7 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Undo]; enabled: root.workspace === 0 && editorProject.canUndo && !exporter.busy; onActivated: editorProject.undo() }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; enabled: root.workspace === 0 && editorProject.canRedo && !exporter.busy; onActivated: editorProject.redo() }
     Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.visible ? settingsDialog.close() : settingsDialog.open() }
+    Shortcut { sequence: "Ctrl+/"; onActivated: settingsDialog.visible && settingsDialog.section === 3 ? settingsDialog.close() : settingsDialog.show(3) }
     Shortcut { sequences: ["Ctrl+P", "Ctrl+Shift+P"]; onActivated: commandPalette.visible ? commandPalette.close() : commandPalette.show() }
     Shortcut { sequence: "Ctrl+W"; enabled: root.workspace === 0 && editorProject.hasMedia && !root.dialogOpen; onActivated: root.closeEditing() }
     // Frame steps, J/K/L and one-second jumps; the timeline keeps its own arrows while focused.
@@ -620,6 +622,54 @@ ApplicationWindow {
     Shortcut { sequence: "K"; enabled: root.keyboardSeek && player.playbackState === MediaPlayer.PlayingState; onActivated: root.togglePlayback() }
     Shortcut { sequence: "L"; enabled: root.keyboardSeek && player.playbackState !== MediaPlayer.PlayingState; onActivated: root.togglePlayback() }
     Shortcut { sequence: "Ctrl+Shift+S"; enabled: root.keyboardSeek; onActivated: root.saveFrame() }
+    Shortcut { sequence: "Ctrl+Shift+C"; enabled: root.keyboardSeek; onActivated: root.copyFrame() }
+    // Markers: N drops or lifts one at the playhead, [ and ] jump between them.
+    Shortcut { sequence: "N"; enabled: root.keyboardSeek; onActivated: root.toggleMarker() }
+    Shortcut { sequence: "["; enabled: root.keyboardSeek && editorProject.markers.length > 0; autoRepeat: true; onActivated: root.jumpMarker(-1) }
+    Shortcut { sequence: "]"; enabled: root.keyboardSeek && editorProject.markers.length > 0; autoRepeat: true; onActivated: root.jumpMarker(1) }
+    // Preview sound: M mutes, Up and Down step the level unless a field or list has the keys.
+    readonly property bool keyboardVolume: workspace === 0 && editorProject.hasMedia && !dialogOpen
+    readonly property bool arrowsFree: {
+        var item = root.activeFocusItem
+        return !item || item === sequenceTimeline || (item.cursorPosition === undefined && item.currentIndex === undefined && item.value === undefined)
+    }
+    Shortcut { sequence: "M"; enabled: root.keyboardVolume; onActivated: root.toggleMute() }
+    Shortcut { sequence: "Up"; enabled: root.keyboardVolume && root.arrowsFree; autoRepeat: true; onActivated: root.stepVolume(0.05) }
+    Shortcut { sequence: "Down"; enabled: root.keyboardVolume && root.arrowsFree; autoRepeat: true; onActivated: root.stepVolume(-0.05) }
+    // Preview fills the screen: F or a double-click, Escape to come back.
+    Shortcut { sequence: "F"; enabled: root.workspace === 0 && editorProject.hasMedia && !root.dialogOpen; onActivated: root.previewFullscreen = !root.previewFullscreen }
+    Shortcut { sequence: "Esc"; enabled: root.previewFullscreen; onActivated: root.previewFullscreen = false }
+    function toggleMute() {
+        if (Prefs.previewVolume <= 0.001) {
+            Prefs.previewVolume = 0.7
+            Prefs.previewMuted = false
+        } else {
+            Prefs.previewMuted = !Prefs.previewMuted
+        }
+        root.notice = Prefs.previewMuted ? "Preview muted" : "Preview volume " + Math.round(Prefs.previewVolume * 100) + "%"
+    }
+    function stepVolume(delta) {
+        var level = Prefs.previewMuted ? 0 : Prefs.previewVolume
+        Prefs.previewVolume = Math.max(0, Math.min(1, Math.round((level + delta) * 20) / 20))
+        Prefs.previewMuted = false
+        root.notice = "Preview volume " + Math.round(Prefs.previewVolume * 100) + "%"
+    }
+    function toggleMarker() {
+        var count = editorProject.markers.length
+        if (!editorProject.toggleMarker(Math.round(root.sequencePositionMs))) return
+        root.notice = editorProject.markers.length > count ? "Marker at " + root.timecode(root.sequencePositionMs) + " · [ and ] jump between markers" : "Marker removed"
+    }
+    function jumpMarker(direction) {
+        var list = editorProject.markers, here = root.sequencePositionMs, target = -1
+        for (var i = 0; i < list.length; i++) {
+            var ms = Number(list[i])
+            if (direction > 0 && ms > here + 40) { target = ms; break }
+            if (direction < 0 && ms < here - 40) target = ms
+        }
+        if (target < 0) return
+        root.beginScrub(target)
+        root.scrubbing = false
+    }
     Shortcut { sequence: "Ctrl+K"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.splitAt(player.position) }
 
     FileDialog {
@@ -660,10 +710,70 @@ ApplicationWindow {
         nameFilters: ["PNG image (*.png)", "JPEG image (*.jpg)"]
         onAccepted: editorProject.saveFrame(sourceMs, selectedFile)
     }
+    // Fullscreen preview: the window goes fullscreen and the preview covers it.
+    property bool previewFullscreen: false
+    property int visibilityBeforeFullscreen: Window.Windowed
+    onPreviewFullscreenChanged: {
+        if (previewFullscreen) {
+            visibilityBeforeFullscreen = visibility
+            showFullScreen()
+            fullscreenHint.restart()
+        } else if (visibility === Window.FullScreen) {
+            if (visibilityBeforeFullscreen === Window.Maximized) showMaximized()
+            else showNormal()
+        }
+    }
+    onVisibilityChanged: if (previewFullscreen && visibility !== Window.FullScreen && visibility !== Window.Hidden) previewFullscreen = false
+    Item {
+        id: fullscreenHost
+        anchors.fill: parent
+        z: 900
+        visible: root.previewFullscreen
+        Rectangle {
+            id: fullscreenHintBox
+            z: 10
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 24
+            width: fullscreenHintText.implicitWidth + 28
+            height: 32
+            radius: 16
+            color: "#cc000000"
+            opacity: 0
+            Text {
+                id: fullscreenHintText
+                anchors.centerIn: parent
+                text: "Esc or F to exit fullscreen"
+                color: "#e6ffffff"
+                font.pixelSize: 12
+            }
+            SequentialAnimation {
+                id: fullscreenHint
+                NumberAnimation { target: fullscreenHintBox; property: "opacity"; to: 1; duration: 180; easing.type: Easing.OutCubic }
+                PauseAnimation { duration: 1600 }
+                NumberAnimation { target: fullscreenHintBox; property: "opacity"; to: 0; duration: 400; easing.type: Easing.InOutQuad }
+            }
+        }
+    }
+    // The preview frame onto the clipboard, through a temporary PNG.
+    property string frameCopyTarget: ""
+    function sameFile(a, b) {
+        try { return decodeURIComponent(a) === decodeURIComponent(b) } catch (e) { return a === b }
+    }
+    function copyFrame() {
+        if (!editorProject.hasMedia) return
+        var name = decodeURIComponent(editorProject.mediaUrl.toString().replace(/^.*\//, "").replace(/\.[^.]*$/, ""))
+        var target = StandardPaths.writableLocation(StandardPaths.TempLocation) + "/" + name + " " + root.timecode(root.sequencePositionMs).replace(/:/g, "-") + ".png"
+        root.frameCopyTarget = target.toString()
+        editorProject.saveFrame(player.position, target)
+    }
     Connections {
         target: editorProject
         function onFrameSaved(file, error) {
-            root.notice = error ? error : "Frame saved · " + decodeURIComponent(file.toString().replace(/^.*\//, ""))
+            var copying = root.frameCopyTarget.length > 0 && root.sameFile(file.toString(), root.frameCopyTarget)
+            root.frameCopyTarget = ""
+            if (error) root.notice = error
+            else if (copying) root.notice = shellIntegration.copyFile(file) ? "Frame copied · paste it with Ctrl+V" : "Couldn't copy the frame"
+            else root.notice = "Frame saved · " + decodeURIComponent(file.toString().replace(/^.*\//, ""))
         }
     }
     FileDialog {
@@ -729,8 +839,9 @@ ApplicationWindow {
             { title: "Export MP4…", group: "File", enabled: editorProject.canExport && !exporter.busy && exporter.available, run: function() { root.workspace = 0; exportSheet.open() } },
             { title: "Close project", group: "File", keys: "Ctrl+W", enabled: editorProject.hasMedia, run: root.closeEditing },
             { title: "Settings", group: "App", keys: "Ctrl+,", run: function() { settingsDialog.open() } },
+            { title: "Keyboard shortcuts", group: "App", keys: "Ctrl+/", run: function() { settingsDialog.show(3) } },
             { title: "Show the tutorial", group: "App", run: function() { tutorial.start() } },
-            { title: "About Kadron", group: "App", run: function() { settingsDialog.show(3) } }
+            { title: "About Kadron", group: "App", run: function() { settingsDialog.show(4) } }
         ]
         var pages = ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code", "Clips", "Drop", "Shortener", "Images", "Reframe"]
         for (var i = 0; i < pages.length; ++i)
@@ -744,10 +855,18 @@ ApplicationWindow {
             ["Undo", "Ctrl+Z", function() { editorProject.undo() }],
             ["Redo", "Ctrl+Y", function() { editorProject.redo() }],
             ["Save frame as image…", "Ctrl+Shift+S", root.saveFrame],
+            ["Copy frame", "Ctrl+Shift+C", root.copyFrame],
+            ["Add or remove marker", "N", root.toggleMarker],
+            ["Previous marker", "[", function() { root.jumpMarker(-1) }],
+            ["Next marker", "]", function() { root.jumpMarker(1) }],
+            ["Clear markers", "", function() { editorProject.clearMarkers() }],
+            ["Fullscreen preview", "F", function() { root.previewFullscreen = true }],
+            ["Mute preview", "M", root.toggleMute],
             ["Remove silence from clip", "", function() { editorProject.removeSilence(editorProject.activeClipIndex) }],
             ["Previous / next frame", ", .", null],
             ["Jump one second", "Shift+← →", null],
-            ["Back 5 s / pause / play", "J K L", null]
+            ["Back 5 s / pause / play", "J K L", null],
+            ["Preview volume", "↑ ↓", null]
         ]
         for (var e = 0; e < edit.length; ++e)
             commands.push({ title: edit[e][0], group: "Editor", keys: edit[e][1], enabled: editing,
@@ -1273,10 +1392,17 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 0
-                Rectangle {
+                // The preview moves into a full-window host while it fills the screen.
+                Item {
+                    id: previewSlot
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: Theme.canvas
+                }
+                Rectangle {
+                    id: previewPane
+                    parent: root.previewFullscreen ? fullscreenHost : previewSlot
+                    anchors.fill: parent
+                    color: root.previewFullscreen ? "black" : Theme.canvas
                     DropArea {
                         id: previewDropArea
                         anchors.fill: parent
@@ -1291,6 +1417,7 @@ ApplicationWindow {
                         anchors.margins: 20
                         visible: player.hasVideo
                         fillMode: VideoOutput.PreserveAspectFit
+                        TapHandler { onDoubleTapped: root.previewFullscreen = !root.previewFullscreen }
                     }
                     Rectangle {
                         objectName: "transitionDim"
@@ -1443,7 +1570,7 @@ ApplicationWindow {
                             onClicked: root.saveFrame()
                             ToolTip.visible: hovered
                             ToolTip.delay: 600
-                            ToolTip.text: "Save this frame as an image  Ctrl+Shift+S"
+                            ToolTip.text: "Save this frame as an image  Ctrl+Shift+S · copy it with Ctrl+Shift+C"
                         }
                         VolumeControl { id: editorVolume; objectName: "editorVolume"; compact: transportRow.width <= 460 }
                     }
@@ -1458,6 +1585,7 @@ ApplicationWindow {
                 Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.line }
                 ScrollView {
                     id: inspectorScroll
+                    readonly property SoftBounds softBounds: SoftBounds { flickable: inspectorScroll.contentItem }
                     transform: Translate { id: inspectorShift }
                     anchors.fill: parent
                     anchors.leftMargin: 18
@@ -1945,11 +2073,26 @@ ApplicationWindow {
                             danger: true
                             onClicked: exporter.cancel()
                         }
-                        EditorButton {
+                        RowLayout {
+                            id: exportResultRow
                             Layout.fillWidth: true
+                            spacing: 6
                             visible: exporter.outputUrl.toString().length > 0 && !exporter.busy
-                            text: "Open exported file"
-                            onClicked: Qt.openUrlExternally(exporter.outputUrl)
+                            ResultEntrance { target: exportResultRow; file: exporter.busy ? "" : exporter.outputUrl }
+                            EditorButton {
+                                Layout.fillWidth: true
+                                text: "Open exported file"
+                                onClicked: Qt.openUrlExternally(exporter.outputUrl)
+                            }
+                            EditorButton {
+                                iconName: "folder"
+                                implicitWidth: 38
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                ToolTip.text: "Show in folder"
+                                onClicked: shellIntegration.reveal(exporter.outputUrl)
+                            }
+                            CopyButton { compact: true; file: exporter.outputUrl }
                         }
                     }
 
@@ -2064,7 +2207,7 @@ ApplicationWindow {
                         ToolTip.delay: 500
                         ToolTip.text: "Add text at the playhead and type it on the video"
                     }
-                    EditorButton { text: "Fit"; subtle: true; visible: sequenceTimeline.zoom > 1; onClicked: sequenceTimeline.zoom = 1 }
+                    EditorButton { text: "Fit"; subtle: true; visible: sequenceTimeline.zoom > 1; onClicked: sequenceTimeline.zoomTo(1, 0) }
                     EditorButton { text: "From start"; iconName: "play"; enabled: editorProject.canExport && !exporter.busy; onClicked: root.previewSequence() }
                     EditorButton { text: "Split"; iconName: "split"; enabled: editorProject.hasMedia && !exporter.busy && player.position > editorProject.inMs + 100 && player.position < editorProject.outMs - 100; onClicked: editorProject.splitAt(player.position) }
                     EditorButton { text: "Mark in"; enabled: editorProject.hasMedia && !exporter.busy; onClicked: editorProject.setInMs(player.position) }
@@ -2083,6 +2226,8 @@ ApplicationWindow {
                     transition: editorProject.transition
                     audioItems: editorProject.audioItems
                     audioIndex: editorProject.activeAudioIndex
+                    markers: editorProject.markers
+                    onMarkerRemoveRequested: function(index) { editorProject.removeMarker(index) }
                     onAudioSelectRequested: function(index) { editorProject.selectAudio(index) }
                     onAudioPlaceRequested: function(index, startMs, inMs, outMs) { editorProject.setAudioPlacement(index, startMs, inMs, outMs) }
                     onAudioFadeRequested: function(index, fadeInMs, fadeOutMs) { editorProject.setAudioFades(index, fadeInMs, fadeOutMs) }

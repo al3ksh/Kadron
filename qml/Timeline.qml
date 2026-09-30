@@ -23,6 +23,9 @@ FocusScope {
 
     signal scrubRequested(real sequenceMs)
     signal scrubFinished()
+    // Markers: sequence times dropped with N; right-click removes one.
+    property var markers: []
+    signal markerRemoveRequested(int index)
     signal selectRequested(int index)
     signal trimRequested(int index, real inMs, real outMs, real previewMs)
     signal trimPreviewRequested(int index, real sourceMs)
@@ -110,7 +113,7 @@ FocusScope {
     // Pulls a time to a nearby join, the playhead, the ends or another audio item.
     function snapMs(ms, skipIndex, skipText) {
         var reach = 8 / Math.max(pxPerMs, 0.0001)
-        var points = [0, totalMs, playheadMs].concat(starts)
+        var points = [0, totalMs, playheadMs].concat(starts, markers)
         for (var i = 0; i < audioItems.length; i++) {
             if (i === skipIndex) continue
             points.push(audioItems[i].startMs, audioItems[i].startMs + audioItems[i].lengthMs)
@@ -170,11 +173,26 @@ FocusScope {
         }
         return slot
     }
+    // Zoom eases to its new level, keeping the moment under `viewX` in place.
+    property real zoomAnchorMs: 0
+    property real zoomAnchorX: 0
     function zoomAround(factor, viewX) {
+        zoomTo((zoomEase.running ? zoomEase.to : zoom) * factor, viewX)
+    }
+    function zoomTo(level, viewX) {
         if (totalMs <= 0) return
-        var anchorMs = (flick.contentX + viewX) / pxPerMs
-        zoom = Math.max(1, Math.min(60, zoom * factor))
-        flick.contentX = Math.max(0, Math.min(flick.contentWidth - flick.width, anchorMs * fitPxPerMs - viewX))
+        zoomAnchorMs = (flick.contentX + viewX) / Math.max(pxPerMs, 0.0001)
+        zoomAnchorX = viewX
+        zoomEase.stop()
+        zoomEase.to = Math.max(1, Math.min(60, level))
+        zoomEase.start()
+    }
+    NumberAnimation { id: zoomEase; target: timeline; property: "zoom"; duration: 180; easing.type: Easing.OutCubic }
+    onZoomChanged: {
+        if (!zoomEase.running || totalMs <= 0) return
+        var scale = flick.width * zoom / totalMs
+        var contentWidth = Math.max(flick.width, totalMs * scale)
+        flick.contentX = Math.max(0, Math.min(contentWidth - flick.width, zoomAnchorMs * scale - zoomAnchorX))
     }
 
     Keys.onPressed: function(event) {
@@ -1131,6 +1149,46 @@ FocusScope {
                 height: parent.height - ruler.height
                 color: Theme.accent
                 opacity: 0.85
+            }
+
+            // Markers: a flag on the ruler and a faint line through the tracks.
+            Repeater {
+                model: timeline.markers
+                delegate: Item {
+                    id: markerItem
+                    required property int index
+                    required property var modelData
+                    x: Math.round(Number(modelData) * timeline.pxPerMs)
+                    z: 8
+                    height: parent.height
+                    Rectangle { x: 0; y: ruler.height; width: 1; height: parent.height - ruler.height; color: Theme.accent; opacity: 0.35 }
+                    ToolIcon {
+                        x: -width / 2 + 0.5
+                        y: 2
+                        width: 12
+                        height: 12
+                        name: "marker"
+                        tint: markerMouse.containsMouse ? Theme.text : Theme.accent
+                    }
+                    MouseArea {
+                        id: markerMouse
+                        x: -7
+                        width: 14
+                        height: ruler.height
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        ToolTip.visible: containsMouse
+                        ToolTip.delay: 500
+                        ToolTip.text: timeline.timeLabel(Number(markerItem.modelData), true) + " · right-click to remove"
+                        onClicked: function(mouse) {
+                            if (mouse.button === Qt.RightButton) { timeline.markerRemoveRequested(markerItem.index); return }
+                            timeline.forceActiveFocus()
+                            timeline.scrubRequested(Number(markerItem.modelData))
+                            timeline.scrubFinished()
+                        }
+                    }
+                }
             }
 
             // Pointer-following guide over the track.

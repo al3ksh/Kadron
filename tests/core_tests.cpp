@@ -428,6 +428,18 @@ void CoreTests::sequenceProject()
     QCOMPARE(project.sequenceDurationMs(), 6500);
     QVERIFY(project.canExport());
 
+    // Markers stay sorted, toggle off near an existing one and undo like any edit.
+    QVERIFY(project.toggleMarker(3000));
+    QVERIFY(project.toggleMarker(1000));
+    QVERIFY(project.toggleMarker(99999));
+    QCOMPARE(project.markers(), (QVariantList{1000, 3000, 6500}));
+    QVERIFY(project.toggleMarker(3100));
+    QCOMPARE(project.markers(), (QVariantList{1000, 6500}));
+    project.undo();
+    QCOMPARE(project.markers().size(), 3);
+    QVERIFY(project.removeMarker(2));
+    QCOMPARE(project.markers(), (QVariantList{1000, 3000}));
+
     const auto projectPath = directory.path() + "/sequence.kadr";
     QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
     EditorProject reopened;
@@ -436,6 +448,7 @@ void CoreTests::sequenceProject()
     QCOMPARE(reopened.clipCount(), 3);
     QCOMPARE(reopened.activeClipIndex(), 2);
     QCOMPARE(reopened.sequenceDurationMs(), 6500);
+    QCOMPARE(reopened.markers(), (QVariantList{1000, 3000}));
     QVERIFY(!reopened.dirty());
     QVERIFY(reopened.removeClip(1));
     QCOMPARE(reopened.clipCount(), 2);

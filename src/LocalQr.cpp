@@ -1,6 +1,10 @@
 #include "LocalQr.h"
 #include "MediaTools.h"
+#include <QClipboard>
 #include <QDir>
+#include <QGuiApplication>
+#include <QMimeData>
+#include <QStandardPaths>
 #include <QFileInfo>
 #include <QPainter>
 #include <QSaveFile>
@@ -101,6 +105,22 @@ void LocalQr::update(const QString &content, const QString &level)
     m_stage = QStringLiteral("Encoding");
     emit changed();
     process->start(m_qrencode, {"-t", "ASCII", "-m", "0", "-l", ec, "-8"});
+}
+
+bool LocalQr::copyImage(int size, const QColor &foreground, const QColor &background, int margin)
+{
+    if (modules() == 0)
+        return false;
+    const auto image = render(size, foreground, background, margin);
+    if (image.isNull())
+        return false;
+    auto *data = new QMimeData;
+    data->setImageData(image);
+    const auto path = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).absoluteFilePath(QStringLiteral("Kadron QR code.png"));
+    if (image.save(path, "PNG"))
+        data->setUrls({QUrl::fromLocalFile(path)});
+    QGuiApplication::clipboard()->setMimeData(data);
+    return true;
 }
 
 QImage LocalQr::render(int size, const QColor &foreground, const QColor &background, int margin) const

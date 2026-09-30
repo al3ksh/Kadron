@@ -246,7 +246,7 @@ int main(int argc, char *argv[])
                 }
             });
         }
-        // KADRON_SCREENSHOT_SETTINGS=<section> opens Settings on that section (0 = Appearance, 3 = About).
+        // KADRON_SCREENSHOT_SETTINGS=<section> opens Settings on that section (0 = Appearance, 3 = Shortcuts, 4 = About).
         if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT_SETTINGS") || qEnvironmentVariableIsSet("KADRON_SCREENSHOT_APPEARANCE")) {
             const auto section = qEnvironmentVariableIntValue("KADRON_SCREENSHOT_SETTINGS");
             QTimer::singleShot(400, &app, [mainWindow, section] {

@@ -259,7 +259,7 @@ void UiTests::timelineInteractions()
     QWheelEvent wheel(QPointF(400, 100), window.mapToGlobal(QPointF(400, 100)), {}, QPoint(0, 120),
                       Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
     QCoreApplication::sendEvent(&window, &wheel);
-    QVERIFY(timeline->property("zoom").toDouble() > 1.0);
+    QTRY_VERIFY(qAbs(timeline->property("zoom").toDouble() - 1.25) < 0.001);
 }
 
 void UiTests::toolControls()

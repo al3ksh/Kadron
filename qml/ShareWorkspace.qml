@@ -28,6 +28,7 @@ Item {
     Rectangle { anchors.fill: parent; color: Theme.window }
     ScrollView {
         id: scroll
+        readonly property SoftBounds softBounds: SoftBounds { flickable: scroll.contentItem }
         anchors.fill: parent
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
