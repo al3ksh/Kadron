@@ -583,6 +583,7 @@ Dialog {
                                 onClicked: appUpdater.check()
                             }
                             EditorButton {
+                                id: aboutUpdateButton
                                 objectName: "aboutUpdate"
                                 visible: appUpdater.updateAvailable
                                 primary: true
@@ -593,6 +594,13 @@ Dialog {
                                       : appUpdater.canInstall ? "Update" : "Open release"
                                 onClicked: dialog.updateRequested()
                                 onVisibleChanged: if (visible) aboutFireworks.play()
+                                // More every few seconds while the offer is on screen, as on the sidebar card.
+                                Timer {
+                                    interval: 2600
+                                    repeat: true
+                                    running: aboutUpdateButton.visible && !appUpdater.downloading
+                                    onTriggered: aboutFireworks.play()
+                                }
                                 Fireworks {
                                     id: aboutFireworks
                                     anchors.centerIn: parent

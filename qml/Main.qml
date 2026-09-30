@@ -1250,7 +1250,8 @@ ApplicationWindow {
                             anchors.margins: -5
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: appUpdater.check()
+                            // Asking again brings back a card that was closed.
+                            onClicked: { Prefs.dismissedUpdate = ""; appUpdater.check() }
                         }
                     }
                 }

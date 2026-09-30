@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 // Sidebar footer for app updates: the running version (click to check), and a
@@ -10,7 +11,12 @@ ColumnLayout {
     signal restartRequested()
     spacing: 8
 
+    // Closing the card hides it until a newer release (or a manual check); a
+    // download already under way keeps it.
     readonly property bool offering: !!updater && updater.updateAvailable
+        && (Prefs.dismissedUpdate !== updater.latestVersion || updater.downloading || updater.ready)
+    readonly property bool closable: !!updater && !updater.downloading && !updater.ready
+    function dismiss() { Prefs.dismissedUpdate = updater.latestVersion }
     // One row instead of the card, for sidebars too short to fit it.
     property bool compact: false
     // What the full card needs, so the sidebar can decide before showing it.
@@ -23,12 +29,19 @@ ColumnLayout {
         if (showStatus) statusTimer.restart()
     }
     Timer { id: statusTimer; interval: 4000; onTriggered: card.showStatus = false }
-    // A new release, and later its finished download, get a few fireworks once
-    // the card has opened.
+    // A new release, and later its finished download, get fireworks once the
+    // card has opened, and more every few seconds while it stays open (not
+    // during the download, which has its own progress to watch).
     onOfferingChanged: if (offering) celebrate.restart()
     readonly property bool downloaded: !!updater && updater.ready
     onDownloadedChanged: if (downloaded) celebrate.restart()
     Timer { id: celebrate; interval: 350; onTriggered: fireworks.play() }
+    Timer {
+        interval: 2600
+        repeat: true
+        running: card.offering && !card.updater.downloading
+        onTriggered: fireworks.play()
+    }
 
     function act() {
         if (updater.downloading) return
@@ -40,6 +53,30 @@ ColumnLayout {
         } else {
             Qt.openUrlExternally(updater.releaseUrl)
         }
+    }
+
+    // A small ✕ that closes the card.
+    component CloseCross: Item {
+        implicitWidth: 14
+        implicitHeight: 14
+        ToolIcon {
+            anchors.centerIn: parent
+            width: 10
+            height: 10
+            name: "close"
+            tint: crossMouse.containsMouse ? Theme.text : Theme.textMuted
+        }
+        MouseArea {
+            id: crossMouse
+            anchors.fill: parent
+            anchors.margins: -5
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: card.dismiss()
+        }
+        ToolTip.visible: crossMouse.containsMouse
+        ToolTip.delay: 500
+        ToolTip.text: "Hide until the next release"
     }
 
     Rectangle {
@@ -88,6 +125,7 @@ ColumnLayout {
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
             }
+            CloseCross { visible: card.closable }
         }
         ColumnLayout {
             id: offerColumn
@@ -122,6 +160,11 @@ ColumnLayout {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: Qt.openUrlExternally(card.updater.releaseUrl)
                     }
+                }
+                CloseCross {
+                    objectName: "updateClose"
+                    visible: card.closable
+                    Layout.leftMargin: 6
                 }
             }
             Text {

@@ -21,6 +21,8 @@ Settings {
 
     // Background checks for Kadron and yt-dlp releases (read by AppUpdater and LocalDownload).
     property bool autoUpdateCheck: true
+    // The release whose sidebar card was closed; a newer one shows the card again.
+    property string dismissedUpdate: ""
 
     // Closing the window hides Kadron to the tray instead of quitting.
     property bool closeToTray: true

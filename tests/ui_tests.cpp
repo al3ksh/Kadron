@@ -446,6 +446,9 @@ QtObject {
 })", QUrl("qrc:/fake-updater.qml"));
     std::unique_ptr<QObject> updater(fakeComponent.create());
     QVERIFY(updater);
+    auto *prefs = engine.singletonInstance<QObject *>("Kadron", "Prefs");
+    QVERIFY(prefs);
+    prefs->setProperty("dismissedUpdate", QString());
 
     auto object = createFromModule(engine, "UpdateCard");
     auto *card = qobject_cast<QQuickItem *>(object.get());
@@ -499,6 +502,17 @@ QtObject {
     QTest::mouseClick(&window, Qt::LeftButton, {}, compactRow->mapToScene(QPointF(compactRow->width() / 2, compactRow->height() / 2)).toPoint());
     QCOMPARE(updater->property("installs").toInt(), 2);
     card->setProperty("compact", false);
+    QTest::qWait(700);
+
+    // The cross hides the card until a newer release comes out.
+    auto *cross = card->findChild<QQuickItem *>("updateClose");
+    QVERIFY(cross && cross->isVisible());
+    QTest::mouseClick(&window, Qt::LeftButton, {}, cross->mapToScene(QPointF(cross->width() / 2, cross->height() / 2)).toPoint());
+    QVERIFY(!card->property("offering").toBool());
+    QCOMPARE(prefs->property("dismissedUpdate").toString(), QString("0.2.0"));
+    updater->setProperty("latestVersion", "0.3.0");
+    QVERIFY(card->property("offering").toBool());
+    prefs->setProperty("dismissedUpdate", QString());
 
     // No update: the card folds away.
     updater->setProperty("updateAvailable", false);
