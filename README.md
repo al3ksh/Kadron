@@ -23,7 +23,8 @@
 - Set each clip's volume (up to 200%) or mute it, play it at 0.5× to 2×, and let clips meet with a cut, a fade through black or a crossfade.
 - **Remove silence** cuts the quiet stretches out of a clip in one step.
 - Put text over the video: drag a caption where it should sit, stretch it on its own track for as long as it shows, and pick a font and an outline, box or shadow.
-- The camera button under the monitor (or `Ctrl+Shift+S`) saves the current frame as an image.
+- The camera button under the monitor (or `Ctrl+Shift+S`) saves the current frame as an image; `Ctrl+Shift+C` copies it to the clipboard.
+- Drop markers with `N` and jump between them with `[` and `]`; they are saved with the project. `F` or a double-click fills the screen with the preview, `M` mutes it and `↑` `↓` set its volume.
 - Lay music and sounds on the audio track under the clips: drop in as many files as you like, drag each to where it should play (it snaps to joins, the playhead and other sounds), trim its edges and drag its corners to fade it in and out. Each has its own volume, the track can duck under the clips' own sound, and anything still playing at the end fades out.
 - Export the sequence as MP4 on the GPU (NVIDIA NVENC, Intel Quick Sync or AMD AMF, whichever works on your machine) or on the CPU. If the GPU encoder fails mid-export, Kadron finishes on the CPU. Projects are saved as `.kadr` files.
 - Preview volume is shared by the editor and the tools, and remembered.
@@ -32,6 +33,10 @@
 **Appearance.** Dark, light, or follow Windows, with an accent color of your choice. Open it from the palette button at the bottom of the sidebar. The same panel turns the startup intro on or off.
 
 **Explorer menu.** Right-click a video, audio file, image or PDF and pick **Kadron** (on Windows 11 it sits under *Show more options*) to open it straight in the right tool: edit, reframe for vertical, compress, make a GIF, extract audio, resize images, combine images into a PDF or open PDF Tools. Select several files and they arrive together in one Kadron window. The installer adds the menu for your user only; turn it off or back on in the Appearance panel.
+
+**Keyboard.** `Ctrl+/` opens the full list of shortcuts in Settings.
+
+**Results.** A finished file has a **Copy** button, so `Ctrl+V` pastes it into Explorer, a chat or an editor; the QR code copies as a picture. Settings can make the tools, Images and Reframe start with the options you used last time.
 
 **Close project.** `Ctrl+W` or the ✕ next to the project name closes it and releases its media, so you can move or delete the source files while Kadron stays open.
 
