@@ -1,9 +1,11 @@
 #pragma once
 
 #include <QObject>
+#include <QVariantList>
 
-// Progress on the window's taskbar button and a flash when a job ends while
-// Kadron is in the background. Windows only; no-op elsewhere.
+// Progress on the window's taskbar button, a flash when a job ends while
+// Kadron is in the background, and the button's jump list. Windows only;
+// no-op elsewhere.
 class TaskbarProgress : public QObject
 {
     Q_OBJECT
@@ -16,6 +18,9 @@ public:
     Q_INVOKABLE void setProgress(QObject *window, int percent, bool error = false);
     // Flashes the taskbar button until the window is activated, unless it already is.
     Q_INVOKABLE void flash(QObject *window);
+    // Right-clicking the taskbar button lists the recent files (Main.qml's
+    // recentFiles, {url, project}) and starts one of the tools.
+    Q_INVOKABLE void setJumpList(const QVariantList &recent);
 
 private:
     void *m_taskbar = nullptr;

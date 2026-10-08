@@ -68,6 +68,23 @@ public:
     static OutputPlan outputPlan(const QString &preset, QSize source, double sourceFps, qint64 durationMs);
     // Video bitrate that keeps an export of this length under 10 MB.
     Q_INVOKABLE static int discordVideoKbps(qint64 durationMs);
+    // Narrows a sequence to startMs..endMs of its timeline: clips outside are
+    // dropped and the ones at the edges trimmed, and the audio track and the
+    // captions (options "audio" and "texts") move so the range starts at 0.
+    // False when less than a tenth of a second of clips is left.
+    static bool narrowToRange(QVariantList &clips, QVariantMap &options, qint64 startMs, qint64 endMs);
+    // Filters (each followed by a comma) for a clip's turn, crop and colour
+    // (rotation, cropX/Y/Width/Height, brightness, contrast, saturation; see
+    // EditorProject); empty for a clip without adjustments.
+    static QString lookFilter(const QVariantMap &clip);
+    // FFmetadata with one chapter per {startMs, title}, each running to the
+    // next one or to totalMs; empty without chapters.
+    static QString chapterMetadata(const QVariantList &chapters, qint64 totalMs);
+    // Lays the image file (in the working directory) over a canvas-sized
+    // video: a filtergraph piece led by "[base];" that ends on the result.
+    // corner is "top-left", "top-right", "bottom-left" or "bottom-right";
+    // size is the logo's width as a share of the canvas width.
+    static QString watermarkFilter(QSize canvas, const QString &file, const QString &corner, double opacity, double size);
     // "30000/1001" -> 29.97; 0 when unknown.
     static double frameRate(const QString &rational);
     // One file on the audio track: the part inMs..outMs of it plays from
@@ -98,7 +115,11 @@ public:
     // transitionMs, audio (a list of {url, startMs, inMs, outMs, volume} in
     // sequence time) and musicDuck to lower the audio track under the clips'
     // own sound, and texts ({text, startMs, endMs, position, size}) to caption
-    // the video. Clips may carry a speed (0.25 to 4).
+    // the video. Clips may carry a speed (0.25 to 4), a holdMs to show the
+    // frame at inMs that long, and the adjustments of lookFilter. rangeStartMs
+    // and rangeEndMs export only that part of the timeline (see narrowToRange).
+    // chapters ({startMs, title}) become MP4 chapters; watermark ({path,
+    // corner, opacity, size}) lays a logo over the video.
     Q_INVOKABLE bool startSequence(const QVariantList &clips, const QUrl &destination,
                                    const QVariantMap &options = {});
     Q_INVOKABLE void cancel();
@@ -117,8 +138,13 @@ private:
         bool hasAudio = false;
         double volume = 1.0;
         double speed = 1.0;
+        qint64 holdMs = 0;
+        int rotation = 0;
+        double cropWidth = 1;
+        double cropHeight = 1;
+        QString look;
         // Length in the exported video.
-        qint64 lengthMs() const { return qRound64((outMs - inMs) / speed); }
+        qint64 lengthMs() const { return holdMs > 0 ? holdMs : qRound64((outMs - inMs) / speed); }
     };
     enum class Phase { Idle, Single, Probe, Encode, Concat, Final };
     void probeNext();
@@ -162,6 +188,12 @@ private:
     QVector<AudioBed> m_audioBeds;
     QVector<TextOverlay> m_texts;
     bool m_musicDuck = true;
+    // Written into the sequence directory when the export has them.
+    QString m_chaptersPath;
+    QString m_watermarkFile;
+    QString m_watermarkCorner;
+    double m_watermarkOpacity = 1;
+    double m_watermarkSize = 0.15;
     // Share of the progress bar the clip encodes take; the rest is the final pass.
     int m_encodeShare = 90;
     qint64 m_finalMs = 0;

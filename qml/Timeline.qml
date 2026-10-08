@@ -25,7 +25,10 @@ FocusScope {
     signal scrubFinished()
     // Markers: sequence times dropped with N; right-click removes one.
     property var markers: []
+    // Names for the markers, in the same order; empty for unnamed ones.
+    property var markerNames: []
     signal markerRemoveRequested(int index)
+    signal markerRenameRequested(int index)
     signal selectRequested(int index)
     signal trimRequested(int index, real inMs, real outMs, real previewMs)
     signal trimPreviewRequested(int index, real sourceMs)
@@ -301,6 +304,8 @@ FocusScope {
                         readonly property bool active: timeline.activeIndex === index
                         // Source media per timeline pixel: a 2x clip packs twice the footage.
                         readonly property real srcPxPerMs: timeline.pxPerMs / (clip.speed || 1)
+                        // A freeze frame: one held picture, no trim edges or waveform.
+                        readonly property bool still: (clip.holdMs || 0) > 0
                         readonly property bool dragged: timeline.dragIndex === index
                         readonly property bool audioOnly: /\.(mp3|wav|flac|m4a|ogg|opus|aac)$/i.test(clip.url.toString())
                         readonly property var frames: timeline.thumbnailSource && timeline.thumbnailSource.revision >= 0 ? timeline.thumbnailSource.framesFor(clip.url, clip.durationMs) : []
@@ -336,7 +341,7 @@ FocusScope {
                                     delegate: Image {
                                         required property int index
                                         readonly property int tile: film.firstTile + index
-                                        readonly property real sourceMs: block.clip.inMs + (tile + 0.5) * film.tileWidth / Math.max(block.srcPxPerMs, 0.0001)
+                                        readonly property real sourceMs: block.still ? block.clip.inMs : block.clip.inMs + (tile + 0.5) * film.tileWidth / Math.max(block.srcPxPerMs, 0.0001)
                                         x: tile * film.tileWidth
                                         width: film.tileWidth + 1
                                         height: film.height
@@ -362,6 +367,7 @@ FocusScope {
                                     opacity: block.clip.muted ? 0.12 : 0.3
                                 }
                                 Image {
+                                    visible: !block.still
                                     x: -block.clip.inMs * block.srcPxPerMs
                                     width: block.clip.durationMs * block.srcPxPerMs
                                     height: parent.height - 4
@@ -509,6 +515,7 @@ FocusScope {
                                 id: edge
                                 required property int index
                                 readonly property bool leading: index === 0
+                                visible: !block.still
                                 x: leading ? 0 : block.width - width
                                 width: Math.min(12, block.width / 3)
                                 height: block.height
@@ -1162,6 +1169,7 @@ FocusScope {
                     z: 8
                     height: parent.height
                     Rectangle { x: 0; y: ruler.height; width: 1; height: parent.height - ruler.height; color: Theme.accent; opacity: 0.35 }
+                    readonly property string name: timeline.markerNames[index] || ""
                     ToolIcon {
                         x: -width / 2 + 0.5
                         y: 2
@@ -1169,6 +1177,18 @@ FocusScope {
                         height: 12
                         name: "marker"
                         tint: markerMouse.containsMouse ? Theme.text : Theme.accent
+                    }
+                    Text {
+                        visible: markerItem.name.length > 0
+                        x: 8
+                        y: 1
+                        width: Math.min(implicitWidth, 140)
+                        text: markerItem.name
+                        color: markerMouse.containsMouse ? Theme.text : Theme.accent
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
                     }
                     MouseArea {
                         id: markerMouse
@@ -1180,7 +1200,8 @@ FocusScope {
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         ToolTip.visible: containsMouse
                         ToolTip.delay: 500
-                        ToolTip.text: timeline.timeLabel(Number(markerItem.modelData), true) + " · right-click to remove"
+                        ToolTip.text: (markerItem.name ? markerItem.name + " · " : "") + timeline.timeLabel(Number(markerItem.modelData), true) + " · double-click to name, right-click to remove"
+                        onDoubleClicked: function(mouse) { if (mouse.button === Qt.LeftButton) timeline.markerRenameRequested(markerItem.index) }
                         onClicked: function(mouse) {
                             if (mouse.button === Qt.RightButton) { timeline.markerRemoveRequested(markerItem.index); return }
                             timeline.forceActiveFocus()

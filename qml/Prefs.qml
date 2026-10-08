@@ -49,4 +49,11 @@ Settings {
     // Export sheet choices, kept for the next export.
     property string exportPreset: "source"
     property bool exportLoudnorm: false
+
+    // Logo stamped on editor exports, off unless switched on in Settings.
+    property bool watermarkEnabled: false
+    property string watermarkPath: ""
+    property string watermarkCorner: "bottom-right"
+    property real watermarkOpacity: 0.8
+    property real watermarkSize: 0.15
 }

@@ -146,6 +146,14 @@ QVariantList EditorProject::markers() const
     return result;
 }
 
+QVariantList EditorProject::markerItems() const
+{
+    QVariantList result;
+    for (int i = 0; i < m_mix.markers.size(); ++i)
+        result.append(QVariantMap{{"atMs", m_mix.markers.at(i)}, {"name", m_mix.markerNames.value(i)}});
+    return result;
+}
+
 bool EditorProject::toggleMarker(qint64 atMs, qint64 toleranceMs)
 {
     if (m_clips.isEmpty())
@@ -154,13 +162,16 @@ bool EditorProject::toggleMarker(qint64 atMs, qint64 toleranceMs)
     for (int i = 0; i < m_mix.markers.size(); ++i) {
         if (qAbs(m_mix.markers[i] - atMs) <= toleranceMs) {
             m_mix.markers.removeAt(i);
+            m_mix.markerNames.removeAt(i);
             markChanged();
             return true;
         }
     }
     if (m_mix.markers.size() >= 500)
         return false;
-    m_mix.markers.insert(std::lower_bound(m_mix.markers.begin(), m_mix.markers.end(), atMs), atMs);
+    const auto at = std::lower_bound(m_mix.markers.begin(), m_mix.markers.end(), atMs) - m_mix.markers.begin();
+    m_mix.markers.insert(at, atMs);
+    m_mix.markerNames.insert(at, QString());
     markChanged();
     return true;
 }
@@ -170,6 +181,7 @@ bool EditorProject::removeMarker(int index)
     if (index < 0 || index >= m_mix.markers.size())
         return false;
     m_mix.markers.removeAt(index);
+    m_mix.markerNames.removeAt(index);
     markChanged();
     return true;
 }
@@ -179,7 +191,110 @@ void EditorProject::clearMarkers()
     if (m_mix.markers.isEmpty())
         return;
     m_mix.markers.clear();
+    m_mix.markerNames.clear();
     markChanged();
+}
+
+bool EditorProject::setMarkerName(int index, const QString &name)
+{
+    if (index < 0 || index >= m_mix.markers.size())
+        return false;
+    const auto value = name.simplified().left(100);
+    if (m_mix.markerNames.at(index) != value) {
+        m_mix.markerNames[index] = value;
+        markChanged();
+    }
+    return true;
+}
+
+QVariantList EditorProject::chapters() const
+{
+    QVariantList result;
+    const auto total = sequenceDurationMs();
+    if (m_mix.markers.isEmpty())
+        return result;
+    // The part before the first marker is a chapter of its own.
+    const bool intro = m_mix.markers.first() > 0;
+    if (intro)
+        result.append(QVariantMap{{"startMs", 0}, {"title", QStringLiteral("Intro")}});
+    for (int i = 0; i < m_mix.markers.size(); ++i) {
+        const auto at = m_mix.markers.at(i);
+        if (at >= total)
+            break;
+        const auto name = m_mix.markerNames.value(i);
+        result.append(QVariantMap{{"startMs", at},
+                                  {"title", name.isEmpty() ? QStringLiteral("Chapter %1").arg(result.size() + 1) : name}});
+    }
+    return result;
+}
+
+QString EditorProject::chapterList() const
+{
+    const auto list = chapters();
+    const bool hours = sequenceDurationMs() >= 3600000;
+    QStringList lines;
+    for (const auto &entry : list) {
+        const auto chapter = entry.toMap();
+        const auto seconds = chapter.value("startMs").toLongLong() / 1000;
+        const auto time = hours ? QStringLiteral("%1:%2:%3").arg(seconds / 3600).arg(seconds / 60 % 60, 2, 10, QChar('0'))
+                                      .arg(seconds % 60, 2, 10, QChar('0'))
+                                : QStringLiteral("%1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QChar('0'));
+        lines << time + ' ' + chapter.value("title").toString();
+    }
+    return lines.join('\n');
+}
+
+int EditorProject::importSubtitles(const QUrl &url, qint64 offsetMs)
+{
+    QFile file(url.toLocalFile());
+    if (!url.isLocalFile() || !file.open(QIODevice::ReadOnly)) {
+        setError(QStringLiteral("Could not read the subtitles."));
+        return -1;
+    }
+    auto texts = TextOverlay::parseSubtitles(QString::fromUtf8(file.readAll()));
+    if (texts.isEmpty()) {
+        setError(QStringLiteral("No subtitles were found in this file."));
+        return -1;
+    }
+    int added = 0;
+    for (auto &text : texts) {
+        if (m_mix.texts.size() >= 1000)
+            break;
+        text.startMs += qMax<qint64>(0, offsetMs);
+        text.endMs += qMax<qint64>(0, offsetMs);
+        m_mix.texts.append(text);
+        ++added;
+    }
+    clearError();
+    markChanged();
+    return added;
+}
+
+QVariantList EditorProject::readSubtitles(const QUrl &url)
+{
+    QFile file(url.toLocalFile());
+    QVariantList list;
+    if (!url.isLocalFile() || !file.open(QIODevice::ReadOnly))
+        return list;
+    for (const auto &text : TextOverlay::parseSubtitles(QString::fromUtf8(file.readAll()))) {
+        if (list.size() >= 1000)
+            break;
+        list << text.toMap();
+    }
+    return list;
+}
+
+bool EditorProject::exportSubtitles(const QUrl &url)
+{
+    QSaveFile file(url.toLocalFile());
+    const auto data = TextOverlay::toSrt(m_mix.texts).toUtf8();
+    if (!url.isLocalFile() || m_mix.texts.isEmpty() || !file.open(QIODevice::WriteOnly)
+        || file.write(data) != data.size() || !file.commit()) {
+        setError(QStringLiteral("Could not save the subtitles."));
+        return false;
+    }
+    clearError();
+    return true;
 }
 
 bool EditorProject::mixed() const
@@ -187,7 +302,7 @@ bool EditorProject::mixed() const
     if (m_clips.size() != 1 || !m_mix.audio.isEmpty() || !m_mix.texts.isEmpty())
         return true;
     const auto &clip = m_clips.first();
-    return clip.muted || !qFuzzyCompare(clip.volume, 1.0) || !qFuzzyCompare(clip.speed, 1.0);
+    return clip.muted || !qFuzzyCompare(clip.volume, 1.0) || !qFuzzyCompare(clip.speed, 1.0) || clip.adjusted();
 }
 
 QVariantMap EditorProject::exportOptions() const
@@ -197,7 +312,8 @@ QVariantMap EditorProject::exportOptions() const
         {"transitionMs", m_mix.transitionMs},
         {"audio", audioItems()},
         {"musicDuck", m_mix.musicDuck},
-        {"texts", textItems()}
+        {"texts", textItems()},
+        {"chapters", chapters()}
     };
 }
 
@@ -233,6 +349,97 @@ bool EditorProject::setClipSpeed(int index, double speed)
     speed = qBound(0.25, speed, 4.0);
     if (!qFuzzyCompare(m_clips[index].speed, speed)) {
         m_clips[index].speed = speed;
+        markChanged();
+    }
+    return true;
+}
+
+bool EditorProject::setClipRotation(int index, int degrees)
+{
+    if (index < 0 || index >= m_clips.size())
+        return false;
+    degrees = ((degrees % 360) + 360) % 360 / 90 * 90;
+    auto &clip = m_clips[index];
+    if (clip.rotation != degrees) {
+        // The crop is in the turned frame; it does not survive a turn.
+        clip.rotation = degrees;
+        clip.cropX = clip.cropY = 0;
+        clip.cropWidth = clip.cropHeight = 1;
+        markChanged();
+    }
+    return true;
+}
+
+bool EditorProject::setClipCrop(int index, double x, double y, double width, double height)
+{
+    if (index < 0 || index >= m_clips.size())
+        return false;
+    width = qBound(0.05, width, 1.0);
+    height = qBound(0.05, height, 1.0);
+    x = qBound(0.0, x, 1.0 - width);
+    y = qBound(0.0, y, 1.0 - height);
+    auto &clip = m_clips[index];
+    const auto same = [](double a, double b) { return qAbs(a - b) < 0.0005; };
+    if (same(clip.cropX, x) && same(clip.cropY, y) && same(clip.cropWidth, width) && same(clip.cropHeight, height))
+        return true;
+    clip.cropX = x;
+    clip.cropY = y;
+    clip.cropWidth = width;
+    clip.cropHeight = height;
+    markChanged();
+    return true;
+}
+
+bool EditorProject::setClipColor(int index, double brightness, double contrast, double saturation)
+{
+    if (index < 0 || index >= m_clips.size())
+        return false;
+    // Whole percents, so a dragged slider settles on clean values.
+    const auto level = [](double value) { return qRound(qBound(-1.0, value, 1.0) * 100) / 100.0; };
+    auto &clip = m_clips[index];
+    if (clip.brightness == level(brightness) && clip.contrast == level(contrast) && clip.saturation == level(saturation))
+        return true;
+    clip.brightness = level(brightness);
+    clip.contrast = level(contrast);
+    clip.saturation = level(saturation);
+    markChanged();
+    return true;
+}
+
+bool EditorProject::insertFreeze(int index, qint64 sourceMs, qint64 holdMs)
+{
+    if (index < 0 || index >= m_clips.size() || m_clips.at(index).holdMs > 0 || m_clips.at(index).durationMs < 100)
+        return false;
+    auto &clip = m_clips[index];
+    sourceMs = qBound(clip.inMs, sourceMs, clip.outMs);
+    Clip still = clip;
+    still.holdMs = qBound(qint64(200), qint64(holdMs), qint64(30000));
+    still.inMs = qMin(sourceMs, clip.durationMs - 100);
+    still.outMs = still.inMs + 100;
+    still.speed = 1.0;
+    int at = index + 1;
+    if (sourceMs - clip.inMs < 100) {
+        at = index;
+    } else if (clip.outMs - sourceMs >= 100) {
+        Clip right = clip;
+        right.inMs = sourceMs;
+        clip.outMs = sourceMs;
+        m_clips.insert(index + 1, right);
+    }
+    m_clips.insert(at, still);
+    m_activeClipIndex = at;
+    clearError();
+    markChanged();
+    return true;
+}
+
+bool EditorProject::setClipHold(int index, qint64 holdMs)
+{
+    if (index < 0 || index >= m_clips.size() || m_clips.at(index).holdMs <= 0)
+        return false;
+    holdMs = qBound(qint64(200), qint64(holdMs), qint64(30000));
+    if (m_clips[index].holdMs != holdMs) {
+        m_clips[index].holdMs = holdMs;
         markChanged();
     }
     return true;
@@ -752,7 +959,16 @@ QVariantList EditorProject::clips() const
             {"lengthMs", clip.lengthMs()},
             {"volume", clip.volume},
             {"muted", clip.muted},
-            {"speed", clip.speed}
+            {"speed", clip.speed},
+            {"holdMs", clip.holdMs},
+            {"rotation", clip.rotation},
+            {"cropX", clip.cropX},
+            {"cropY", clip.cropY},
+            {"cropWidth", clip.cropWidth},
+            {"cropHeight", clip.cropHeight},
+            {"brightness", clip.brightness},
+            {"contrast", clip.contrast},
+            {"saturation", clip.saturation}
         });
     }
     return result;
@@ -866,6 +1082,10 @@ bool EditorProject::selectClip(int index)
 bool EditorProject::splitAt(qint64 positionMs)
 {
     auto *clip = active();
+    if (clip && clip->holdMs > 0) {
+        setError(QStringLiteral("A still frame cannot be split; change how long it holds instead."));
+        return false;
+    }
     if (!clip || positionMs - clip->inMs < 100 || clip->outMs - positionMs < 100) {
         setError(QStringLiteral("Move the playhead inside the selected range before splitting."));
         return false;
@@ -963,6 +1183,20 @@ bool EditorProject::openProject(const QUrl &url)
         clip.volume = qBound(0.0, item.value("volume").toDouble(1.0), 2.0);
         clip.muted = item.value("muted").toBool(false);
         clip.speed = qBound(0.25, item.value("speed").toDouble(1.0), 4.0);
+        const auto hold = item.value("holdMs").toVariant().toLongLong();
+        if (hold > 0)
+            clip.holdMs = qBound(qint64(200), qint64(hold), qint64(30000));
+        clip.rotation = ((item.value("rotation").toInt() % 360) + 360) % 360 / 90 * 90;
+        const auto crop = item.value("crop").toArray();
+        if (crop.size() == 4) {
+            clip.cropWidth = qBound(0.05, crop.at(2).toDouble(1), 1.0);
+            clip.cropHeight = qBound(0.05, crop.at(3).toDouble(1), 1.0);
+            clip.cropX = qBound(0.0, crop.at(0).toDouble(), 1.0 - clip.cropWidth);
+            clip.cropY = qBound(0.0, crop.at(1).toDouble(), 1.0 - clip.cropHeight);
+        }
+        clip.brightness = qBound(-1.0, item.value("brightness").toDouble(), 1.0);
+        clip.contrast = qBound(-1.0, item.value("contrast").toDouble(), 1.0);
+        clip.saturation = qBound(-1.0, item.value("saturation").toDouble(), 1.0);
         parsedClips.append(clip);
     }
 
@@ -1013,12 +1247,22 @@ bool EditorProject::openProject(const QUrl &url)
         if (mix.texts.size() > 1000)
             break;
     }
+    // Plain times, or {atMs, name} once a marker has a name.
+    QList<QPair<qint64, QString>> markers;
     for (const auto &entry : object.value("markers").toArray()) {
-        mix.markers.append(qMax<qint64>(0, entry.toVariant().toLongLong()));
-        if (mix.markers.size() >= 500)
+        if (entry.isObject())
+            markers.append({qMax<qint64>(0, entry.toObject().value("atMs").toVariant().toLongLong()),
+                            entry.toObject().value("name").toString().simplified().left(100)});
+        else
+            markers.append({qMax<qint64>(0, entry.toVariant().toLongLong()), QString()});
+        if (markers.size() >= 500)
             break;
     }
-    std::sort(mix.markers.begin(), mix.markers.end());
+    std::stable_sort(markers.begin(), markers.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+    for (const auto &marker : std::as_const(markers)) {
+        mix.markers.append(marker.first);
+        mix.markerNames.append(marker.second);
+    }
 
     m_clips = parsedClips;
     m_mix = mix;
@@ -1071,6 +1315,20 @@ QByteArray EditorProject::serialize(const QString &directory) const
             {"muted", clip.muted},
             {"speed", clip.speed}
         });
+        // Only what differs from a plain clip, so older Kadron still opens the project.
+        auto object = entries.last().toObject();
+        if (clip.holdMs > 0)
+            object.insert("holdMs", static_cast<double>(clip.holdMs));
+        if (clip.rotation != 0)
+            object.insert("rotation", clip.rotation);
+        if (clip.cropX > 0 || clip.cropY > 0 || clip.cropWidth < 1 || clip.cropHeight < 1)
+            object.insert("crop", QJsonArray{clip.cropX, clip.cropY, clip.cropWidth, clip.cropHeight});
+        if (clip.brightness != 0 || clip.contrast != 0 || clip.saturation != 0) {
+            object.insert("brightness", clip.brightness);
+            object.insert("contrast", clip.contrast);
+            object.insert("saturation", clip.saturation);
+        }
+        entries.replace(entries.size() - 1, object);
     }
     QJsonArray audioEntries;
     for (const auto &item : m_mix.audio) {
@@ -1107,8 +1365,13 @@ QByteArray EditorProject::serialize(const QString &directory) const
         object.insert("texts", textEntries);
     if (!m_mix.markers.isEmpty()) {
         QJsonArray markerEntries;
-        for (const auto at : m_mix.markers)
-            markerEntries.append(static_cast<double>(at));
+        for (int i = 0; i < m_mix.markers.size(); ++i) {
+            const auto name = m_mix.markerNames.value(i);
+            if (name.isEmpty())
+                markerEntries.append(static_cast<double>(m_mix.markers.at(i)));
+            else
+                markerEntries.append(QJsonObject{{"atMs", static_cast<double>(m_mix.markers.at(i))}, {"name", name}});
+        }
         object.insert("markers", markerEntries);
     }
     return QJsonDocument(object).toJson(QJsonDocument::Indented);

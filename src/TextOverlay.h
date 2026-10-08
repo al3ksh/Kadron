@@ -37,4 +37,10 @@ struct TextOverlay {
     static QString filter(const QVector<TextOverlay> &texts, qint64 segmentStartMs, qint64 segmentLengthMs, int canvasHeight);
     // Writes the text and font files filter() reads into directory.
     static bool writeAssets(const QString &directory, const QVector<TextOverlay> &texts);
+
+    // Cues of an SRT or WebVTT file as subtitle-styled captions (small, low,
+    // on a box), with markup tags dropped.
+    static QVector<TextOverlay> parseSubtitles(const QString &content);
+    // The captions as SRT, ordered by start.
+    static QString toSrt(QVector<TextOverlay> texts);
 };

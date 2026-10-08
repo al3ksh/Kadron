@@ -23,7 +23,7 @@ ApplicationWindow {
 
     property bool forceClose: false
     property bool closeAfterSave: false
-    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible || exportSheet.visible || settingsDialog.visible || commandPalette.visible
+    readonly property bool dialogOpen: quitDialog.visible || replaceDialog.visible || closeDialog.visible || recoveryDialog.visible || exportSheet.visible || settingsDialog.visible || commandPalette.visible || markerNameDialog.visible
     property bool closeAfterSaveProject: false
     property string currentMediaKey: ""
     property int currentClipIndex: -1
@@ -43,6 +43,56 @@ ApplicationWindow {
     // The active clip, and slider values while they are dragged (-1 when not).
     readonly property var activeClip: editorProject.activeClipIndex >= 0 ? editorProject.clips[editorProject.activeClipIndex] || null : null
     property real clipVolumeDrag: -1
+    // Freeze frames: a still clip is "played" by this clock while the player
+    // rests on its frame.
+    readonly property bool stillActive: !!activeClip && (activeClip.holdMs || 0) > 0
+    property real stillClockMs: 0
+    readonly property bool stillRunning: stillActive && sequencePlaying && pendingCueIndex < 0 && !scrubbing
+    readonly property bool previewPlaying: player.playbackState === MediaPlayer.PlayingState || stillRunning
+    Timer {
+        id: stillTimer
+        interval: 40
+        repeat: true
+        running: root.stillRunning
+        property real last: 0
+        onRunningChanged: last = Date.now()
+        onTriggered: {
+            var now = Date.now()
+            root.stillClockMs = Math.min(root.activeClip ? root.activeClip.holdMs : 0, root.stillClockMs + now - last)
+            last = now
+            root.syncMusic()
+            if (root.activeClip && root.stillClockMs >= root.activeClip.holdMs) {
+                if (editorProject.activeClipIndex + 1 >= editorProject.clipCount) root.sequencePlaying = false
+                else root.advanceSequence()
+            }
+        }
+    }
+    // Rotation, crop and colour of the active clip as the preview shows them;
+    // colour follows a slider while it is dragged.
+    property bool cropEditing: false
+    property int cropRevision: 0
+    property var lookDrag: null
+    readonly property var clipLook: {
+        var clip = activeClip
+        if (!clip) return { rotation: 0, x: 0, y: 0, w: 1, h: 1, brightness: 0, contrast: 0, saturation: 0 }
+        var colour = lookDrag || clip
+        return { rotation: clip.rotation || 0, x: clip.cropX || 0, y: clip.cropY || 0, w: clip.cropWidth || 1, h: clip.cropHeight || 1,
+                 brightness: colour.brightness || 0, contrast: colour.contrast || 0, saturation: colour.saturation || 0 }
+    }
+    readonly property bool lookActive: player.hasVideo && (cropEditing || clipLook.rotation !== 0 || clipLook.x > 0 || clipLook.y > 0 || clipLook.w < 1 || clipLook.h < 1
+                                                           || clipLook.brightness !== 0 || clipLook.contrast !== 0 || clipLook.saturation !== 0)
+    // The crop in the source picture (0..1): it is drawn in the turned frame.
+    readonly property var lookSourceCrop: {
+        var l = clipLook
+        var X = cropEditing ? 0 : l.x, Y = cropEditing ? 0 : l.y, W = cropEditing ? 1 : l.w, H = cropEditing ? 1 : l.h
+        if (l.rotation === 90) return { u: Y, v: 1 - X - W, w: H, h: W }
+        if (l.rotation === 180) return { u: 1 - X - W, v: 1 - Y - H, w: W, h: H }
+        if (l.rotation === 270) return { u: 1 - Y - H, v: X, w: H, h: W }
+        return { u: X, v: Y, w: W, h: H }
+    }
+    // Editor exports queued while another one runs, started one after another.
+    property var exportQueue: []
+    property bool exportQueueStarting: false
     property real transitionDrag: -1
     property real audioVolumeDrag: -1
     // The selected audio track item, and the one under the playhead for the preview.
@@ -96,7 +146,7 @@ ApplicationWindow {
     function editState() { return JSON.stringify([editorProject.clips, editorProject.exportOptions()]) }
     // Keeps the audio track preview in step with the sequence while it plays.
     function syncMusic() {
-        var playing = player.playbackState === MediaPlayer.PlayingState || (sequencePlaying && sequenceAdvancing)
+        var playing = player.playbackState === MediaPlayer.PlayingState || stillRunning || (sequencePlaying && sequenceAdvancing)
         if (playing) {
             var here = audioIndicesAt(sequencePositionMs)
             var slots = audioSlots.slice()
@@ -181,7 +231,9 @@ ApplicationWindow {
         var parts = []
         var items = editorProject.clips
         for (var i = 0; i < items.length; i++)
-            parts.push(items[i].url.toString() + ":" + items[i].inMs + ":" + items[i].outMs + ":" + items[i].volume + ":" + items[i].muted + ":" + items[i].speed)
+            parts.push(items[i].url.toString() + ":" + items[i].inMs + ":" + items[i].outMs + ":" + items[i].volume + ":" + items[i].muted + ":" + items[i].speed
+                       + ":" + items[i].holdMs + ":" + items[i].rotation + ":" + items[i].cropX + ":" + items[i].cropY + ":" + items[i].cropWidth + ":" + items[i].cropHeight
+                       + ":" + items[i].brightness + ":" + items[i].contrast + ":" + items[i].saturation)
         return parts.join("|") + JSON.stringify(editorProject.exportOptions())
     }
     // Files dropped or picked for the audio track go one after another from startMs.
@@ -211,11 +263,19 @@ ApplicationWindow {
         if (index >= 0) typeText(index)
     }
     function typeText(index) {
-        if (player.playbackState === MediaPlayer.PlayingState) root.togglePlayback()
+        if (root.previewPlaying) root.togglePlayback()
         editorProject.selectText(index)
         Qt.callLater(function() { captionLayer.edit(index) })
     }
     function togglePlayback() {
+        if (stillActive) {
+            if (player.playbackState === MediaPlayer.PlayingState) player.pause()
+            sequenceAdvancing = false
+            if (sequencePlaying) { sequencePlaying = false; return }
+            if (stillClockMs >= activeClip.holdMs - 20) stillClockMs = 0
+            sequencePlaying = true
+            return
+        }
         if (player.playbackState === MediaPlayer.PlayingState) {
             sequencePlaying = false
             sequenceAdvancing = false
@@ -249,6 +309,7 @@ ApplicationWindow {
         if (scrubbing) return scrubTargetMs
         var index = editorProject.activeClipIndex
         if (index < 0) return 0
+        if (stillActive) return clipStartMs(index) + Math.min(stillClockMs, activeClip.holdMs)
         var source = pendingCueIndex >= 0 && pendingSourceMs >= 0 ? pendingSourceMs : player.position
         var offset = Math.max(0, Math.min(editorProject.outMs - editorProject.inMs, source - editorProject.inMs))
         return clipStartMs(index) + offset / activeSpeed
@@ -263,11 +324,13 @@ ApplicationWindow {
             start += length
         }
         var clip = items[index]
-        var source = Math.max(clip.inMs, Math.min(clip.outMs - 1, clip.inMs + (ms - start) * (clip.speed || 1)))
+        var still = (clip.holdMs || 0) > 0
+        var source = still ? clip.inMs : Math.max(clip.inMs, Math.min(clip.outMs - 1, clip.inMs + (ms - start) * (clip.speed || 1)))
         if (index !== editorProject.activeClipIndex || pendingCueIndex >= 0) {
             pendingSourceMs = source
             if (index !== editorProject.activeClipIndex) editorProject.selectClip(index)
         } else requestSourceSeek(source)
+        if (still) stillClockMs = Math.max(0, Math.min(clip.holdMs, ms - start))
     }
     // Frame rate of the active clip, for frame stepping; 30 when unknown.
     readonly property real frameRate: {
@@ -316,7 +379,8 @@ ApplicationWindow {
         pendingCueIndex = -1
         player.position = pendingSourceMs >= 0 ? pendingSourceMs : editorProject.inMs
         pendingSourceMs = -1
-        if (sequencePlaying) player.play()
+        if (stillActive) player.pause()
+        else if (sequencePlaying) player.play()
         sequenceAdvancing = false
     }
     function previewSequence() {
@@ -353,6 +417,7 @@ ApplicationWindow {
         list.unshift({ url: key, project: isProject })
         Prefs.recentFiles = JSON.stringify(list.slice(0, 6))
     }
+    onRecentFilesChanged: taskbar.setJumpList(recentFiles)
     function applyOpen(url, isProject) {
         var opened = isProject ? editorProject.openProject(url) : editorProject.importMedia(url)
         if (opened) {
@@ -380,6 +445,16 @@ ApplicationWindow {
         function onChanged() {
             if (!exporter.busy && exporter.outputUrl.toString().length > 0 && !exporter.errorText)
                 root.exportedClips = root.editState()
+            if (exporter.busy || root.exportQueueStarting || root.exportQueue.length === 0) return
+            if (exporter.errorText) {
+                root.exportQueue = []
+                root.notice = "Export failed · the queue was stopped"
+            } else if (exporter.outputUrl.toString().length > 0) {
+                var next = root.exportQueue[0]
+                root.exportQueue = root.exportQueue.slice(1)
+                root.exportQueueStarting = true
+                Qt.callLater(function() { root.exportQueueStarting = false; root.runExportJob(next) })
+            }
         }
     }
     function applyClose() {
@@ -392,10 +467,18 @@ ApplicationWindow {
     }
     // Files from Explorer's Kadron menu or the command line, batched per tool.
     function openWith(tool, urls) {
-        if (!urls || urls.length === 0) return
+        // The jump list's tasks name only a tool.
+        if (!urls || urls.length === 0) {
+            var places = { edit: 0, download: 1, audio: 2, compress: 3, gif: 4, pdf: 5, images: 10, reframe: 11 }
+            if (places[tool] !== undefined) workspace = places[tool]
+            return
+        }
         if (tool === "project") {
             workspace = 0
             requestOpen(urls[0], true)
+        } else if (tool === "open") {
+            workspace = 0
+            requestOpen(urls[0], false)
         } else if (tool === "edit") {
             workspace = 0
             for (var i = 0; i < urls.length; i++) addMedia(urls[i])
@@ -431,10 +514,12 @@ ApplicationWindow {
 
     Component.onCompleted: {
         syncRangeFields()
+        taskbar.setJumpList(recentFiles)
         if (!startupIntroActive) recoveryTimer.start()
     }
     Timer { id: recoveryTimer; interval: 700; onTriggered: root.offerRecovery() }
     function stopAllWork() {
+        exportQueue = []
         exporter.cancel()
         toolsClient.cancel()
         localTools.cancel()
@@ -580,6 +665,9 @@ ApplicationWindow {
             }
             if (root.currentClipIndex !== editorProject.activeClipIndex) {
                 root.currentClipIndex = editorProject.activeClipIndex
+                root.stillClockMs = 0
+                root.cropEditing = false
+                root.lookDrag = null
                 if (!root.sequencePlaying) player.pause()
                 root.cueActiveClip()
             }
@@ -614,13 +702,13 @@ ApplicationWindow {
         enabled: root.keyboardSeek
         autoRepeat: true
         onActivated: {
-            var resume = player.playbackState === MediaPlayer.PlayingState
+            var resume = root.previewPlaying
             root.nudgeSequence(-5000)
             if (resume) root.togglePlayback()
         }
     }
-    Shortcut { sequence: "K"; enabled: root.keyboardSeek && player.playbackState === MediaPlayer.PlayingState; onActivated: root.togglePlayback() }
-    Shortcut { sequence: "L"; enabled: root.keyboardSeek && player.playbackState !== MediaPlayer.PlayingState; onActivated: root.togglePlayback() }
+    Shortcut { sequence: "K"; enabled: root.keyboardSeek && root.previewPlaying; onActivated: root.togglePlayback() }
+    Shortcut { sequence: "L"; enabled: root.keyboardSeek && !root.previewPlaying; onActivated: root.togglePlayback() }
     Shortcut { sequence: "Ctrl+Shift+S"; enabled: root.keyboardSeek; onActivated: root.saveFrame() }
     Shortcut { sequence: "Ctrl+Shift+C"; enabled: root.keyboardSeek; onActivated: root.copyFrame() }
     // Markers: N drops or lifts one at the playhead, [ and ] jump between them.
@@ -658,6 +746,19 @@ ApplicationWindow {
         var count = editorProject.markers.length
         if (!editorProject.toggleMarker(Math.round(root.sequencePositionMs))) return
         root.notice = editorProject.markers.length > count ? "Marker at " + root.timecode(root.sequencePositionMs) + " · [ and ] jump between markers" : "Marker removed"
+    }
+    // The stretch between the markers around ms: from the last one at or before
+    // it (else the start) to the next one (else the end); null without markers.
+    function markerRangeAt(ms) {
+        var list = editorProject.markers
+        if (list.length === 0) return null
+        var from = 0, to = editorProject.sequenceDurationMs
+        for (var i = 0; i < list.length; i++) {
+            var mark = Number(list[i])
+            if (mark <= ms + 40) from = mark
+            else { to = mark; break }
+        }
+        return to - from >= 100 ? { startMs: from, endMs: to } : null
     }
     function jumpMarker(direction) {
         var list = editorProject.markers, here = root.sequencePositionMs, target = -1
@@ -801,15 +902,60 @@ ApplicationWindow {
         defaultSuffix: "mp4"
         nameFilters: ["MP4 video (*.mp4)"]
         onAccepted: {
-            var options = editorProject.exportOptions()
-            options.preset = Prefs.exportPreset
-            options.loudnorm = Prefs.exportLoudnorm
-            // A single clip with nothing added is a plain trim, or a lossless cut.
-            if (exportSheet.losslessCut && !editorProject.mixed)
-                exporter.start(editorProject.mediaUrl, selectedFile, editorProject.inMs, editorProject.outMs, { copy: true })
-            else if (editorProject.mixed) exporter.startSequence(editorProject.clips, selectedFile, options)
-            else exporter.start(editorProject.mediaUrl, selectedFile, editorProject.inMs, editorProject.outMs, options)
+            var job = root.exportJob(selectedFile)
+            if (!exporter.busy && !root.exportQueueStarting) { root.runExportJob(job); return }
+            root.exportQueue = root.exportQueue.concat([job])
+            root.notice = "Export queued · " + root.exportQueue.length + " waiting"
         }
+    }
+    // Everything an export needs, taken now, so a queued one keeps the choices
+    // made when it was added.
+    function exportJob(target) {
+        var options = editorProject.exportOptions()
+        options.preset = Prefs.exportPreset
+        options.loudnorm = Prefs.exportLoudnorm
+        var range = exportSheet.range
+        if (range) { options.rangeStartMs = range.startMs; options.rangeEndMs = range.endMs }
+        var lossless = exportSheet.losslessCut && !editorProject.mixed
+        if (!lossless && Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0) {
+            if (editorProject.fileExists(Prefs.watermarkPath))
+                options.watermark = { path: Prefs.watermarkPath, corner: Prefs.watermarkCorner, opacity: Prefs.watermarkOpacity, size: Prefs.watermarkSize }
+            else root.notice = "The logo from Settings is missing · exporting without it"
+        }
+        // A single clip with nothing added is a plain trim, or a lossless cut;
+        // its timeline starts at the clip's in point.
+        return { target: target, lossless: lossless, mixed: editorProject.mixed, clips: editorProject.clips, mediaUrl: editorProject.mediaUrl,
+                 inMs: range ? editorProject.inMs + range.startMs : editorProject.inMs,
+                 outMs: range ? editorProject.inMs + range.endMs : editorProject.outMs, options: options }
+    }
+    function runExportJob(job) {
+        if (job.lossless) exporter.start(job.mediaUrl, job.target, job.inMs, job.outMs, { copy: true })
+        else if (job.mixed) exporter.startSequence(job.clips, job.target, job.options)
+        else exporter.start(job.mediaUrl, job.target, job.inMs, job.outMs, job.options)
+    }
+    function cancelExport() {
+        var dropped = exportQueue.length
+        exportQueue = []
+        exporter.cancel()
+        if (dropped > 0) notice = "Export cancelled · " + dropped + (dropped === 1 ? " queued export dropped" : " queued exports dropped")
+    }
+    function copyChapters() {
+        var list = editorProject.chapterList()
+        root.notice = editorProject.markers.length > 0 && shellIntegration.copyText(list)
+                ? "Chapters copied · paste them into a YouTube description" : "Add markers first: each one starts a chapter"
+    }
+    function freezeFrame() {
+        if (root.stillActive) return
+        if (editorProject.insertFreeze(editorProject.activeClipIndex, player.position))
+            root.notice = "Frame held for 2 s · set the length under Picture"
+    }
+    property int renamingMarker: -1
+    function renameMarker(index) {
+        var item = editorProject.markerItems[index]
+        if (!item) return
+        renamingMarker = index
+        markerNameField.text = item.name || ""
+        markerNameDialog.open()
     }
 
     SettingsDialog {
@@ -836,7 +982,10 @@ ApplicationWindow {
             { title: "Open project…", group: "File", run: function() { openDialog.open() } },
             { title: "Import media…", group: "File", keys: "Ctrl+O", run: function() { mediaDialog.open() } },
             { title: "Save project", group: "File", keys: "Ctrl+S", enabled: editorProject.hasMedia, run: root.saveProject },
-            { title: "Export MP4…", group: "File", enabled: editorProject.canExport && !exporter.busy && exporter.available, run: function() { root.workspace = 0; exportSheet.open() } },
+            { title: exporter.busy ? "Queue another export…" : "Export MP4…", group: "File", enabled: editorProject.canExport && exporter.available, run: function() { root.workspace = 0; exportSheet.open() } },
+            { title: "Copy chapters", group: "File", enabled: editorProject.markers.length > 0, run: root.copyChapters },
+            { title: "Import subtitles (SRT, VTT)…", group: "File", enabled: editorProject.hasMedia && !exporter.busy, run: function() { root.workspace = 0; subtitleImportDialog.open() } },
+            { title: "Export subtitles as SRT…", group: "File", enabled: editorProject.textItems.length > 0, run: function() { root.workspace = 0; subtitleExportDialog.open() } },
             { title: "Close project", group: "File", keys: "Ctrl+W", enabled: editorProject.hasMedia, run: root.closeEditing },
             { title: "Settings", group: "App", keys: "Ctrl+,", run: function() { settingsDialog.open() } },
             { title: "Keyboard shortcuts", group: "App", keys: "Ctrl+/", run: function() { settingsDialog.show(3) } },
@@ -860,6 +1009,9 @@ ApplicationWindow {
             ["Previous marker", "[", function() { root.jumpMarker(-1) }],
             ["Next marker", "]", function() { root.jumpMarker(1) }],
             ["Clear markers", "", function() { editorProject.clearMarkers() }],
+            ["Freeze frame at playhead", "", root.freezeFrame],
+            ["Rotate clip right", "", function() { editorProject.setClipRotation(editorProject.activeClipIndex, root.clipLook.rotation + 90) }],
+            ["Crop clip", "", function() { root.cropEditing = true }],
             ["Fullscreen preview", "F", function() { root.previewFullscreen = true }],
             ["Mute preview", "M", root.toggleMute],
             ["Remove silence from clip", "", function() { editorProject.removeSilence(editorProject.activeClipIndex) }],
@@ -883,13 +1035,21 @@ ApplicationWindow {
         id: exportSheet
         objectName: "exportSheet"
         property bool losslessCut: false
+        // Only the part between the markers around the playhead, where it was
+        // when the sheet opened.
+        property bool onlyMarked: false
+        property real openedAtMs: 0
+        onAboutToShow: openedAtMs = root.sequencePositionMs
+        readonly property var markedRange: root.markerRangeAt(openedAtMs)
+        readonly property var range: onlyMarked ? markedRange : null
+        readonly property real lengthMs: range ? range.endMs - range.startMs : editorProject.sequenceDurationMs
         readonly property var presets: [
             ["source", "Source", "Original size and frame rate"],
             ["1080p60", "1080p60", "Full HD, up to 60 fps"],
             ["discord", "Discord", "Under 10 MB, 720p"],
             ["vertical", "Vertical", "1080×1920 for Shorts and Reels"]
         ]
-        readonly property int discordKbps: exporter.discordVideoKbps(editorProject.sequenceDurationMs)
+        readonly property int discordKbps: exporter.discordVideoKbps(lengthMs)
         heading: "Export MP4"
         message: ""
         iconName: "publish"
@@ -933,7 +1093,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 visible: Prefs.exportPreset === "discord" && !exportSheet.losslessCut
                 text: exportSheet.discordKbps < 400 ? "Long for 10 MB: about " + exportSheet.discordKbps + " kbit/s, expect a soft picture."
-                                                    : "About " + exportSheet.discordKbps + " kbit/s for " + root.timecode(editorProject.sequenceDurationMs) + "."
+                                                    : "About " + exportSheet.discordKbps + " kbit/s for " + root.timecode(exportSheet.lengthMs) + "."
                 color: exportSheet.discordKbps < 400 ? Theme.warning : Theme.textFaint
                 font.family: Theme.fontFamily
                 font.pixelSize: 11
@@ -946,6 +1106,25 @@ ApplicationWindow {
                 onToggled: Prefs.exportLoudnorm = checked
             },
             ToolCheck {
+                objectName: "exportOnlyMarked"
+                visible: !!exportSheet.markedRange
+                text: exportSheet.markedRange ? "Only " + root.timecode(exportSheet.markedRange.startMs) + " – " + root.timecode(exportSheet.markedRange.endMs)
+                                                + ", between the markers around the playhead" : ""
+                checked: exportSheet.onlyMarked
+                onToggled: exportSheet.onlyMarked = checked
+            },
+            Text {
+                Layout.fillWidth: true
+                visible: Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0 || editorProject.markers.length > 0 || exporter.busy
+                text: [exporter.busy ? "An export is running: this one waits in the queue." : "",
+                       Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0 ? (exportSheet.losslessCut && !editorProject.mixed ? "The logo is skipped by a lossless cut." : "Your logo from Settings goes on.") : "",
+                       editorProject.markers.length > 0 ? "Markers become chapters in the file." : ""].filter(function(line) { return line.length > 0 }).join(" ")
+                color: Theme.textFaint
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                wrapMode: Text.WordWrap
+            },
+            ToolCheck {
                 visible: !editorProject.mixed
                 text: "Fast lossless cut: no re-encode, starts at the nearest keyframe"
                 checked: exportSheet.losslessCut
@@ -953,11 +1132,49 @@ ApplicationWindow {
             }
         ]
         EditorButton {
-            text: "Choose file…"
+            text: exporter.busy ? "Queue · choose file…" : "Choose file…"
             primary: true
             onClicked: { exportSheet.close(); exportDialog.open() }
         }
         EditorButton { text: "Cancel"; subtle: true; onClicked: exportSheet.close() }
+    }
+    StudioDialog {
+        id: markerNameDialog
+        objectName: "markerNameDialog"
+        heading: "Name the marker"
+        message: "The name becomes the chapter title in exports and copied chapters."
+        iconName: "marker"
+        onOpened: { markerNameField.forceActiveFocus(); markerNameField.selectAll() }
+        body: [
+            EditorField {
+                id: markerNameField
+                objectName: "markerNameField"
+                Layout.fillWidth: true
+                placeholderText: "Chapter title"
+                maximumLength: 80
+                onAccepted: { editorProject.setMarkerName(root.renamingMarker, text); markerNameDialog.close() }
+            }
+        ]
+        EditorButton { text: "Save"; primary: true; onClicked: { editorProject.setMarkerName(root.renamingMarker, markerNameField.text); markerNameDialog.close() } }
+        EditorButton { text: "Cancel"; subtle: true; onClicked: markerNameDialog.close() }
+    }
+    FileDialog {
+        id: subtitleImportDialog
+        title: "Import subtitles"
+        nameFilters: ["Subtitles (*.srt *.vtt)", "All files (*)"]
+        onAccepted: {
+            var count = editorProject.importSubtitles(selectedFile, 0)
+            if (count > 0) root.notice = count + (count === 1 ? " caption added" : " captions added") + " to the text track"
+            else if (count === 0) root.notice = "No captions found in that file"
+        }
+    }
+    FileDialog {
+        id: subtitleExportDialog
+        title: "Export subtitles"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "srt"
+        nameFilters: ["SubRip subtitles (*.srt)"]
+        onAccepted: if (editorProject.exportSubtitles(selectedFile)) root.notice = "Subtitles saved · " + decodeURIComponent(selectedFile.toString().replace(/^.*\//, ""))
     }
     FileDialog {
         id: musicDialog
@@ -1087,7 +1304,8 @@ ApplicationWindow {
         onDurationChanged: function(duration) { if (source.toString() === editorProject.mediaUrl.toString()) editorProject.setDurationMs(duration) }
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) root.finishCue()
         onPositionChanged: {
-            if (playbackState === MediaPlayer.PlayingState && editorProject.outMs > editorProject.inMs && position >= editorProject.outMs) {
+            if (playbackState === MediaPlayer.PlayingState && root.stillActive) pause()
+            else if (playbackState === MediaPlayer.PlayingState && editorProject.outMs > editorProject.inMs && position >= editorProject.outMs) {
                 if (root.sequencePlaying) root.advanceSequence()
                 else pause()
             }
@@ -1369,7 +1587,7 @@ ApplicationWindow {
                         }
                     }
                 }
-                EditorButton { text: "Export MP4"; visible: root.workspace === 0; primary: true; enabled: editorProject.canExport && !exporter.busy && exporter.available; onClicked: exportSheet.open() }
+                EditorButton { text: exporter.busy ? "Queue export" : "Export MP4"; visible: root.workspace === 0; primary: true; enabled: editorProject.canExport && exporter.available; onClicked: exportSheet.open() }
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
         }
@@ -1420,13 +1638,53 @@ ApplicationWindow {
                         fillMode: VideoOutput.PreserveAspectFit
                         TapHandler { onDoubleTapped: root.previewFullscreen = !root.previewFullscreen }
                     }
+                    // A clip with a turn, crop or colour change is previewed through
+                    // this: the shown part of the frame, scaled to fit and turned.
+                    Item {
+                        id: lookFrame
+                        readonly property rect content: videoOutput.contentRect
+                        readonly property var crop: root.lookSourceCrop
+                        readonly property bool turned: root.clipLook.rotation % 180 !== 0
+                        readonly property real partWidth: Math.max(1, crop.w * content.width)
+                        readonly property real partHeight: Math.max(1, crop.h * content.height)
+                        readonly property real shownWidth: turned ? partHeight : partWidth
+                        readonly property real shownHeight: turned ? partWidth : partHeight
+                        readonly property real fit: Math.min(videoOutput.width / shownWidth, videoOutput.height / shownHeight)
+                        // Where the picture sits in the pane; captions and the crop frame follow it.
+                        readonly property rect frame: root.lookActive
+                            ? Qt.rect(videoOutput.x + (videoOutput.width - shownWidth * fit) / 2, videoOutput.y + (videoOutput.height - shownHeight * fit) / 2, shownWidth * fit, shownHeight * fit)
+                            : Qt.rect(videoOutput.x + content.x, videoOutput.y + content.y, content.width, content.height)
+                        anchors.fill: parent
+                        visible: root.lookActive
+                        ShaderEffectSource {
+                            id: lookSource
+                            sourceItem: videoOutput
+                            hideSource: root.lookActive
+                            live: true
+                            visible: false
+                            sourceRect: Qt.rect(lookFrame.content.x + lookFrame.crop.u * lookFrame.content.width, lookFrame.content.y + lookFrame.crop.v * lookFrame.content.height,
+                                                lookFrame.partWidth, lookFrame.partHeight)
+                        }
+                        MultiEffect {
+                            objectName: "lookPreview"
+                            source: lookSource
+                            width: lookFrame.partWidth * lookFrame.fit
+                            height: lookFrame.partHeight * lookFrame.fit
+                            x: lookFrame.frame.x + (lookFrame.frame.width - width) / 2
+                            y: lookFrame.frame.y + (lookFrame.frame.height - height) / 2
+                            rotation: root.clipLook.rotation
+                            brightness: root.clipLook.brightness * 0.25
+                            contrast: root.clipLook.contrast * 0.6
+                            saturation: root.clipLook.saturation
+                        }
+                    }
                     Rectangle {
                         objectName: "transitionDim"
                         visible: player.hasVideo && root.transitionDim > 0
-                        x: videoOutput.x + videoOutput.contentRect.x
-                        y: videoOutput.y + videoOutput.contentRect.y
-                        width: videoOutput.contentRect.width
-                        height: videoOutput.contentRect.height
+                        x: lookFrame.frame.x
+                        y: lookFrame.frame.y
+                        width: lookFrame.frame.width
+                        height: lookFrame.frame.height
                         color: "black"
                         opacity: root.transitionDim
                     }
@@ -1434,11 +1692,11 @@ ApplicationWindow {
                     TextOverlayLayer {
                         id: captionLayer
                         objectName: "captionLayer"
-                        visible: player.hasVideo
-                        x: videoOutput.x + videoOutput.contentRect.x
-                        y: videoOutput.y + videoOutput.contentRect.y
-                        width: videoOutput.contentRect.width
-                        height: videoOutput.contentRect.height
+                        visible: player.hasVideo && !root.cropEditing
+                        x: lookFrame.frame.x
+                        y: lookFrame.frame.y
+                        width: lookFrame.frame.width
+                        height: lookFrame.frame.height
                         texts: editorProject.textItems
                         timeMs: root.sequencePositionMs
                         selectedIndex: editorProject.activeTextIndex
@@ -1447,6 +1705,22 @@ ApplicationWindow {
                         onPicked: function(index) { editorProject.selectText(index) }
                         onMoved: function(index, x, y) { editorProject.setTextStyle(index, { x: x, y: y }) }
                         onEdited: function(index, text) { editorProject.setTextContent(index, text) }
+                    }
+                    // Crop frame over the whole turned picture while cropping.
+                    CropOverlay {
+                        objectName: "clipCropOverlay"
+                        visible: root.cropEditing && player.hasVideo
+                        x: lookFrame.frame.x
+                        y: lookFrame.frame.y
+                        width: lookFrame.frame.width
+                        height: lookFrame.frame.height
+                        item: root.activeClip ? { cropX: root.clipLook.x, cropY: root.clipLook.y, cropW: root.clipLook.w, cropH: root.clipLook.h } : null
+                        viewSize: Qt.size(Math.max(1, lookFrame.frame.width), Math.max(1, lookFrame.frame.height))
+                        revision: root.cropRevision
+                        onCommitted: function(crop) {
+                            editorProject.setClipCrop(editorProject.activeClipIndex, crop.cropX, crop.cropY, crop.cropW, crop.cropH)
+                            root.cropRevision++
+                        }
                     }
                     Column {
                         anchors.centerIn: parent
@@ -1559,7 +1833,7 @@ ApplicationWindow {
                         anchors.leftMargin: 18
                         anchors.rightMargin: 18
                         spacing: 10
-                        EditorButton { text: player.playbackState === MediaPlayer.PlayingState ? "Pause" : "Play"; iconName: player.playbackState === MediaPlayer.PlayingState ? "pause" : "play"; enabled: editorProject.hasMedia; onClicked: root.togglePlayback() }
+                        EditorButton { text: root.previewPlaying ? "Pause" : "Play"; iconName: root.previewPlaying ? "pause" : "play"; enabled: editorProject.hasMedia; onClicked: root.togglePlayback() }
                         Text { text: root.timecode(root.sequencePositionMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
                         Text { text: "/ " + root.timecode(editorProject.sequenceDurationMs); color: Theme.textMuted; font.pixelSize: 12 }
                         Item { Layout.fillWidth: true }
@@ -1650,12 +1924,12 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Text { text: "Selected duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
-                                Text { text: root.timecode((editorProject.outMs - editorProject.inMs) / root.activeSpeed); color: Theme.accentSoft; font.pixelSize: 17; font.weight: Font.DemiBold }
+                                Text { text: root.timecode(root.stillActive ? root.activeClip.holdMs : (editorProject.outMs - editorProject.inMs) / root.activeSpeed); color: Theme.accentSoft; font.pixelSize: 17; font.weight: Font.DemiBold }
                             }
                             EditorButton {
                                 Layout.fillWidth: true
                                 text: "Split at playhead  Ctrl+K"
-                                enabled: editorProject.hasMedia && !exporter.busy && player.position > editorProject.inMs + 100 && player.position < editorProject.outMs - 100
+                                enabled: editorProject.hasMedia && !exporter.busy && !root.stillActive && player.position > editorProject.inMs + 100 && player.position < editorProject.outMs - 100
                                 onClicked: editorProject.splitAt(player.position)
                             }
 
@@ -1712,6 +1986,7 @@ ApplicationWindow {
 
                             // Clip speed.
                             ColumnLayout {
+                                visible: !root.stillActive
                                 Layout.fillWidth: true
                                 Layout.topMargin: 4
                                 spacing: 4
@@ -1738,6 +2013,134 @@ ApplicationWindow {
                                 ToolTip.visible: hovered
                                 ToolTip.delay: 500
                                 ToolTip.text: "Cut parts quieter than -35 dB lasting over 0.6 s. Undo brings them back."
+                            }
+
+                            // Picture: freeze frame, turn, crop and colour of this clip.
+                            ColumnLayout {
+                                visible: player.hasVideo
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
+                                Text { text: "Picture"; color: Theme.textMuted; font.pixelSize: 11 }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+                                    EditorButton {
+                                        objectName: "freezeFrameButton"
+                                        Layout.fillWidth: true
+                                        text: "Freeze frame"
+                                        iconName: "pause"
+                                        subtle: true
+                                        enabled: editorProject.hasMedia && !exporter.busy && !root.stillActive
+                                        onClicked: root.freezeFrame()
+                                        ToolTip.visible: hovered
+                                        ToolTip.delay: 500
+                                        ToolTip.text: "Hold the frame under the playhead for 2 s"
+                                    }
+                                    EditorButton {
+                                        objectName: "rotateLeftButton"
+                                        iconName: "rotateLeft"
+                                        subtle: true
+                                        enabled: editorProject.hasMedia && !exporter.busy
+                                        onClicked: editorProject.setClipRotation(editorProject.activeClipIndex, root.clipLook.rotation + 270)
+                                        ToolTip.visible: hovered
+                                        ToolTip.delay: 500
+                                        ToolTip.text: "Turn left"
+                                    }
+                                    EditorButton {
+                                        objectName: "rotateRightButton"
+                                        iconName: "rotateRight"
+                                        subtle: true
+                                        enabled: editorProject.hasMedia && !exporter.busy
+                                        onClicked: editorProject.setClipRotation(editorProject.activeClipIndex, root.clipLook.rotation + 90)
+                                        ToolTip.visible: hovered
+                                        ToolTip.delay: 500
+                                        ToolTip.text: "Turn right"
+                                    }
+                                    EditorButton {
+                                        objectName: "cropClipButton"
+                                        iconName: root.cropEditing ? "check" : "crop"
+                                        primary: root.cropEditing
+                                        subtle: !root.cropEditing
+                                        enabled: editorProject.hasMedia && !exporter.busy
+                                        onClicked: root.cropEditing = !root.cropEditing
+                                        ToolTip.visible: hovered
+                                        ToolTip.delay: 500
+                                        ToolTip.text: root.cropEditing ? "Done cropping" : "Crop: drag the frame on the picture"
+                                    }
+                                }
+                                // A held frame's length.
+                                RowLayout {
+                                    visible: root.stillActive
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    Text { text: "Hold"; color: Theme.textMuted; font.pixelSize: 11; Layout.preferredWidth: 62 }
+                                    ToolSlider {
+                                        objectName: "holdSlider"
+                                        Layout.fillWidth: true
+                                        from: 0.5
+                                        to: 10
+                                        stepSize: 0.1
+                                        enabled: !exporter.busy
+                                        value: root.stillActive ? root.activeClip.holdMs / 1000 : 2
+                                        onPressedChanged: if (!pressed) editorProject.setClipHold(editorProject.activeClipIndex, Math.round(value * 1000))
+                                    }
+                                    Text { text: (root.stillActive ? root.activeClip.holdMs / 1000 : 0).toFixed(1) + " s"; color: Theme.text; font.pixelSize: 12; font.features: { "tnum": 1 }; Layout.preferredWidth: 38; horizontalAlignment: Text.AlignRight }
+                                }
+                                Repeater {
+                                    model: [["brightness", "Brightness"], ["contrast", "Contrast"], ["saturation", "Saturation"]]
+                                    delegate: RowLayout {
+                                        id: lookRow
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        spacing: 8
+                                        Text { text: lookRow.modelData[1]; color: Theme.textMuted; font.pixelSize: 11; Layout.preferredWidth: 62 }
+                                        ToolSlider {
+                                            objectName: "look_" + lookRow.modelData[0]
+                                            Layout.fillWidth: true
+                                            from: -1
+                                            to: 1
+                                            stepSize: 0.01
+                                            enabled: editorProject.hasMedia && !exporter.busy
+                                            value: root.clipLook[lookRow.modelData[0]]
+                                            onMoved: {
+                                                var look = { brightness: root.clipLook.brightness, contrast: root.clipLook.contrast, saturation: root.clipLook.saturation }
+                                                look[lookRow.modelData[0]] = value
+                                                if (pressed) root.lookDrag = look
+                                                else editorProject.setClipColor(editorProject.activeClipIndex, look.brightness, look.contrast, look.saturation)
+                                            }
+                                            onPressedChanged: {
+                                                if (pressed || !root.lookDrag) return
+                                                var look = root.lookDrag
+                                                editorProject.setClipColor(editorProject.activeClipIndex, look.brightness, look.contrast, look.saturation)
+                                                root.lookDrag = null
+                                            }
+                                        }
+                                        Text {
+                                            text: (root.clipLook[lookRow.modelData[0]] > 0 ? "+" : "") + Math.round(root.clipLook[lookRow.modelData[0]] * 100)
+                                            color: root.clipLook[lookRow.modelData[0]] !== 0 ? Theme.text : Theme.textFaint
+                                            font.pixelSize: 12
+                                            font.features: { "tnum": 1 }
+                                            Layout.preferredWidth: 38
+                                            horizontalAlignment: Text.AlignRight
+                                        }
+                                    }
+                                }
+                                EditorButton {
+                                    objectName: "resetPictureButton"
+                                    Layout.fillWidth: true
+                                    visible: root.lookActive && !root.cropEditing
+                                    text: "Reset picture"
+                                    subtle: true
+                                    enabled: !exporter.busy
+                                    onClicked: {
+                                        var index = editorProject.activeClipIndex
+                                        editorProject.setClipRotation(index, 0)
+                                        editorProject.setClipCrop(index, 0, 0, 1, 1)
+                                        editorProject.setClipColor(index, 0, 0, 0)
+                                        root.cropRevision++
+                                    }
+                                }
                             }
 
                             // How clips meet.
@@ -1918,6 +2321,35 @@ ApplicationWindow {
                                 enabled: !exporter.busy && editorProject.sequenceDurationMs >= 200
                                 onClicked: root.addTextAt(root.sequencePositionMs)
                             }
+                            RowLayout {
+                                visible: root.activeText === null
+                                Layout.fillWidth: true
+                                spacing: 6
+                                EditorButton {
+                                    objectName: "importSubtitlesButton"
+                                    Layout.fillWidth: true
+                                    text: "Import SRT…"
+                                    iconName: "file"
+                                    subtle: true
+                                    enabled: !exporter.busy
+                                    onClicked: subtitleImportDialog.open()
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: "Add captions from an SRT or VTT file to the text track"
+                                }
+                                EditorButton {
+                                    objectName: "exportSubtitlesButton"
+                                    Layout.fillWidth: true
+                                    text: "Save SRT…"
+                                    iconName: "save"
+                                    subtle: true
+                                    enabled: editorProject.textItems.length > 0
+                                    onClicked: subtitleExportDialog.open()
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: "Save the text track as subtitles for YouTube or a player"
+                                }
+                            }
                             TextArea {
                                 id: captionField
                                 objectName: "captionField"
@@ -2008,6 +2440,18 @@ ApplicationWindow {
                             Text { text: "Sequence duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
                             Text { text: root.timecode(editorProject.sequenceDurationMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
                         }
+                        EditorButton {
+                            objectName: "copyChaptersButton"
+                            Layout.fillWidth: true
+                            visible: editorProject.markers.length > 0
+                            text: "Copy chapters"
+                            iconName: "copy"
+                            subtle: true
+                            onClicked: root.copyChapters()
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: "Markers as a YouTube chapter list. Double-click a marker to name it."
+                        }
                         RowLayout {
                             Layout.fillWidth: true
                             visible: exporter.available
@@ -2067,12 +2511,19 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             value: exporter.progress / 100
                         }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: exporter.busy && root.exportQueue.length > 0
+                            text: root.exportQueue.length + (root.exportQueue.length === 1 ? " more export waits" : " more exports wait") + " in the queue"
+                            color: Theme.textFaint
+                            font.pixelSize: 11
+                        }
                         EditorButton {
                             Layout.fillWidth: true
                             visible: exporter.busy
-                            text: "Cancel export"
+                            text: root.exportQueue.length > 0 ? "Cancel export and queue" : "Cancel export"
                             danger: true
-                            onClicked: exporter.cancel()
+                            onClicked: root.cancelExport()
                         }
                         RowLayout {
                             id: exportResultRow
@@ -2222,13 +2673,15 @@ ApplicationWindow {
                     clips: editorProject.clips
                     activeIndex: editorProject.activeClipIndex
                     playheadMs: root.sequencePositionMs
-                    playing: player.playbackState === MediaPlayer.PlayingState
+                    playing: root.previewPlaying
                     thumbnailSource: thumbnails
                     transition: editorProject.transition
                     audioItems: editorProject.audioItems
                     audioIndex: editorProject.activeAudioIndex
                     markers: editorProject.markers
+                    markerNames: editorProject.markerItems.map(function(item) { return item.name })
                     onMarkerRemoveRequested: function(index) { editorProject.removeMarker(index) }
+                    onMarkerRenameRequested: function(index) { root.renameMarker(index) }
                     onAudioSelectRequested: function(index) { editorProject.selectAudio(index) }
                     onAudioPlaceRequested: function(index, startMs, inMs, outMs) { editorProject.setAudioPlacement(index, startMs, inMs, outMs) }
                     onAudioFadeRequested: function(index, fadeInMs, fadeOutMs) { editorProject.setAudioFades(index, fadeInMs, fadeOutMs) }

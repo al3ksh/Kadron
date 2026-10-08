@@ -108,8 +108,8 @@ bool SingleInstance::forward(const Request &request)
 
 void SingleInstance::take(const Request &request, bool raise)
 {
-    // A launch without files only asks for the window.
-    if (!request.files.isEmpty())
+    // A launch with neither files nor a tool only asks for the window.
+    if (!request.files.isEmpty() || !request.tool.isEmpty())
         m_pending << request;
     m_raise = m_raise || raise;
     m_batch.start();
@@ -132,6 +132,7 @@ void SingleInstance::deliver()
     for (const auto &request : std::as_const(m_pending)) {
         if (!order.contains(request.tool))
             order << request.tool;
+        batches[request.tool];
         for (const auto &file : request.files) {
             const QVariant url = QUrl::fromLocalFile(file);
             if (!batches[request.tool].contains(url))

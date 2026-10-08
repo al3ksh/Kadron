@@ -91,6 +91,7 @@ Item {
         zoom = 1
         texts = []
         textIndex = -1
+        captionNotice = ""
         return true
     }
     // Text over the result, the same maps the editor uses (TextOverlay).
@@ -116,6 +117,23 @@ Item {
         var list = texts.slice()
         list[index] = item
         texts = list
+    }
+    // Captions from a subtitle file join the text list; on a tall frame they sit
+    // higher, clear of the app buttons over the bottom of a short.
+    property string captionNotice: ""
+    function importCaptions(url) {
+        var cues = editorProject.readSubtitles(url)
+        if (cues.length === 0) { captionNotice = "No captions found in that file"; return }
+        var tall = aspectH > aspectW
+        var list = texts.slice()
+        for (var i = 0; i < cues.length; i++) {
+            var cue = cues[i]
+            if (tall) { cue.y = Math.min(cue.y, 0.74); cue.size = Math.max(cue.size, 0.04) }
+            list.push(cue)
+        }
+        texts = list
+        textIndex = -1
+        captionNotice = cues.length + (cues.length === 1 ? " caption added" : " captions added") + " · click one on the preview to edit it"
     }
     function removeText(index) {
         if (index < 0 || index >= texts.length) return
@@ -200,6 +218,12 @@ Item {
                 texts: page.texts
             })
         }
+    }
+    FileDialog {
+        id: captionDialog
+        title: "Import captions"
+        nameFilters: ["Subtitles (*.srt *.vtt)", "All files (*)"]
+        onAccepted: page.importCaptions(selectedFile)
     }
     FileDialog {
         id: openDialog
@@ -779,7 +803,7 @@ Item {
                             spacing: 6
                             enabled: !localReframe.busy
                             Flow {
-                                visible: page.texts.length > 1
+                                visible: page.texts.length > 1 && page.texts.length <= 12
                                 Layout.fillWidth: true
                                 spacing: 6
                                 Repeater {
@@ -799,16 +823,51 @@ Item {
                                     }
                                 }
                             }
-                            EditorButton {
-                                objectName: "reframeAddText"
+                            RowLayout {
                                 Layout.fillWidth: true
-                                text: "Add text"
-                                iconName: "plus"
-                                enabled: player.duration > 0
-                                onClicked: {
-                                    page.addText()
-                                    reframeTextField.forceActiveFocus()
-                                    reframeTextField.selectAll()
+                                spacing: 6
+                                EditorButton {
+                                    objectName: "reframeAddText"
+                                    Layout.fillWidth: true
+                                    text: "Add text"
+                                    iconName: "plus"
+                                    enabled: player.duration > 0
+                                    onClicked: {
+                                        page.addText()
+                                        reframeTextField.forceActiveFocus()
+                                        reframeTextField.selectAll()
+                                    }
+                                }
+                                EditorButton {
+                                    objectName: "reframeImportCaptions"
+                                    Layout.fillWidth: true
+                                    text: "Captions (SRT)…"
+                                    iconName: "file"
+                                    subtle: true
+                                    enabled: player.duration > 0
+                                    onClicked: captionDialog.open()
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: "Burn in captions from an SRT or VTT file"
+                                }
+                            }
+                            RowLayout {
+                                visible: page.texts.length > 12 || page.captionNotice.length > 0
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: page.captionNotice.length > 0 ? page.captionNotice : page.texts.length + " texts · click one on the preview to edit it"
+                                    color: Theme.textFaint
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WordWrap
+                                }
+                                EditorButton {
+                                    visible: page.texts.length > 0
+                                    text: "Remove all"
+                                    subtle: true
+                                    implicitHeight: 28
+                                    onClicked: { page.texts = []; page.textIndex = -1; page.captionNotice = "" }
                                 }
                             }
                             TextArea {

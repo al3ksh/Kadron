@@ -22,17 +22,22 @@
 - Scrubbing lands on the exact frame, and playback runs across the whole sequence.
 - Set each clip's volume (up to 200%) or mute it, play it at 0.5× to 2×, and let clips meet with a cut, a fade through black or a crossfade.
 - **Remove silence** cuts the quiet stretches out of a clip in one step.
-- Put text over the video: drag a caption where it should sit, stretch it on its own track for as long as it shows, and pick a font and an outline, box or shadow.
+- Put text over the video: drag a caption where it should sit, stretch it on its own track for as long as it shows, and pick a font and an outline, box or shadow. Import captions from an SRT or VTT file, or save the text track as SRT.
+- Under **Picture**, turn a clip by 90°, crop it on the monitor, and set its brightness, contrast and saturation. **Freeze frame** holds the frame under the playhead for as long as you like.
 - The camera button under the monitor (or `Ctrl+Shift+S`) saves the current frame as an image; `Ctrl+Shift+C` copies it to the clipboard.
-- Drop markers with `N` and jump between them with `[` and `]`; they are saved with the project. `F` or a double-click fills the screen with the preview, `M` mutes it and `↑` `↓` set its volume.
+- Drop markers with `N` and jump between them with `[` and `]`; they are saved with the project. Double-click a marker to name it: exports carry the markers as MP4 chapters, and **Copy chapters** puts a YouTube chapter list on the clipboard. `F` or a double-click fills the screen with the preview, `M` mutes it and `↑` `↓` set its volume.
 - Lay music and sounds on the audio track under the clips: drop in as many files as you like, drag each to where it should play (it snaps to joins, the playhead and other sounds), trim its edges and drag its corners to fade it in and out. Each has its own volume, the track can duck under the clips' own sound, and anything still playing at the end fades out.
 - Export the sequence as MP4 on the GPU (NVIDIA NVENC, Intel Quick Sync or AMD AMF, whichever works on your machine) or on the CPU. If the GPU encoder fails mid-export, Kadron finishes on the CPU. Projects are saved as `.kadr` files.
+- Start another export while one runs and it waits in a queue. A logo picked in Settings can go in a corner of every export, and it can be switched off there.
+- When the playhead sits between markers, the export can take only that part. A single trimmed clip can also be cut without re-encoding: instant and lossless, starting at the nearest keyframe.
 - Preview volume is shared by the editor and the tools, and remembered.
 - If Kadron closes unexpectedly, unsaved work (copied aside a minute after each edit) is offered back at the next start.
 
 **Appearance.** Dark, light, or follow Windows, with an accent color of your choice. Open it from the palette button at the bottom of the sidebar. The same panel turns the startup intro on or off.
 
 **Explorer menu.** Right-click a video, audio file, image or PDF and pick **Kadron** (on Windows 11 it sits under *Show more options*) to open it straight in the right tool: edit, reframe for vertical, compress, make a GIF, extract audio, resize images, combine images into a PDF or open PDF Tools. Select several files and they arrive together in one Kadron window. The installer adds the menu for your user only; turn it off or back on in the Appearance panel.
+
+**Taskbar.** Right-click Kadron's taskbar button for the recent projects and videos and for shortcuts straight to the editor, Download, Compress, GIF Studio, Images and PDF Tools. Long jobs show their progress on the button.
 
 **Keyboard.** `Ctrl+/` opens the full list of shortcuts in Settings.
 
@@ -46,8 +51,8 @@
 | --- | --- |
 | Audio | Trim on the waveform, play the selection, then convert to MP3, AAC, Opus, WAV or FLAC at a chosen bitrate, with the output size estimated before you start. Under *More options*: fade in and out, a loudness target (Podcast, Music, Loud), mono, and exact start and end times |
 | GIF Studio | Choose a range on a filmstrip with a looping preview; pick the size, smoothness and a file size limit while a meter shows the clip and the GIF it becomes. Under *More options*: speed, bounce (forward then back) and play once |
-| Compress | Shrink video or images, optionally to a target file size |
-| Reframe | Turn a landscape video into 9:16, 1:1, 4:5 or 16:9. Either a crop that follows the action (move the frame at different moments and it eases between those keyframes, with a live preview of the result) the whole picture over a blurred copy of itself, or a split screen that stacks two regions, such as a streamer's webcam (any size and place) above the game. Exports 1080p MP4 |
+| Compress | Shrink video or images, optionally to a target file size; drop several files to compress them all into one folder |
+| Reframe | Turn a landscape video into 9:16, 1:1, 4:5 or 16:9. Either a crop that follows the action (move the frame at different moments and it eases between those keyframes, with a live preview of the result) the whole picture over a blurred copy of itself, or a split screen that stacks two regions, such as a streamer's webcam (any size and place) above the game. Add text or burn in captions from an SRT file. Exports 1080p MP4 |
 | Images | Convert a batch of photos between JPG, PNG, WebP and AVIF (HEIC in), resize them, fit them under a file size, crop with aspect presets, rotate and flip; compare before and after. Shows the camera, date and GPS location a photo carries; saved copies have no metadata |
 | Download | Paste a link and get a preview (thumbnail, title, length) before downloading with yt-dlp; Kadron keeps its own copy of yt-dlp up to date |
 | PDF Tools | Edit pages visually (reorder, rotate, delete, preview); merge PDFs as cards showing each first page, in the order you drag them; pick pages to extract on thumbnails; turn images into a PDF |

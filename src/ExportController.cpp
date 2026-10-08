@@ -193,6 +193,135 @@ double ExportController::frameRate(const QString &rational)
     return denominator > 0 && numerator > 0 ? numerator / denominator : 0.0;
 }
 
+bool ExportController::narrowToRange(QVariantList &clips, QVariantMap &options, qint64 startMs, qint64 endMs)
+{
+    QVariantList kept;
+    qint64 clipStart = 0;
+    for (const auto &entry : std::as_const(clips)) {
+        auto clip = entry.toMap();
+        const auto speed = qBound(0.25, clip.value("speed", 1.0).toDouble(), 4.0);
+        const auto in = clip.value("inMs").toLongLong();
+        const auto hold = clip.value("holdMs").toLongLong();
+        const auto length = hold > 0 ? hold : qMax<qint64>(0, qRound64((clip.value("outMs").toLongLong() - in) / speed));
+        const auto from = qMax(startMs, clipStart);
+        const auto to = qMin(endMs, clipStart + length);
+        if (to - from >= 100) {
+            if (hold > 0) {
+                // A still keeps its frame and only holds shorter.
+                clip["holdMs"] = to - from;
+            } else {
+                // Timeline time runs at the clip's speed through its source.
+                clip["inMs"] = in + qRound64((from - clipStart) * speed);
+                clip["outMs"] = in + qRound64((to - clipStart) * speed);
+            }
+            kept << clip;
+        }
+        clipStart += length;
+    }
+    if (kept.isEmpty())
+        return false;
+    clips = kept;
+
+    QVariantList audio;
+    for (const auto &entry : options.value("audio").toList()) {
+        auto item = entry.toMap();
+        const auto start = item.value("startMs").toLongLong();
+        const auto in = item.value("inMs").toLongLong();
+        const auto out = item.value("outMs").toLongLong();
+        if (start + (out - in) <= startMs || start >= endMs)
+            continue;
+        // A sound already playing when the range begins joins it midway.
+        const auto skipped = qMax<qint64>(0, startMs - start);
+        item["inMs"] = in + skipped;
+        item["startMs"] = qMax<qint64>(0, start - startMs);
+        item["fadeInMs"] = qMax<qint64>(0, item.value("fadeInMs").toLongLong() - skipped);
+        audio << item;
+    }
+    options["audio"] = audio;
+
+    QVariantList texts;
+    for (const auto &entry : options.value("texts").toList()) {
+        auto item = entry.toMap();
+        const auto from = qMax(startMs, item.value("startMs").toLongLong());
+        const auto to = qMin(endMs, item.value("endMs").toLongLong());
+        if (to - from < 100)
+            continue;
+        item["startMs"] = from - startMs;
+        item["endMs"] = to - startMs;
+        texts << item;
+    }
+    options["texts"] = texts;
+
+    // The chapter playing when the range begins starts it.
+    QVariantList chapters;
+    for (const auto &entry : options.value("chapters").toList()) {
+        auto item = entry.toMap();
+        const auto start = item.value("startMs").toLongLong();
+        if (start >= endMs)
+            break;
+        if (start <= startMs)
+            chapters.clear();
+        item["startMs"] = qMax<qint64>(0, start - startMs);
+        chapters << item;
+    }
+    options["chapters"] = chapters;
+    return true;
+}
+
+QString ExportController::lookFilter(const QVariantMap &clip)
+{
+    const auto share = [](double value) { return QString::number(value, 'f', 4); };
+    QString result;
+    const auto rotation = ((clip.value("rotation").toInt() % 360) + 360) % 360;
+    if (rotation == 90) result += QStringLiteral("transpose=clock,");
+    else if (rotation == 180) result += QStringLiteral("hflip,vflip,");
+    else if (rotation == 270) result += QStringLiteral("transpose=cclock,");
+    const auto width = qBound(0.05, clip.value("cropWidth", 1.0).toDouble(), 1.0);
+    const auto height = qBound(0.05, clip.value("cropHeight", 1.0).toDouble(), 1.0);
+    const auto x = qBound(0.0, clip.value("cropX").toDouble(), 1.0 - width);
+    const auto y = qBound(0.0, clip.value("cropY").toDouble(), 1.0 - height);
+    if (width < 0.9995 || height < 0.9995)
+        result += QStringLiteral("crop=w=iw*%1:h=ih*%2:x=iw*%3:y=ih*%4,").arg(share(width), share(height), share(x), share(y));
+    const auto brightness = qBound(-1.0, clip.value("brightness").toDouble(), 1.0);
+    const auto contrast = qBound(-1.0, clip.value("contrast").toDouble(), 1.0);
+    const auto saturation = qBound(-1.0, clip.value("saturation").toDouble(), 1.0);
+    if (brightness != 0 || contrast != 0 || saturation != 0)
+        result += QStringLiteral("eq=brightness=%1:contrast=%2:saturation=%3,")
+                      .arg(share(brightness * 0.25), share(1 + contrast * 0.8), share(1 + saturation));
+    return result;
+}
+
+QString ExportController::chapterMetadata(const QVariantList &chapters, qint64 totalMs)
+{
+    QString result;
+    for (int i = 0; i < chapters.size(); ++i) {
+        const auto chapter = chapters.at(i).toMap();
+        const auto start = qMax<qint64>(0, chapter.value("startMs").toLongLong());
+        const auto end = i + 1 < chapters.size() ? qMin(totalMs, chapters.at(i + 1).toMap().value("startMs").toLongLong()) : totalMs;
+        if (end <= start)
+            continue;
+        // FFmetadata escapes its special characters with a backslash.
+        QString title;
+        for (const auto character : chapter.value("title").toString().simplified()) {
+            if (QStringLiteral("=;#\\").contains(character))
+                title += '\\';
+            title += character;
+        }
+        result += QStringLiteral("[CHAPTER]\nTIMEBASE=1/1000\nSTART=%1\nEND=%2\ntitle=%3\n").arg(start).arg(end).arg(title);
+    }
+    return result.isEmpty() ? result : QStringLiteral(";FFMETADATA1\n") + result;
+}
+
+QString ExportController::watermarkFilter(QSize canvas, const QString &file, const QString &corner, double opacity, double size)
+{
+    const auto width = qMax(8, qRound(canvas.width() * qBound(0.03, size, 0.6) / 2) * 2);
+    const auto margin = qRound(qMin(canvas.width(), canvas.height()) * 0.035);
+    const auto x = corner.endsWith("left") ? QString::number(margin) : QStringLiteral("main_w-overlay_w-%1").arg(margin);
+    const auto y = corner.startsWith("top") ? QString::number(margin) : QStringLiteral("main_h-overlay_h-%1").arg(margin);
+    return QStringLiteral("[base];movie=%1,format=rgba,scale=%2:-1,colorchannelmixer=aa=%3[logo];[base][logo]overlay=x=%4:y=%5:format=auto,format=yuv420p")
+        .arg(file).arg(width).arg(QString::number(qBound(0.05, opacity, 1.0), 'f', 2), x, y);
+}
+
 QString ExportController::mixFilter(const QVector<qint64> &lengthsMs, int crossfadeMs, int firstAudioInput,
                                      const QVector<AudioBed> &beds, bool duck, int fps)
 {
@@ -282,7 +411,7 @@ bool ExportController::start(const QUrl &source, const QUrl &destination, qint64
     const auto preset = options.value("preset", "source").toString();
     const bool copy = options.value("copy").toBool();
     // Anything beyond a plain re-encode goes through the sequence pipeline.
-    if (!copy && (preset != "source" || options.value("loudnorm").toBool())) {
+    if (!copy && (preset != "source" || options.value("loudnorm").toBool() || !options.value("watermark").toMap().isEmpty())) {
         return startSequence({QVariantMap{{"url", source}, {"inMs", inMs}, {"outMs", outMs},
                                           {"durationMs", outMs}}}, destination, options);
     }
@@ -326,6 +455,14 @@ bool ExportController::start(const QUrl &source, const QUrl &destination, qint64
     m_singleSource = sourceInfo.absoluteFilePath();
     m_singleInMs = inMs;
     m_copy = copy;
+    m_chaptersPath.clear();
+    const auto chapters = chapterMetadata(options.value("chapters").toList(), m_rangeMs);
+    if (!chapters.isEmpty()) {
+        m_sequenceDir = std::make_unique<QTemporaryDir>(outputInfo.absolutePath() + "/.kadron-sequence-XXXXXX");
+        QSaveFile file(m_sequenceDir->path() + "/chapters.txt");
+        if (m_sequenceDir->isValid() && file.open(QIODevice::WriteOnly) && file.write(chapters.toUtf8()) > 0 && file.commit())
+            m_chaptersPath = file.fileName();
+    }
     launchSingle();
     return true;
 }
@@ -338,9 +475,10 @@ void ExportController::launchSingle()
     QStringList args{
         "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1",
         "-ss", seconds(m_singleInMs), "-i", m_singleSource,
-        "-t", seconds(m_rangeMs),
-        "-map", "0:v:0?", "-map", "0:a:0?"
     };
+    if (!m_chaptersPath.isEmpty())
+        args << "-f" << "ffmetadata" << "-i" << m_chaptersPath << "-map_chapters" << "1";
+    args << "-t" << seconds(m_rangeMs) << "-map" << "0:v:0?" << "-map" << "0:a:0?";
     if (m_copy) {
         // Starts at the keyframe before inMs; nothing is re-encoded.
         args << "-c" << "copy" << "-avoid_negative_ts" << "make_zero";
@@ -354,10 +492,17 @@ void ExportController::launchSingle()
     m_process.start();
 }
 
-bool ExportController::startSequence(const QVariantList &clips, const QUrl &destination, const QVariantMap &options)
+bool ExportController::startSequence(const QVariantList &sequence, const QUrl &destination, const QVariantMap &sequenceOptions)
 {
     if (m_busy)
         return false;
+    auto clips = sequence;
+    auto options = sequenceOptions;
+    if (options.contains("rangeStartMs") && options.contains("rangeEndMs")
+        && !narrowToRange(clips, options, options.value("rangeStartMs").toLongLong(), options.value("rangeEndMs").toLongLong())) {
+        fail(QStringLiteral("The part between the markers is too short to export."));
+        return false;
+    }
     m_errorText.clear();
     m_outputUrl = QUrl();
     if (m_ffmpeg.isEmpty() || m_ffprobe.isEmpty()) {
@@ -384,7 +529,8 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
         const auto in = clip.value("inMs").toLongLong();
         const auto out = clip.value("outMs").toLongLong();
         const auto duration = clip.value("durationMs").toLongLong();
-        if (!source.isLocalFile() || !sourceInfo.isFile() || in < 0 || out - in < 100
+        const auto hold = clip.value("holdMs").toLongLong();
+        if (!source.isLocalFile() || !sourceInfo.isFile() || in < 0 || (hold <= 0 && out - in < 100)
             || out > duration || sourceInfo.absoluteFilePath() == outputInfo.absoluteFilePath()) {
             fail(QStringLiteral("A sequence clip is missing or has an invalid time range."));
             return false;
@@ -392,6 +538,11 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
         Segment segment{sourceInfo.absoluteFilePath(), in, out};
         segment.volume = clip.value("muted").toBool() ? 0.0 : qBound(0.0, clip.value("volume", 1.0).toDouble(), 2.0);
         segment.speed = qBound(0.25, clip.value("speed", 1.0).toDouble(), 4.0);
+        segment.holdMs = hold > 0 ? qBound(qint64(100), qint64(hold), qint64(30000)) : 0;
+        segment.rotation = ((clip.value("rotation").toInt() % 360) + 360) % 360;
+        segment.cropWidth = qBound(0.05, clip.value("cropWidth", 1.0).toDouble(), 1.0);
+        segment.cropHeight = qBound(0.05, clip.value("cropHeight", 1.0).toDouble(), 1.0);
+        segment.look = lookFilter(clip);
         segments.append(segment);
         totalMs += segment.lengthMs();
     }
@@ -438,6 +589,23 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
         audioPaths << info.absoluteFilePath();
         audioBeds << bed;
     }
+    // Chapters move with the clips like the audio track does.
+    auto chapters = options.value("chapters").toList();
+    if (transition == "crossfade") {
+        for (auto &entry : chapters) {
+            auto chapter = entry.toMap();
+            const auto start = chapter.value("startMs").toLongLong();
+            qint64 clipStart = 0;
+            int joins = 0;
+            for (int i = 1; i < segments.size(); ++i) {
+                clipStart += segments.at(i - 1).lengthMs();
+                if (start >= clipStart) joins = i;
+            }
+            chapter["startMs"] = qMax<qint64>(0, start - joins * transitionMs);
+            entry = chapter;
+        }
+    }
+    const auto chapterText = chapterMetadata(chapters, finalMs);
     QVector<TextOverlay> texts;
     for (const auto &entry : options.value("texts").toList()) {
         const auto item = entry.toMap();
@@ -456,6 +624,26 @@ bool ExportController::startSequence(const QVariantList &clips, const QUrl &dest
             fail(QStringLiteral("Could not prepare the text for export."));
             return false;
         }
+    }
+    m_chaptersPath.clear();
+    if (!chapterText.isEmpty()) {
+        QSaveFile file(directory->path() + "/chapters.txt");
+        if (file.open(QIODevice::WriteOnly) && file.write(chapterText.toUtf8()) > 0 && file.commit())
+            m_chaptersPath = file.fileName();
+    }
+    m_watermarkFile.clear();
+    const auto watermark = options.value("watermark").toMap();
+    if (!watermark.isEmpty()) {
+        const QFileInfo logo(watermark.value("path").toUrl().toLocalFile());
+        const auto name = QStringLiteral("logo.") + logo.suffix().toLower();
+        if (!logo.isFile() || !QFile::copy(logo.absoluteFilePath(), directory->path() + '/' + name)) {
+            fail(QStringLiteral("The watermark image is missing: %1").arg(logo.absoluteFilePath()));
+            return false;
+        }
+        m_watermarkFile = name;
+        m_watermarkCorner = watermark.value("corner", "bottom-right").toString();
+        m_watermarkOpacity = watermark.value("opacity", 0.8).toDouble();
+        m_watermarkSize = watermark.value("size", 0.15).toDouble();
     }
 
     m_segments = segments;
@@ -539,13 +727,16 @@ void ExportController::encodeNext()
         "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1",
         "-ss", seconds(segment.inMs), "-i", segment.path
     };
+    // A still is silent.
+    const bool still = segment.holdMs > 0;
+    const bool sound = segment.hasAudio && !still;
     if (!segment.hasVideo)
         args << "-f" << "lavfi" << "-i" << QString("color=c=black:s=%1x%2:r=%3").arg(m_canvasWidth).arg(m_canvasHeight).arg(m_plan.fps);
-    else if (!segment.hasAudio)
+    else if (!sound)
         args << "-f" << "lavfi" << "-i" << "anullsrc=channel_layout=stereo:sample_rate=48000";
     args << "-t" << seconds(segment.lengthMs())
          << "-map" << (segment.hasVideo ? "0:v:0" : "1:v:0")
-         << "-map" << (segment.hasAudio ? "0:a:0" : "1:a:0");
+         << "-map" << (sound ? "0:a:0" : "1:a:0");
     // Fade through black: half the transition out of one clip, half into the next.
     const auto lengthMs = segment.lengthMs();
     const auto half = m_transition == "fade" ? qMin<qint64>(m_transitionMs / 2, lengthMs / 2) : 0;
@@ -575,26 +766,32 @@ void ExportController::encodeNext()
         if (fadeOut)
             audioFades += QString(",afade=t=out:st=%1:d=%2:curve=hsin").arg(seconds(lengthMs - half), seconds(half));
     }
-    const bool retimed = !qFuzzyCompare(segment.speed, 1.0);
+    const bool retimed = !still && !qFuzzyCompare(segment.speed, 1.0);
     const auto speed = QString::number(segment.speed, 'f', 4);
     qint64 segmentStartMs = 0;
     for (int i = 0; i < m_segmentIndex; ++i)
         segmentStartMs += m_segments.at(i).lengthMs();
     // Captions go under the fades so they dip to black with the picture.
     const auto captions = TextOverlay::filter(m_texts, segmentStartMs, lengthMs, m_canvasHeight);
-    m_process.setWorkingDirectory(captions.isEmpty() ? QString() : m_sequenceDir->path());
+    // The logo sits under the captions and dips with the picture.
+    const auto logo = m_watermarkFile.isEmpty() ? QString()
+        : watermarkFilter(QSize(m_canvasWidth, m_canvasHeight), m_watermarkFile, m_watermarkCorner, m_watermarkOpacity, m_watermarkSize);
+    m_process.setWorkingDirectory(captions.isEmpty() && logo.isEmpty() ? QString() : m_sequenceDir->path());
     if (segment.hasVideo) {
         // Fill crops the frame to the canvas; otherwise it is letterboxed.
         const auto fit = m_plan.fill ? QString("scale=%1:%2:force_original_aspect_ratio=increase,crop=%1:%2")
                                      : QString("scale=%1:%2:force_original_aspect_ratio=decrease,pad=%1:%2:(ow-iw)/2:(oh-ih)/2");
-        args << "-vf" << (retimed ? QString("setpts=PTS/%1,").arg(speed) : QString())
-                             + fit.arg(m_canvasWidth).arg(m_canvasHeight)
-                             + QString(",fps=%1,format=yuv420p,setsar=1").arg(m_plan.fps) + captions + videoFades;
+        // A still takes one frame and repeats it for the hold.
+        const auto timing = still ? QString("trim=end_frame=1,setpts=PTS-STARTPTS,")
+                          : retimed ? QString("setpts=PTS/%1,").arg(speed) : QString();
+        const auto hold = still ? QString(",tpad=stop_mode=clone:stop_duration=%1").arg(seconds(segment.holdMs + 500)) : QString();
+        args << "-vf" << timing + segment.look + fit.arg(m_canvasWidth).arg(m_canvasHeight) + hold
+                             + QString(",fps=%1,format=yuv420p,setsar=1").arg(m_plan.fps) + logo + captions + videoFades;
     } else {
-        args << "-vf" << "format=yuv420p" + captions + videoFades;
+        args << "-vf" << "format=yuv420p" + logo + captions + videoFades;
     }
-    QString audio = retimed && segment.hasAudio ? QString("atempo=%1,").arg(speed) : QString();
-    if (m_loudnorm && segment.hasAudio)
+    QString audio = retimed && sound ? QString("atempo=%1,").arg(speed) : QString();
+    if (m_loudnorm && sound)
         audio += QStringLiteral("loudnorm=I=-16:TP=-1.5:LRA=11,");
     args << "-af" << audio + QString("volume=%1").arg(QString::number(segment.volume, 'f', 3)) + audioFades;
     args << videoCodecArgs(m_activeEncoder, true, m_plan.videoKbps)
@@ -633,11 +830,14 @@ void ExportController::concatSegments()
     }
     m_progress = qMax(m_progress, 90);
     emit changed();
-    m_process.start(m_ffmpeg, {
+    m_process.start(m_ffmpeg, QStringList{
         "-hide_banner", "-nostdin", "-loglevel", "error", "-progress", "pipe:1",
         "-safe", "0", "-f", "concat", "-i", listPath,
-        "-c", "copy", "-movflags", "+faststart", "-y", m_audioBeds.isEmpty() ? m_partialPath : joinedPath()
-    });
+    }
+    + (m_chaptersPath.isEmpty() || !m_audioBeds.isEmpty()
+           ? QStringList()
+           : QStringList{"-f", "ffmetadata", "-i", m_chaptersPath, "-map", "0", "-map_chapters", "1"})
+    + QStringList{"-c", "copy", "-movflags", "+faststart", "-y", m_audioBeds.isEmpty() ? m_partialPath : joinedPath()});
 }
 
 // Crossfades the encoded clips and/or lays the music under them.
@@ -662,6 +862,8 @@ void ExportController::startFinal()
     const int firstAudioInput = crossfade ? m_segments.size() : 1;
     for (const auto &path : std::as_const(m_audioPaths))
         args << "-i" << path;
+    if (!m_chaptersPath.isEmpty())
+        args << "-f" << "ffmetadata" << "-i" << m_chaptersPath << "-map_chapters" << QString::number(firstAudioInput + m_audioPaths.size());
     args << "-filter_complex" << mixFilter(lengths, crossfade ? m_transitionMs : 0, firstAudioInput, m_audioBeds, m_musicDuck, m_plan.fps);
     if (crossfade)
         args << "-map" << "[v]" << videoCodecArgs(m_activeEncoder, false, m_plan.videoKbps) << "-r" << QString::number(m_plan.fps);
@@ -680,6 +882,8 @@ void ExportController::clearSequence()
     m_sequenceDir.reset();
     m_segments.clear();
     m_texts.clear();
+    m_chaptersPath.clear();
+    m_watermarkFile.clear();
     m_segmentIndex = 0;
     m_completedMs = 0;
     m_phase = Phase::Idle;
@@ -785,13 +989,18 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
             const auto stream = entry.toObject();
             const auto codecType = stream.value("codec_type").toString();
             if (codecType == "audio") segment.hasAudio = true;
-            if (codecType == "video") {
+            if (codecType == "video" && !segment.hasVideo) {
                 segment.hasVideo = true;
                 auto width = stream.value("width").toInt();
                 auto height = stream.value("height").toInt();
                 // Phone videos are often stored sideways with a rotation tag.
                 for (const auto &data : stream.value("side_data_list").toArray())
                     if (qAbs(data.toObject().value("rotation").toInt()) == 90) std::swap(width, height);
+                // The canvas takes the first clip's turned and cropped frame.
+                if (segment.rotation == 90 || segment.rotation == 270)
+                    std::swap(width, height);
+                width = qRound(width * segment.cropWidth / 2) * 2;
+                height = qRound(height * segment.cropHeight / 2) * 2;
                 if (m_canvasWidth == 0 && width > 0 && height > 0) {
                     m_canvasWidth = width;
                     m_canvasHeight = height;
@@ -803,6 +1012,10 @@ void ExportController::finish(int exitCode, QProcess::ExitStatus exitStatus)
         }
         if (!segment.hasVideo && !segment.hasAudio) {
             fail(QStringLiteral("Clip %1 has no playable video or audio stream.").arg(m_segmentIndex + 1));
+            return;
+        }
+        if (!segment.hasVideo && segment.holdMs > 0) {
+            fail(QStringLiteral("Clip %1 is a still frame of a file without video.").arg(m_segmentIndex + 1));
             return;
         }
         ++m_segmentIndex;

@@ -49,6 +49,13 @@ Dialog {
         border.color: Theme.lineStrong
     }
 
+    FileDialog {
+        id: watermarkPicker
+        title: "Choose a logo"
+        nameFilters: ["Images (*.png *.jpg *.jpeg *.webp *.bmp)"]
+        onAccepted: { Prefs.watermarkPath = selectedFile.toString(); Prefs.watermarkEnabled = true }
+    }
+
     ColorDialog {
         id: customAccent
         title: "Accent color"
@@ -416,6 +423,80 @@ Dialog {
                             onToggled: Prefs.exportLoudnorm = checked
                         }
                         Hint { text: "The export sheet opens with these choices; changing them there is remembered too." }
+
+                        SectionLabel { text: "LOGO ON EXPORTS" }
+                        ToolCheck {
+                            objectName: "settingsWatermark"
+                            text: "Stamp a logo on every editor export"
+                            checked: Prefs.watermarkEnabled
+                            enabled: Prefs.watermarkPath.length > 0
+                            onToggled: Prefs.watermarkEnabled = checked
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            EditorButton {
+                                objectName: "settingsWatermarkPick"
+                                text: Prefs.watermarkPath.length ? "Change logo…" : "Choose logo…"
+                                iconName: "image"
+                                subtle: true
+                                onClicked: watermarkPicker.open()
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: Prefs.watermarkPath.length ? decodeURIComponent(Prefs.watermarkPath.replace(/^.*[\/]/, "")) : "No logo chosen"
+                                color: Theme.textMuted
+                                font.pixelSize: 12
+                                elide: Text.ElideMiddle
+                            }
+                        }
+                        GridLayout {
+                            Layout.fillWidth: true
+                            visible: Prefs.watermarkPath.length > 0
+                            columns: 4
+                            columnSpacing: 6
+                            rowSpacing: 6
+                            Repeater {
+                                model: [["top-left", "Top left"], ["top-right", "Top right"], ["bottom-left", "Bottom left"], ["bottom-right", "Bottom right"]]
+                                delegate: EditorButton {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData[1]
+                                    primary: Prefs.watermarkCorner === modelData[0]
+                                    subtle: Prefs.watermarkCorner !== modelData[0]
+                                    onClicked: Prefs.watermarkCorner = modelData[0]
+                                }
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: Prefs.watermarkPath.length > 0
+                            spacing: 12
+                            Text { text: "Size"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 56 }
+                            ToolSlider {
+                                Layout.fillWidth: true
+                                from: 0.05
+                                to: 0.4
+                                value: Prefs.watermarkSize
+                                onMoved: Prefs.watermarkSize = value
+                            }
+                            Text { text: Math.round(Prefs.watermarkSize * 100) + "%"; color: Theme.textMuted; font.pixelSize: 12; font.features: { "tnum": 1 }; Layout.preferredWidth: 38; horizontalAlignment: Text.AlignRight }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: Prefs.watermarkPath.length > 0
+                            spacing: 12
+                            Text { text: "Opacity"; color: Theme.textMuted; font.pixelSize: 12; Layout.preferredWidth: 56 }
+                            ToolSlider {
+                                Layout.fillWidth: true
+                                from: 0.1
+                                to: 1
+                                value: Prefs.watermarkOpacity
+                                onMoved: Prefs.watermarkOpacity = value
+                            }
+                            Text { text: Math.round(Prefs.watermarkOpacity * 100) + "%"; color: Theme.textMuted; font.pixelSize: 12; font.features: { "tnum": 1 }; Layout.preferredWidth: 38; horizontalAlignment: Text.AlignRight }
+                        }
+                        Hint { text: "Size is a share of the frame width. Lossless cuts skip the logo, since they don't re-encode." }
                     }
 
                     // General

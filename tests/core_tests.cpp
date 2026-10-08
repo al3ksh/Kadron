@@ -52,6 +52,7 @@ private slots:
     void launchArguments();
     void reframeVideo();
     void imageOperations();
+    void clipLookFreezeChapters();
 };
 
 void CoreTests::editHistory()
@@ -623,6 +624,34 @@ void CoreTests::sequenceExport()
     const auto innerFilter = ExportController::mixFilter({3000}, 0, 1, {{0, 0, 1000, 1.0}}, false);
     QVERIFY2(innerFilter.contains("[bed0]apad,atrim=duration=3.000[music]"), qPrintable(innerFilter));
 
+    // Only the part between two markers: 0-4 s at normal speed, then 4-6 s at
+    // double speed (source 1000-5000); the range 3-5 s keeps the end of the
+    // first and the start of the second, and the track and captions follow it.
+    QVariantList rangeClips{QVariantMap{{"inMs", 0}, {"outMs", 4000}},
+                            QVariantMap{{"inMs", 1000}, {"outMs", 5000}, {"speed", 2.0}}};
+    QVariantMap rangeOptions{
+        {"audio", QVariantList{QVariantMap{{"startMs", 2000}, {"inMs", 0}, {"outMs", 3000}, {"fadeInMs", 1500}},
+                               QVariantMap{{"startMs", 5500}, {"inMs", 0}, {"outMs", 500}}}},
+        {"texts", QVariantList{QVariantMap{{"text", "a"}, {"startMs", 0}, {"endMs", 3500}},
+                               QVariantMap{{"text", "b"}, {"startMs", 0}, {"endMs", 3050}}}}};
+    QVERIFY(ExportController::narrowToRange(rangeClips, rangeOptions, 3000, 5000));
+    QCOMPARE(rangeClips.size(), 2);
+    QCOMPARE(rangeClips.at(0).toMap().value("inMs").toLongLong(), 3000);
+    QCOMPARE(rangeClips.at(0).toMap().value("outMs").toLongLong(), 4000);
+    QCOMPARE(rangeClips.at(1).toMap().value("inMs").toLongLong(), 1000);
+    QCOMPARE(rangeClips.at(1).toMap().value("outMs").toLongLong(), 3000);
+    const auto rangeAudio = rangeOptions.value("audio").toList();
+    QCOMPARE(rangeAudio.size(), 1);
+    QCOMPARE(rangeAudio.at(0).toMap().value("startMs").toLongLong(), 0);
+    QCOMPARE(rangeAudio.at(0).toMap().value("inMs").toLongLong(), 1000);
+    QCOMPARE(rangeAudio.at(0).toMap().value("fadeInMs").toLongLong(), 500);
+    const auto rangeTexts = rangeOptions.value("texts").toList();
+    QCOMPARE(rangeTexts.size(), 1);
+    QCOMPARE(rangeTexts.at(0).toMap().value("endMs").toLongLong(), 500);
+    QVariantList tooShort{QVariantMap{{"inMs", 0}, {"outMs", 4000}}};
+    QVariantMap noOptions;
+    QVERIFY(!ExportController::narrowToRange(tooShort, noOptions, 3950, 5000));
+
     // Clip volume, a crossfade and ducked music; the project keeps them.
     const auto musicPath = directory.path() + "/music.wav";
     generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
@@ -711,6 +740,19 @@ void CoreTests::sequenceExport()
     // 1.2 + 1.3 + 1.4 s with two 0.48 s overlaps (limited by the 1.2 s clip).
     const auto mixedDuration = probe.readAllStandardOutput().trimmed().toDouble();
     QVERIFY2(mixedDuration > 2.8 && mixedDuration < 3.1, qPrintable(QString("Unexpected crossfade duration: %1").arg(mixedDuration)));
+
+    // Only 1.3..2.5 s of the timeline: the middle clip, trimmed to 1.2 s.
+    auto markedOptions = project.exportOptions();
+    markedOptions["rangeStartMs"] = 1300;
+    markedOptions["rangeEndMs"] = 2500;
+    const auto rangePath = directory.path() + "/range.mp4";
+    QVERIFY(exporter.startSequence(project.clips(), QUrl::fromLocalFile(rangePath), markedOptions));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+    probe.start(ffprobe, {"-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", rangePath});
+    QVERIFY(probe.waitForFinished(30000));
+    const auto rangeDuration = probe.readAllStandardOutput().trimmed().toDouble();
+    QVERIFY2(rangeDuration > 1.1 && rangeDuration < 1.35, qPrintable(QString("Unexpected range duration: %1").arg(rangeDuration)));
 
     // Fade through black keeps the full length; one muted clip stays silent.
     QVERIFY(project.setTransition("fade"));
@@ -1389,6 +1431,126 @@ void CoreTests::launchArguments()
     request = SingleInstance::parse({ "kadron.exe", "/relaunch", "--verbose" });
     QVERIFY(request.files.isEmpty());
     QVERIFY(request.tool.isEmpty());
+}
+
+void CoreTests::clipLookFreezeChapters()
+{
+    // Filters for turn, crop and colour, in that order.
+    QCOMPARE(ExportController::lookFilter({}), QString());
+    QCOMPARE(ExportController::lookFilter({{"rotation", 90}}), QString("transpose=clock,"));
+    QCOMPARE(ExportController::lookFilter({{"rotation", -90}}), QString("transpose=cclock,"));
+    QCOMPARE(ExportController::lookFilter({{"rotation", 180}, {"cropX", 0.25}, {"cropWidth", 0.5}}),
+             QString("hflip,vflip,crop=w=iw*0.5000:h=ih*1.0000:x=iw*0.2500:y=ih*0.0000,"));
+    QVERIFY(ExportController::lookFilter({{"saturation", -1.0}}).startsWith("eq=brightness=0.0000:contrast=1.0000:saturation=0.0000"));
+
+    const auto metadata = ExportController::chapterMetadata(
+        {QVariantMap{{"startMs", 0}, {"title", "Intro"}}, QVariantMap{{"startMs", 1500}, {"title", "A=b; #1"}}}, 4000);
+    QVERIFY(metadata.startsWith(";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=Intro\n"));
+    QVERIFY(metadata.contains("START=1500\nEND=4000\ntitle=A\\=b\\; \\#1\n"));
+    QCOMPARE(ExportController::chapterMetadata({}, 4000), QString());
+    const auto logo = ExportController::watermarkFilter(QSize(1920, 1080), "logo.png", "top-left", 0.5, 0.1);
+    QVERIFY(logo.startsWith("[base];movie=logo.png,format=rgba,scale=192:-1,colorchannelmixer=aa=0.50[logo];"));
+    QVERIFY(logo.contains("overlay=x=38:y=38"));
+
+    // Subtitles read from SRT and VTT and write back as SRT.
+    const auto cues = TextOverlay::parseSubtitles(
+        "1\n00:00:01,000 --> 00:00:02,500\n<i>Hello</i>\nworld\n\n2\n00:00:03.000 --> 00:00:04.000\nBye\n");
+    QCOMPARE(cues.size(), 2);
+    QCOMPARE(cues.at(0).startMs, 1000);
+    QCOMPARE(cues.at(0).endMs, 2500);
+    QCOMPARE(cues.at(0).text, QString("Hello\nworld"));
+    QCOMPARE(TextOverlay::parseSubtitles("WEBVTT\n\n00:05.000 --> 00:06.000\nShort\n").size(), 1);
+    QVERIFY(TextOverlay::toSrt(cues).startsWith("1\n00:00:01,000 --> 00:00:02,500\nHello\nworld\n\n2\n"));
+
+    const auto ffmpeg = qEnvironmentVariable("KADRON_FFMPEG", "ffmpeg");
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto videoPath = directory.path() + "/video.mp4";
+    QProcess generator;
+    generator.start(ffmpeg, {"-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                             "testsrc2=size=320x180:rate=15", "-f", "lavfi", "-i",
+                             "sine=frequency=440:sample_rate=48000", "-t", "3", "-c:v", "libx264",
+                             "-c:a", "aac", videoPath});
+    QVERIFY(generator.waitForFinished(30000));
+    QCOMPARE(generator.exitCode(), 0);
+    const auto logoPath = directory.path() + "/logo.png";
+    QImage image(64, 32, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QVERIFY(image.save(logoPath));
+
+    EditorProject project;
+    QVERIFY(project.importMedia(QUrl::fromLocalFile(videoPath)));
+    project.setDurationMs(3000);
+    QVERIFY(project.setClipRotation(0, 90));
+    QVERIFY(project.setClipCrop(0, 0, 0, 1, 0.5));
+    QVERIFY(project.setClipColor(0, 0.1, 0.2, -0.3));
+    QVERIFY(project.insertFreeze(0, 1000, 1500));
+    QCOMPARE(project.clipCount(), 3);
+    QCOMPARE(project.activeClipIndex(), 1);
+    QCOMPARE(project.sequenceDurationMs(), 4500);
+    QVERIFY(!project.splitAt(project.inMs() + 50));
+    QVERIFY(project.setClipHold(1, 1000));
+    QCOMPARE(project.sequenceDurationMs(), 4000);
+    const auto still = project.clips().at(1).toMap();
+    QCOMPARE(still.value("holdMs").toLongLong(), 1000);
+    QCOMPARE(still.value("rotation").toInt(), 90);
+    QCOMPARE(still.value("cropHeight").toDouble(), 0.5);
+
+    QVERIFY(project.toggleMarker(1000));
+    QVERIFY(project.toggleMarker(2000));
+    QVERIFY(project.setMarkerName(1, "Freeze over"));
+    QCOMPARE(project.markers(), (QVariantList{1000, 2000}));
+    QCOMPARE(project.chapterList(), QString("0:00 Intro\n0:01 Chapter 2\n0:02 Freeze over"));
+
+    // Everything survives a save.
+    const auto subtitles = directory.path() + "/cues.srt";
+    QFile cueFile(subtitles);
+    QVERIFY(cueFile.open(QIODevice::WriteOnly));
+    cueFile.write("1\n00:00:00,500 --> 00:00:01,500\nCaption\n");
+    cueFile.close();
+    const auto read = EditorProject::readSubtitles(QUrl::fromLocalFile(subtitles));
+    QCOMPARE(read.size(), 1);
+    QCOMPARE(read.first().toMap().value("text").toString(), QString("Caption"));
+    QCOMPARE(read.first().toMap().value("startMs").toLongLong(), 500);
+    QCOMPARE(project.importSubtitles(QUrl::fromLocalFile(subtitles), 1000), 1);
+    QVERIFY(project.exportSubtitles(QUrl::fromLocalFile(directory.path() + "/out.srt")));
+    QFile written(directory.path() + "/out.srt");
+    QVERIFY(written.open(QIODevice::ReadOnly));
+    QVERIFY(written.readAll().contains("00:00:01,500 --> 00:00:02,500"));
+    const auto projectPath = directory.path() + "/look.kadr";
+    QVERIFY(project.saveProject(QUrl::fromLocalFile(projectPath)));
+    EditorProject reopened;
+    QVERIFY(reopened.openProject(QUrl::fromLocalFile(projectPath)));
+    QCOMPARE(reopened.clips(), project.clips());
+    QCOMPARE(reopened.markerItems(), project.markerItems());
+
+    auto options = project.exportOptions();
+    options["watermark"] = QVariantMap{{"path", QUrl::fromLocalFile(logoPath)}, {"corner", "bottom-right"}, {"opacity", 0.7}, {"size", 0.2}};
+    ExportController exporter;
+    const auto outputPath = directory.path() + "/look.mp4";
+    QVERIFY(exporter.startSequence(project.clips(), QUrl::fromLocalFile(outputPath), options));
+    QTRY_VERIFY_WITH_TIMEOUT(!exporter.busy(), 120000);
+    QVERIFY2(exporter.errorText().isEmpty(), qPrintable(exporter.errorText()));
+
+    QProcess probe;
+    probe.start(ffprobeExecutable(), {"-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
+                                      "-show_chapters", "-of", "json", outputPath});
+    QVERIFY(probe.waitForFinished(30000));
+    QCOMPARE(probe.exitCode(), 0);
+    const auto result = QJsonDocument::fromJson(probe.readAllStandardOutput()).object();
+    const auto duration = result.value("format").toObject().value("duration").toString().toDouble();
+    QVERIFY2(duration > 3.8 && duration < 4.3, qPrintable(QString("Unexpected duration: %1").arg(duration)));
+    for (const auto &entry : result.value("streams").toArray()) {
+        const auto stream = entry.toObject();
+        if (stream.value("codec_type") == "video") {
+            // Turned to 180x320, then the top half kept.
+            QCOMPARE(stream.value("width").toInt(), 180);
+            QCOMPARE(stream.value("height").toInt(), 160);
+        }
+    }
+    const auto chapters = result.value("chapters").toArray();
+    QCOMPARE(chapters.size(), 3);
+    QCOMPARE(chapters.at(2).toObject().value("tags").toObject().value("title").toString(), QString("Freeze over"));
 }
 
 QTEST_GUILESS_MAIN(CoreTests)

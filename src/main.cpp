@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
         intro->setProperty("appReady", true);
     }
 
-    if (!launch.files.isEmpty())
+    if (!launch.files.isEmpty() || !launch.tool.isEmpty())
         instance.take(launch, false);
     instance.attach(mainWindow);
 

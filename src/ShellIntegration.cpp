@@ -89,6 +89,14 @@ bool ShellIntegration::copyFile(const QUrl &file)
     return true;
 }
 
+bool ShellIntegration::copyText(const QString &text)
+{
+    if (text.isEmpty())
+        return false;
+    QGuiApplication::clipboard()->setText(text);
+    return true;
+}
+
 bool ShellIntegration::supported() const
 {
 #ifdef Q_OS_WIN

@@ -44,6 +44,8 @@ class EditorProject final : public QObject
     Q_PROPERTY(int activeTextIndex READ activeTextIndex NOTIFY changed)
     // Sequence times (ms) marked with N, kept sorted and saved with the project.
     Q_PROPERTY(QVariantList markers READ markers NOTIFY changed)
+    // The same markers as {atMs, name}; a named marker starts a chapter.
+    Q_PROPERTY(QVariantList markerItems READ markerItems NOTIFY changed)
     // Whether an export needs the full sequence pipeline rather than a plain trim.
     Q_PROPERTY(bool mixed READ mixed NOTIFY changed)
     // True while quiet parts of a clip are being looked for.
@@ -77,7 +79,13 @@ public:
     QVariantList textItems() const;
     int activeTextIndex() const { return m_activeTextIndex; }
     QVariantList markers() const;
+    QVariantList markerItems() const;
     bool mixed() const;
+    // Chapters from the markers, {startMs, title}, the first at 0; empty
+    // without markers. Unnamed ones are "Chapter N".
+    QVariantList chapters() const;
+    // The chapters as a YouTube description list ("0:00 Intro" per line).
+    Q_INVOKABLE QString chapterList() const;
     // Transition and music settings for ExportController::startSequence.
     Q_INVOKABLE QVariantMap exportOptions() const;
 
@@ -95,6 +103,17 @@ public:
     Q_INVOKABLE bool setClipMuted(int index, bool muted);
     // Playback speed, 0.25x to 4x; the clip takes (out - in) / speed on the timeline.
     Q_INVOKABLE bool setClipSpeed(int index, double speed);
+    // Picture adjustments, applied in this order on export: a quarter turn
+    // (0, 90, 180, 270 clockwise), a crop as shares of the turned frame, and
+    // brightness, contrast and saturation from -1 to 1 (0 leaves it alone).
+    Q_INVOKABLE bool setClipRotation(int index, int degrees);
+    Q_INVOKABLE bool setClipCrop(int index, double x, double y, double width, double height);
+    Q_INVOKABLE bool setClipColor(int index, double brightness, double contrast, double saturation);
+    // A still of the frame at sourceMs of clip index, holdMs long (0.2 to
+    // 30 s), placed in the clip at that point (splitting it) and selected.
+    Q_INVOKABLE bool insertFreeze(int index, qint64 sourceMs, qint64 holdMs = 2000);
+    // How long a still clip holds its frame; only for still clips.
+    Q_INVOKABLE bool setClipHold(int index, qint64 holdMs);
     // Replaces one clip with the given source ranges ({inMs, outMs}) as a single undo step.
     Q_INVOKABLE bool replaceClipRanges(int index, const QVariantList &ranges);
     // Cuts the quiet parts out of a clip (below thresholdDb for at least minMs), as one undo step.
@@ -141,6 +160,13 @@ public:
     Q_INVOKABLE bool toggleMarker(qint64 atMs, qint64 toleranceMs = 150);
     Q_INVOKABLE bool removeMarker(int index);
     Q_INVOKABLE void clearMarkers();
+    Q_INVOKABLE bool setMarkerName(int index, const QString &name);
+    // Captions from an SRT or WebVTT file, placed at offsetMs; returns how many
+    // were added (one undo step), or -1 when the file could not be read.
+    Q_INVOKABLE int importSubtitles(const QUrl &url, qint64 offsetMs = 0);
+    Q_INVOKABLE bool exportSubtitles(const QUrl &url);
+    // The cues of an SRT or WebVTT file as text maps, for pages with their own text list.
+    Q_INVOKABLE static QVariantList readSubtitles(const QUrl &url);
     Q_INVOKABLE bool openProject(const QUrl &url);
     // Back to an empty editor: no clips, no project file, no history.
     Q_INVOKABLE void closeProject();
@@ -181,7 +207,17 @@ private:
         double volume = 1.0;
         bool muted = false;
         double speed = 1.0;
-        qint64 lengthMs() const { return qMax<qint64>(0, qRound64((outMs - inMs) / speed)); }
+        // A still clip shows the frame at inMs for holdMs.
+        qint64 holdMs = 0;
+        int rotation = 0;
+        double cropX = 0, cropY = 0, cropWidth = 1, cropHeight = 1;
+        double brightness = 0, contrast = 0, saturation = 0;
+        qint64 lengthMs() const { return holdMs > 0 ? holdMs : qMax<qint64>(0, qRound64((outMs - inMs) / speed)); }
+        bool adjusted() const
+        {
+            return holdMs > 0 || rotation != 0 || cropX > 0 || cropY > 0 || cropWidth < 1 || cropHeight < 1
+                || brightness != 0 || contrast != 0 || saturation != 0;
+        }
     };
     struct AudioItem {
         QUrl mediaUrl;
@@ -201,6 +237,8 @@ private:
         bool musicDuck = true;
         QVector<TextItem> texts;
         QVector<qint64> markers;
+        // Parallel to markers; empty for an unnamed one.
+        QVector<QString> markerNames;
     };
     const Clip *active() const;
     Clip *active();

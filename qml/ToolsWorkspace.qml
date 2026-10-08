@@ -15,6 +15,69 @@ Item {
         var next = Object.assign({}, sources)
         next[section] = url
         sources = next
+        if (section === 3 && !compressRunning) compressBatch = []
+    }
+    // Compress takes several files at once: all of the first file's kind,
+    // each saved next to the others in one folder with these settings.
+    property var compressBatch: []
+    property var compressQueue: []
+    property string compressFolder: ""
+    property int compressTotal: 0
+    property int compressFailed: 0
+    property bool compressRunning: false
+    property bool compressStarting: false
+    property string compressSummary: ""
+    function takeCompressFiles(urls) {
+        var media = /\.(mp4|mov|mkv|webm|avi|m4v|gif)$/i, images = /\.(jpe?g|png|webp|bmp|tiff?)$/i
+        var list = []
+        for (var i = 0; i < urls.length; i++) list.push(urls[i])
+        var kind = images.test(list[0].toString()) ? images : media
+        list = list.filter(function(url) { return kind.test(url.toString()) })
+        if (list.length === 0) return
+        setSource(list[0])
+        compressBatch = list.length > 1 ? list : []
+        compressSummary = ""
+        compressPick = ""
+    }
+    function startCompressBatch(folder) {
+        compressFolder = folder.toString()
+        compressQueue = compressBatch.slice()
+        compressTotal = compressQueue.length
+        compressFailed = 0
+        compressSummary = ""
+        compressRunning = true
+        resultSection = "compress-batch"
+        compressNext()
+    }
+    function compressNext() {
+        if (compressQueue.length === 0) {
+            compressRunning = false
+            var done = compressTotal - compressFailed
+            compressSummary = done + " of " + compressTotal + " files compressed" + (compressFailed > 0 ? " · " + compressFailed + " failed" : "")
+            return
+        }
+        var source = compressQueue[0]
+        compressQueue = compressQueue.slice(1)
+        var base = decodeURIComponent(source.toString().split("/").pop()).replace(/\.[^.]*$/, "")
+        var target = compressFolder + "/" + encodeURIComponent(base + "-compressed") + "." + selectedFormat
+        compressStarting = true
+        if (!localTools.compress(source, target, selectedFormat, compressQuality, compressToSize ? compressMB : 0,
+                                 compressWidth, compressNoAudio.checked)) compressFailed++
+        compressStarting = false
+        if (!localTools.busy) Qt.callLater(compressNext)
+    }
+    function cancelCompressBatch() {
+        compressQueue = []
+        localTools.cancel()
+    }
+    Connections {
+        target: localTools
+        function onChanged() {
+            if (!toolsPage.compressRunning || toolsPage.compressStarting || localTools.busy) return
+            if (localTools.errorText) toolsPage.compressFailed++
+            toolsPage.compressStarting = true
+            Qt.callLater(function() { toolsPage.compressStarting = false; if (!localTools.busy) toolsPage.compressNext() })
+        }
     }
     property var pdfFiles: []
     property string pdfMode: "edit"
@@ -311,6 +374,8 @@ Item {
             var accepted = []
             for (var i = 0; i < urls.length; i++) if (pattern.test(urls[i].toString())) accepted.push(urls[i])
             if (accepted.length > 0) takePdfFiles(accepted)
+        } else if (section === 3) {
+            takeCompressFiles(urls)
         } else {
             setSource(urls[0])
             toolsPage.compressPick = ""
@@ -474,12 +539,18 @@ Item {
     FileDialog {
         id: sourceDialog
         title: "Choose source media"
-        fileMode: FileDialog.OpenFile
+        fileMode: toolsPage.section === 3 ? FileDialog.OpenFiles : FileDialog.OpenFile
         nameFilters: ["Media files (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.flac *.m4a *.ogg *.jpg *.jpeg *.png *.webp *.bmp *.tif *.tiff *.gif)", "All files (*)"]
         onAccepted: {
-            toolsPage.setSource(selectedFile)
+            if (toolsPage.section === 3) toolsPage.takeCompressFiles(selectedFiles)
+            else toolsPage.setSource(selectedFile)
             toolsPage.compressPick = ""
         }
+    }
+    FolderDialog {
+        id: compressFolderDialog
+        title: "Save the compressed files in"
+        onAccepted: toolsPage.startCompressBatch(selectedFolder)
     }
     FileDialog {
         id: localSave
@@ -1062,7 +1133,10 @@ Item {
                         ToolIcon { name: "file"; tint: Theme.accent }
                         Text {
                             Layout.fillWidth: true
-                            text: pageDrop.containsDrag ? "Drop to replace" : decodeURIComponent(toolsPage.filename(toolsPage.sourceUrl))
+                            text: pageDrop.containsDrag ? "Drop to replace"
+                                : toolsPage.section === 3 && toolsPage.compressBatch.length > 1
+                                  ? toolsPage.compressBatch.length + " files · " + decodeURIComponent(toolsPage.filename(toolsPage.sourceUrl)) + " and more"
+                                  : decodeURIComponent(toolsPage.filename(toolsPage.sourceUrl))
                             color: Theme.text
                             font.pixelSize: 13
                             font.weight: Font.Medium
@@ -1523,11 +1597,25 @@ Item {
 
                 ToolCheck { id: compressNoAudio; visible: !toolsPage.isImage; text: "Remove audio"; Layout.topMargin: 4 }
                 EditorButton {
-                    text: "Compress"
+                    objectName: "compressButton"
+                    text: toolsPage.compressBatch.length > 1 ? "Compress " + toolsPage.compressBatch.length + " files…" : "Compress"
                     iconName: "compress"
                     primary: true
-                    enabled: toolsPage.sourceUrl.toString() && localTools.available && !localTools.busy
-                    onClicked: toolsPage.beginLocal("compress")
+                    enabled: toolsPage.sourceUrl.toString() && localTools.available && !localTools.busy && !toolsPage.compressRunning
+                    onClicked: {
+                        if (toolsPage.compressBatch.length < 2) { toolsPage.beginLocal("compress"); return }
+                        var first = toolsPage.compressBatch[0].toString()
+                        compressFolderDialog.currentFolder = first.substring(0, first.lastIndexOf("/"))
+                        compressFolderDialog.open()
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: toolsPage.compressBatch.length < 2 && !toolsPage.compressRunning
+                    text: "Tip: drop or pick several files to compress them all with these settings."
+                    color: Theme.textFaint
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
                 }
             }
 
@@ -2282,12 +2370,33 @@ Item {
                 Layout.topMargin: 8
             }
             RowLayout {
-                visible: toolsPage.section >= 2 && toolsPage.section <= 4 && (localTools.busy || localTools.errorText || localTools.outputUrl.toString())
+                visible: toolsPage.section >= 2 && toolsPage.section <= 4 && (localTools.busy || localTools.errorText || localTools.outputUrl.toString() || (toolsPage.section === 3 && toolsPage.compressSummary.length > 0))
                 Layout.fillWidth: true
                 spacing: 10
-                Text { text: localTools.errorText || localTools.stage; color: localTools.errorText ? Theme.danger : Theme.textSoft; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                Text {
+                    text: toolsPage.section === 3 && (toolsPage.compressRunning || toolsPage.compressSummary)
+                          ? (toolsPage.compressRunning ? "File " + (toolsPage.compressTotal - toolsPage.compressQueue.length) + " of " + toolsPage.compressTotal + " · " + localTools.stage
+                                                       : toolsPage.compressSummary)
+                          : localTools.errorText || localTools.stage
+                    color: localTools.errorText && !toolsPage.compressRunning && !toolsPage.compressSummary ? Theme.danger : Theme.textSoft
+                    font.pixelSize: 12
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
                 Text { text: localTools.busy ? localTools.progress + "%" : localTools.outputUrl.toString() ? toolsPage.sizeLabel(localTools.outputBytes) + (toolsPage.resultSection === "compress" && toolsPage.sourceBytes > localTools.outputBytes && localTools.outputBytes > 0 ? " · " + Math.round((1 - localTools.outputBytes / toolsPage.sourceBytes) * 100) + "% smaller" : "") : ""; color: Theme.textMuted; font.pixelSize: 12 }
-                EditorButton { text: "Cancel"; visible: localTools.busy; danger: true; onClicked: localTools.cancel() }
+                EditorButton {
+                    text: toolsPage.compressRunning ? "Cancel all" : "Cancel"
+                    visible: localTools.busy
+                    danger: true
+                    onClicked: toolsPage.compressRunning ? toolsPage.cancelCompressBatch() : localTools.cancel()
+                }
+                EditorButton {
+                    visible: toolsPage.section === 3 && !toolsPage.compressRunning && toolsPage.compressSummary.length > 0
+                    text: "Open folder"
+                    iconName: "folder"
+                    subtle: true
+                    onClicked: Qt.openUrlExternally(toolsPage.compressFolder)
+                }
             }
             StudioProgress { visible: toolsPage.section >= 2 && toolsPage.section <= 4 && localTools.busy; value: localTools.progress / 100; Layout.fillWidth: true }
             RowLayout {

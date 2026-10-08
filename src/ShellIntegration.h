@@ -41,6 +41,8 @@ public:
     // apps and editors. Still pictures also go on as an image; GIFs stay a
     // file so the paste keeps the animation.
     Q_INVOKABLE static bool copyFile(const QUrl &file);
+    // Plain text onto the clipboard.
+    Q_INVOKABLE static bool copyText(const QString &text);
 
     // `executable` is the kadron.exe the menu should start.
     static bool install(const QString &executable);

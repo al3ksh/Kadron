@@ -1,6 +1,7 @@
 #include "TextOverlay.h"
 
 #include <QColor>
+#include <QRegularExpression>
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
@@ -128,4 +129,70 @@ bool TextOverlay::writeAssets(const QString &directory, const QVector<TextOverla
             return false;
     }
     return true;
+}
+
+QVector<TextOverlay> TextOverlay::parseSubtitles(const QString &content)
+{
+    static const QRegularExpression timing(
+        QStringLiteral(R"((?:(\d+):)?(\d{1,2}):(\d{2})[,.](\d{1,3})\s*-->\s*(?:(\d+):)?(\d{1,2}):(\d{2})[,.](\d{1,3}))"));
+    static const QRegularExpression tags(QStringLiteral(R"(<[^>]*>|\{\\[^}]*\})"));
+    const auto milliseconds = [](const QRegularExpressionMatch &match, int first) {
+        const auto fraction = match.captured(first + 3).leftJustified(3, '0');
+        return ((match.captured(first).toLongLong() * 60 + match.captured(first + 1).toLongLong()) * 60
+                + match.captured(first + 2).toLongLong()) * 1000 + fraction.toLongLong();
+    };
+    QVector<TextOverlay> result;
+    auto text = content;
+    text.remove(QChar(0xfeff));
+    text.replace(QStringLiteral("\r\n"), QStringLiteral("\n")).replace('\r', '\n');
+    const auto blocks = text.split(QRegularExpression(QStringLiteral(R"(\n\s*\n)")), Qt::SkipEmptyParts);
+    for (const auto &block : blocks) {
+        auto lines = block.split('\n');
+        int timeLine = -1;
+        QRegularExpressionMatch match;
+        for (int i = 0; i < lines.size() && i < 3; ++i) {
+            match = timing.match(lines.at(i));
+            if (match.hasMatch()) {
+                timeLine = i;
+                break;
+            }
+        }
+        if (timeLine < 0)
+            continue;
+        QStringList words;
+        for (int i = timeLine + 1; i < lines.size(); ++i) {
+            const auto line = QString(lines.at(i)).remove(tags).trimmed();
+            if (!line.isEmpty())
+                words << line;
+        }
+        TextOverlay overlay;
+        overlay.text = words.join('\n').left(500);
+        overlay.startMs = milliseconds(match, 1);
+        overlay.endMs = milliseconds(match, 5);
+        if (overlay.text.isEmpty() || overlay.endMs - overlay.startMs < 100)
+            continue;
+        overlay.size = 0.05;
+        overlay.y = 0.9;
+        overlay.style = QStringLiteral("box");
+        result << overlay;
+        if (result.size() >= 1000)
+            break;
+    }
+    return result;
+}
+
+QString TextOverlay::toSrt(QVector<TextOverlay> texts)
+{
+    std::stable_sort(texts.begin(), texts.end(), [](const auto &a, const auto &b) { return a.startMs < b.startMs; });
+    const auto time = [](qint64 ms) {
+        ms = qMax<qint64>(0, ms);
+        return QStringLiteral("%1:%2:%3,%4").arg(ms / 3600000, 2, 10, QChar('0')).arg(ms / 60000 % 60, 2, 10, QChar('0'))
+            .arg(ms / 1000 % 60, 2, 10, QChar('0')).arg(ms % 1000, 3, 10, QChar('0'));
+    };
+    QString result;
+    for (int i = 0; i < texts.size(); ++i) {
+        const auto &text = texts.at(i);
+        result += QStringLiteral("%1\n%2 --> %3\n%4\n\n").arg(i + 1).arg(time(text.startMs), time(text.endMs), text.text.trimmed());
+    }
+    return result;
 }
