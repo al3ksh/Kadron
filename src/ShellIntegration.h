@@ -43,6 +43,10 @@ public:
     Q_INVOKABLE static bool copyFile(const QUrl &file);
     // Plain text onto the clipboard.
     Q_INVOKABLE static bool copyText(const QString &text);
+    // Moves `original` to the Recycle Bin and renames `replacement` to the
+    // original's name (keeping its own suffix). Returns where the replacement
+    // ends up, or an empty URL when the original couldn't be moved.
+    Q_INVOKABLE static QUrl replaceFile(const QUrl &original, const QUrl &replacement);
 
     // `executable` is the kadron.exe the menu should start.
     static bool install(const QString &executable);

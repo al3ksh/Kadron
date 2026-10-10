@@ -136,11 +136,23 @@ void UiTests::timelineInteractions()
     QCOMPARE(trim.count(), 0);
     QCOMPARE(timeline->property("trimIndex").toInt(), 0);
     QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(345, 100));
+    // Released, the trim waits for confirmation; Enter applies it.
+    QCOMPARE(trim.count(), 0);
+    QVERIFY(timeline->property("trimPending").toBool());
+    // The pending edge can be grabbed where it now sits and nudged further.
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(345, 100));
+    QTest::mouseMove(&window, QPoint(350, 100));
+    QTest::mouseMove(&window, QPoint(355, 100));
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(355, 100));
+    QVERIFY(timeline->property("trimPending").toBool());
+    QCOMPARE(trim.count(), 0);
+    QTest::keyClick(&window, Qt::Key_Return);
     QCOMPARE(trim.count(), 1);
+    QVERIFY(!timeline->property("trimPending").toBool());
     QCOMPARE(timeline->property("trimIndex").toInt(), -1);
     QCOMPARE(trim.last().at(0).toInt(), 0);
     QCOMPARE(trim.last().at(1).toDouble(), 0.0);
-    QVERIFY(qAbs(trim.last().at(2).toDouble() - 3500.0) < 20);
+    QVERIFY(qAbs(trim.last().at(2).toDouble() - 3600.0) < 20);
 
     // Escape abandons a trim in progress.
     trim.clear();
@@ -151,12 +163,24 @@ void UiTests::timelineInteractions()
     QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(345, 100));
     QCOMPARE(trim.count(), 0);
 
+    // Escape also drops a released trim that waits for confirmation.
+    QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(395, 100));
+    QTest::mouseMove(&window, QPoint(370, 100));
+    QTest::mouseMove(&window, QPoint(345, 100));
+    QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(345, 100));
+    QVERIFY(timeline->property("trimPending").toBool());
+    QTest::keyClick(&window, Qt::Key_Escape);
+    QVERIFY(!timeline->property("trimPending").toBool());
+    QCOMPARE(timeline->property("trimIndex").toInt(), -1);
+    QCOMPARE(trim.count(), 0);
+
     // Dragging the leading edge of clip B trims its in point.
     trim.clear();
     QTest::mousePress(&window, Qt::LeftButton, {}, QPoint(405, 100));
     QTest::mouseMove(&window, QPoint(425, 100));
     QTest::mouseMove(&window, QPoint(455, 100));
     QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(455, 100));
+    QTest::keyClick(&window, Qt::Key_Return);
     QCOMPARE(trim.last().at(0).toInt(), 1);
     QVERIFY(qAbs(trim.last().at(1).toDouble() - 500.0) < 20);
     QCOMPARE(trim.last().at(2).toDouble(), 4000.0);

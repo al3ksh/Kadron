@@ -29,6 +29,8 @@ ApplicationWindow {
     property int currentClipIndex: -1
     property string editSignature: ""
     property bool sequencePlaying: false
+    // Source time where playing a pending trim stops, or -1.
+    property real trimPlayStopMs: -1
     property bool sequenceAdvancing: false
     property int pendingCueIndex: -1
     // Source position to land on once a newly selected clip is cued; -1 means its in point.
@@ -340,9 +342,20 @@ ApplicationWindow {
     // Keyboard seeking: pauses, jumps by `deltaMs` on the sequence, like one scrub step.
     function nudgeSequence(deltaMs) {
         beginScrub(Math.max(0, Math.min(editorProject.sequenceDurationMs - 1, sequencePositionMs + deltaMs)))
+        endScrub()
+    }
+    // A seek made while playing carries on playing from the new spot once the
+    // mouse lets go; dragging the playhead pauses in between.
+    property bool scrubResume: false
+    function endScrub() {
         scrubbing = false
+        if (!scrubResume) return
+        scrubResume = false
+        if (pendingCueIndex >= 0) { sequencePlaying = true; return }
+        if (!previewPlaying) togglePlayback()
     }
     function beginScrub(ms) {
+        if (!scrubbing) scrubResume = previewPlaying
         if (sequencePlaying || player.playbackState === MediaPlayer.PlayingState) {
             sequencePlaying = false
             sequenceAdvancing = false
@@ -702,9 +715,7 @@ ApplicationWindow {
         enabled: root.keyboardSeek
         autoRepeat: true
         onActivated: {
-            var resume = root.previewPlaying
             root.nudgeSequence(-5000)
-            if (resume) root.togglePlayback()
         }
     }
     Shortcut { sequence: "K"; enabled: root.keyboardSeek && root.previewPlaying; onActivated: root.togglePlayback() }
@@ -769,7 +780,7 @@ ApplicationWindow {
         }
         if (target < 0) return
         root.beginScrub(target)
-        root.scrubbing = false
+        root.endScrub()
     }
     Shortcut { sequence: "Ctrl+K"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.splitAt(player.position) }
 
@@ -928,7 +939,46 @@ ApplicationWindow {
                  inMs: range ? editorProject.inMs + range.startMs : editorProject.inMs,
                  outMs: range ? editorProject.inMs + range.endMs : editorProject.outMs, options: options }
     }
+    // The one file a finished export was cut from, or "" when it mixed several.
+    property url exportSourceUrl: ""
+    function singleSource(job) {
+        if (!job.mixed) return job.mediaUrl
+        var first = job.clips.length > 0 ? job.clips[0].url.toString() : ""
+        for (var i = 1; i < job.clips.length; i++) if (job.clips[i].url.toString() !== first) return ""
+        return first
+    }
+    readonly property bool canReplaceSource: exportSourceUrl.toString().length > 0 && !exporter.busy && !exporter.errorText
+                                             && exporter.outputUrl.toString().length > 0 && exporter.outputUrl.toString() !== exportSourceUrl.toString()
+                                             && editorProject.fileExists(exportSourceUrl) && editorProject.fileExists(exporter.outputUrl)
+    // The player lets go of the file first, so Windows allows moving it.
+    property bool releasingMedia: false
+    function replaceSource() {
+        var original = exportSourceUrl, replacement = exporter.outputUrl
+        stopSequence()
+        releasingMedia = true
+        replaceTimer.original = original
+        replaceTimer.replacement = replacement
+        replaceTimer.start()
+    }
+    Timer {
+        id: replaceTimer
+        property url original
+        property url replacement
+        interval: 400
+        onTriggered: {
+            var result = shellIntegration.replaceFile(original, replacement)
+            root.releasingMedia = false
+            if (result.toString().length === 0) {
+                root.notice = "Couldn't move the original to the Recycle Bin · it may be open in another app"
+                return
+            }
+            root.exportSourceUrl = ""
+            editorProject.importMedia(result)
+            root.notice = "Original replaced · " + decodeURIComponent(result.toString().replace(/^.*\//, "")) + " is open in the editor"
+        }
+    }
     function runExportJob(job) {
+        exportSourceUrl = singleSource(job)
         if (job.lossless) exporter.start(job.mediaUrl, job.target, job.inMs, job.outMs, { copy: true })
         else if (job.mixed) exporter.startSequence(job.clips, job.target, job.options)
         else exporter.start(job.mediaUrl, job.target, job.inMs, job.outMs, job.options)
@@ -1139,6 +1189,16 @@ ApplicationWindow {
         EditorButton { text: "Cancel"; subtle: true; onClicked: exportSheet.close() }
     }
     StudioDialog {
+        id: replaceSourceDialog
+        objectName: "replaceSourceDialog"
+        heading: "Replace the original?"
+        message: decodeURIComponent(root.exportSourceUrl.toString().replace(/^.*\//, "")) + " goes to the Recycle Bin and the export takes its name. "
+                 + "The editor then opens the new file; your edits are already in it."
+        iconName: "file"
+        EditorButton { text: "Replace"; primary: true; onClicked: { replaceSourceDialog.close(); root.replaceSource() } }
+        EditorButton { text: "Cancel"; subtle: true; onClicked: replaceSourceDialog.close() }
+    }
+    StudioDialog {
         id: markerNameDialog
         objectName: "markerNameDialog"
         heading: "Name the marker"
@@ -1297,14 +1357,19 @@ ApplicationWindow {
     MediaPlayer {
         id: player
         objectName: "editorPlayer"
-        source: editorProject.mediaUrl
+        source: root.releasingMedia ? "" : editorProject.mediaUrl
         audioOutput: AudioOutput { volume: editorVolume.effectiveVolume * root.clipGain * (editorProject.transition === "fade" ? 1 - root.transitionDim : 1) }
         videoOutput: videoOutput
-        onPlaybackStateChanged: { root.applySpeed(); root.syncMusic() }
+        onPlaybackStateChanged: {
+            if (playbackState !== MediaPlayer.PlayingState) root.trimPlayStopMs = -1
+            root.applySpeed()
+            root.syncMusic()
+        }
         onDurationChanged: function(duration) { if (source.toString() === editorProject.mediaUrl.toString()) editorProject.setDurationMs(duration) }
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) root.finishCue()
         onPositionChanged: {
             if (playbackState === MediaPlayer.PlayingState && root.stillActive) pause()
+            else if (root.trimPlayStopMs >= 0) { if (playbackState === MediaPlayer.PlayingState && position >= root.trimPlayStopMs) pause() }
             else if (playbackState === MediaPlayer.PlayingState && editorProject.outMs > editorProject.inMs && position >= editorProject.outMs) {
                 if (root.sequencePlaying) root.advanceSequence()
                 else pause()
@@ -2546,6 +2611,18 @@ ApplicationWindow {
                             }
                             CopyButton { compact: true; file: exporter.outputUrl }
                         }
+                        EditorButton {
+                            objectName: "replaceSourceButton"
+                            Layout.fillWidth: true
+                            visible: root.canReplaceSource && exportResultRow.visible
+                            text: "Replace original…"
+                            iconName: "file"
+                            subtle: true
+                            onClicked: replaceSourceDialog.open()
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: "Move " + decodeURIComponent(root.exportSourceUrl.toString().replace(/^.*\//, "")) + " to the Recycle Bin and give the export its name"
+                        }
                     }
 
                     ColumnLayout {
@@ -2702,7 +2779,7 @@ ApplicationWindow {
                     onTextAddRequested: function(startMs) { root.addTextAt(startMs) }
                     onTextEditRequested: function(index) { root.typeText(index) }
                     onScrubRequested: function(ms) { root.beginScrub(ms) }
-                    onScrubFinished: root.scrubbing = false
+                    onScrubFinished: root.endScrub()
                     onSelectRequested: function(index) {
                         root.sequencePlaying = false
                         root.sequenceAdvancing = false
@@ -2716,6 +2793,14 @@ ApplicationWindow {
                     }
                     onTrimPreviewRequested: function(index, sourceMs) {
                         if (index === editorProject.activeClipIndex) root.requestSourceSeek(sourceMs)
+                    }
+                    onTrimPlayRequested: function(index, fromMs, toMs) {
+                        if (index !== editorProject.activeClipIndex || root.stillActive) return
+                        root.sequencePlaying = false
+                        root.sequenceAdvancing = false
+                        root.trimPlayStopMs = toMs
+                        root.requestSourceSeek(fromMs)
+                        player.play()
                     }
                     onMoveRequested: function(from, to) { editorProject.moveClipTo(from, to) }
                     onSplitRequested: editorProject.splitAt(player.position)

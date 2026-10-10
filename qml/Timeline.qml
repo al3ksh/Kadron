@@ -33,6 +33,8 @@ FocusScope {
     signal trimRequested(int index, real inMs, real outMs, real previewMs)
     signal trimPreviewRequested(int index, real sourceMs)
     signal trimFinished()
+    // Plays the source range fromMs..toMs of a clip with a pending trim.
+    signal trimPlayRequested(int index, real fromMs, real toMs)
     signal moveRequested(int from, int to)
     signal splitRequested()
     signal duplicateRequested(int index)
@@ -88,13 +90,33 @@ FocusScope {
     readonly property real fitPxPerMs: totalMs > 0 ? flick.width * zoom / totalMs : 0
     readonly property real pxPerMs: fitPxPerMs
 
-    // Trimming is previewed: the sequence stays put while an edge is dragged and
-    // the change is committed on release (Escape cancels).
+    // Trimming is previewed: the sequence stays put while an edge is dragged, and
+    // after release the new edge waits to be applied (Enter) or dropped (Escape).
     property int trimIndex: -1
     property bool trimLeading: false
     property real trimInMs: 0
     property real trimOutMs: 0
-    function cancelTrim() { trimIndex = -1; audioEditIndex = -1; audioFadeIndex = -1; textEditIndex = -1; snapGuideMs = -1 }
+    property bool trimPending: false
+    function cancelTrim() {
+        var clip = trimPending ? clips[trimIndex] : null
+        if (clip) trimPreviewRequested(trimIndex, trimLeading ? clip.inMs : Math.max(clip.inMs, clip.outMs - 40))
+        trimPending = false
+        trimIndex = -1; audioEditIndex = -1; audioFadeIndex = -1; textEditIndex = -1; snapGuideMs = -1
+    }
+    function applyTrim() {
+        if (!trimPending || trimIndex < 0) return
+        var index = trimIndex
+        var preview = trimLeading ? trimInMs : Math.max(trimInMs, trimOutMs - 40)
+        trimPending = false
+        trimIndex = -1
+        trimRequested(index, trimInMs, trimOutMs, preview)
+    }
+    function playTrim() {
+        if (!trimPending || trimIndex < 0) return
+        if (trimLeading) trimPlayRequested(trimIndex, trimInMs, Math.min(trimOutMs, trimInMs + 3000))
+        else trimPlayRequested(trimIndex, Math.max(trimInMs, trimOutMs - 3000), trimOutMs)
+    }
+    onClipsChanged: if (trimPending) { trimPending = false; trimIndex = -1 }
 
     // Caption being moved or trimmed, committed on release.
     property int textEditIndex: -1
@@ -205,6 +227,8 @@ FocusScope {
         else if (event.key === Qt.Key_Home) timeline.scrubRequested(0)
         else if (event.key === Qt.Key_End) timeline.scrubRequested(totalMs)
         else if (event.key === Qt.Key_Escape && (trimIndex >= 0 || audioEditIndex >= 0 || textEditIndex >= 0)) { cancelTrim(); event.accepted = true; return }
+        else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && trimPending) { applyTrim(); event.accepted = true; return }
+        else if (event.key === Qt.Key_Space && trimPending) { playTrim(); event.accepted = true; return }
         else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && textIndex >= 0) timeline.textRemoveRequested(textIndex)
         else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && audioIndex >= 0) timeline.audioRemoveRequested(audioIndex)
         else if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && clips.length > 1) timeline.removeRequested(activeIndex)
@@ -489,22 +513,70 @@ FocusScope {
                                 height: parent.height
                                 color: Theme.accent
                             }
-                            Rectangle {
-                                x: Math.max(-block.x, trimPreview.edgeX - width / 2)
+                            Row {
+                                x: Math.max(-block.x, timeline.trimPending && !timeline.trimLeading ? trimPreview.edgeX - width + trimLabelBox.width / 2 : trimPreview.edgeX - trimLabelBox.width / 2)
                                 y: parent.height - height - 6
-                                width: trimLabel.implicitWidth + 14
-                                height: 20
-                                radius: 5
-                                color: Theme.accent
-                                Text {
-                                    id: trimLabel
-                                    anchors.centerIn: parent
-                                    text: (timeline.trimLeading ? "In " : "Out ") + timeline.timeLabel(timeline.trimLeading ? timeline.trimInMs : timeline.trimOutMs, true)
-                                          + "  " + (trimPreview.deltaMs >= 0 ? "+" : "\u2212") + (Math.abs(trimPreview.deltaMs) / 1000).toFixed(2) + " s"
-                                    color: Theme.accentInk
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 10
-                                    font.weight: Font.DemiBold
+                                spacing: 3
+                                layoutDirection: timeline.trimLeading ? Qt.LeftToRight : Qt.RightToLeft
+                                Rectangle {
+                                    id: trimLabelBox
+                                    width: trimLabel.implicitWidth + 14
+                                    height: 20
+                                    radius: 5
+                                    color: Theme.accent
+                                    Text {
+                                        id: trimLabel
+                                        anchors.centerIn: parent
+                                        text: (timeline.trimLeading ? "In " : "Out ") + timeline.timeLabel(timeline.trimLeading ? timeline.trimInMs : timeline.trimOutMs, true)
+                                              + "  " + (trimPreview.deltaMs >= 0 ? "+" : "\u2212") + (Math.abs(trimPreview.deltaMs) / 1000).toFixed(2) + " s"
+                                        color: Theme.accentInk
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 10
+                                        font.weight: Font.DemiBold
+                                    }
+                                }
+                                // Pending trim: nothing changes until it is applied.
+                                Repeater {
+                                    model: timeline.trimPending && trimPreview.shown ? [
+                                        { label: "\u25B6 Preview", tip: "Play the clip at the new edge (Space)", act: "play" },
+                                        { label: "\u2713 Apply", tip: "Apply the trim (Enter)", act: "apply" },
+                                        { label: "\u2715", tip: "Cancel the trim (Esc)", act: "cancel" }
+                                    ] : []
+                                    delegate: Rectangle {
+                                        id: trimAction
+                                        required property var modelData
+                                        width: trimActionText.implicitWidth + 14
+                                        height: 20
+                                        radius: 5
+                                        color: modelData.act === "apply" ? (trimActionMouse.containsMouse ? Qt.lighter(Theme.accent, 1.15) : Theme.accent)
+                                                                         : (trimActionMouse.containsMouse ? Theme.hover : Theme.control)
+                                        border.width: modelData.act === "apply" ? 0 : 1
+                                        border.color: Theme.accent
+                                        Text {
+                                            id: trimActionText
+                                            anchors.centerIn: parent
+                                            text: trimAction.modelData.label
+                                            color: trimAction.modelData.act === "apply" ? Theme.accentInk : Theme.text
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 10
+                                            font.weight: Font.DemiBold
+                                        }
+                                        MouseArea {
+                                            id: trimActionMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                timeline.forceActiveFocus()
+                                                if (trimAction.modelData.act === "apply") timeline.applyTrim()
+                                                else if (trimAction.modelData.act === "play") timeline.playTrim()
+                                                else timeline.cancelTrim()
+                                            }
+                                            ToolTip.visible: containsMouse
+                                            ToolTip.delay: 400
+                                            ToolTip.text: trimAction.modelData.tip
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -516,20 +588,31 @@ FocusScope {
                                 required property int index
                                 readonly property bool leading: index === 0
                                 visible: !block.still
-                                x: leading ? 0 : block.width - width
+                                // While this edge is being trimmed, the handle sits on the new
+                                // edge, so a pending trim can be grabbed again and fine-tuned.
+                                readonly property bool following: timeline.trimIndex === block.index && timeline.trimLeading === leading
+                                x: following ? trimPreview.edgeX - width / 2 : leading ? 0 : block.width - width
                                 width: Math.min(12, block.width / 3)
                                 height: block.height
                                 hoverEnabled: true
                                 preventStealing: true
                                 cursorShape: Qt.SizeHorCursor
                                 property real pressX: 0
+                                property real baseMs: 0
                                 onPressed: function(mouse) {
                                     timeline.forceActiveFocus()
                                     if (!block.active) timeline.selectRequested(block.index)
                                     pressX = mapToItem(timeline, mouse.x, 0).x
-                                    timeline.trimLeading = leading
-                                    timeline.trimInMs = block.clip.inMs
-                                    timeline.trimOutMs = block.clip.outMs
+                                    // Grabbing the pending edge again carries on from where it was left.
+                                    var resume = timeline.trimPending && timeline.trimIndex === block.index && timeline.trimLeading === leading
+                                    if (!resume) {
+                                        if (timeline.trimPending) timeline.cancelTrim()
+                                        timeline.trimLeading = leading
+                                        timeline.trimInMs = block.clip.inMs
+                                        timeline.trimOutMs = block.clip.outMs
+                                    }
+                                    baseMs = leading ? timeline.trimInMs : timeline.trimOutMs
+                                    timeline.trimPending = false
                                     timeline.trimIndex = block.index
                                 }
                                 onPositionChanged: function(mouse) {
@@ -537,19 +620,18 @@ FocusScope {
                                     var delta = (mapToItem(timeline, mouse.x, 0).x - pressX) / Math.max(block.srcPxPerMs, 0.0001)
                                     var minimum = Math.min(100, block.clip.durationMs)
                                     if (leading) {
-                                        timeline.trimInMs = Math.round(Math.max(0, Math.min(block.clip.outMs - minimum, block.clip.inMs + delta)))
+                                        timeline.trimInMs = Math.round(Math.max(0, Math.min(block.clip.outMs - minimum, baseMs + delta)))
                                         timeline.trimPreviewRequested(block.index, timeline.trimInMs)
                                     } else {
-                                        timeline.trimOutMs = Math.round(Math.max(block.clip.inMs + minimum, Math.min(block.clip.durationMs, block.clip.outMs + delta)))
+                                        timeline.trimOutMs = Math.round(Math.max(block.clip.inMs + minimum, Math.min(block.clip.durationMs, baseMs + delta)))
                                         timeline.trimPreviewRequested(block.index, Math.max(block.clip.inMs, timeline.trimOutMs - 40))
                                     }
                                 }
                                 onReleased: {
                                     if (timeline.trimIndex === block.index) {
                                         var changed = timeline.trimInMs !== block.clip.inMs || timeline.trimOutMs !== block.clip.outMs
-                                        var preview = leading ? timeline.trimInMs : Math.max(timeline.trimInMs, timeline.trimOutMs - 40)
-                                        timeline.trimIndex = -1
-                                        if (changed) timeline.trimRequested(block.index, timeline.trimInMs, timeline.trimOutMs, preview)
+                                        if (changed) timeline.trimPending = true
+                                        else timeline.trimIndex = -1
                                     }
                                     timeline.trimFinished()
                                 }

@@ -17,9 +17,9 @@
 
 **Editor.** Build an ordered sequence of video and audio clips. Every clip sits on the timeline as a block with its filmstrip and waveform:
 
-- Drag a block's edge to trim it; the monitor previews the new frame, and the cut stays reversible until you release.
+- Drag a block's edge to trim it; the monitor previews the new frame. Nothing changes until you confirm: **Preview** plays the clip at the new edge, the edge can be dragged again to fine-tune it, and **Apply** (Enter) or **✕** (Esc) settles it.
 - Drag blocks to reorder them, split at the playhead, and undo or redo any edit.
-- Scrubbing lands on the exact frame, and playback runs across the whole sequence.
+- Scrubbing lands on the exact frame, and playback runs across the whole sequence. Clicking the timeline while it plays jumps there and keeps playing.
 - Set each clip's volume (up to 200%) or mute it, play it at 0.5× to 2×, and let clips meet with a cut, a fade through black or a crossfade.
 - **Remove silence** cuts the quiet stretches out of a clip in one step.
 - Put text over the video: drag a caption where it should sit, stretch it on its own track for as long as it shows, and pick a font and an outline, box or shadow. Import captions from an SRT or VTT file, or save the text track as SRT.
@@ -29,7 +29,7 @@
 - Lay music and sounds on the audio track under the clips: drop in as many files as you like, drag each to where it should play (it snaps to joins, the playhead and other sounds), trim its edges and drag its corners to fade it in and out. Each has its own volume, the track can duck under the clips' own sound, and anything still playing at the end fades out.
 - Export the sequence as MP4 on the GPU (NVIDIA NVENC, Intel Quick Sync or AMD AMF, whichever works on your machine) or on the CPU. If the GPU encoder fails mid-export, Kadron finishes on the CPU. Projects are saved as `.kadr` files.
 - Start another export while one runs and it waits in a queue. A logo picked in Settings can go in a corner of every export, and it can be switched off there.
-- When the playhead sits between markers, the export can take only that part. A single trimmed clip can also be cut without re-encoding: instant and lossless, starting at the nearest keyframe.
+- When the playhead sits between markers, the export can take only that part. A single trimmed clip can also be cut without re-encoding: instant and lossless, starting at the nearest keyframe. **Replace original…** then moves the source file to the Recycle Bin and gives the export its name.
 - Preview volume is shared by the editor and the tools, and remembered.
 - If Kadron closes unexpectedly, unsaved work (copied aside a minute after each edit) is offered back at the next start.
 

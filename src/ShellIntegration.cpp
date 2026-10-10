@@ -7,6 +7,7 @@
 #include <QMimeData>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QSettings>
 
@@ -64,6 +65,24 @@ void ShellIntegration::reveal(const QUrl &file)
     }
 #endif
     QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+}
+
+QUrl ShellIntegration::replaceFile(const QUrl &original, const QUrl &replacement)
+{
+    if (!original.isLocalFile() || !replacement.isLocalFile())
+        return {};
+    const QFileInfo source(original.toLocalFile());
+    const QFileInfo result(replacement.toLocalFile());
+    if (!source.exists() || !result.exists() || source.absoluteFilePath() == result.absoluteFilePath())
+        return {};
+    QFile file(source.absoluteFilePath());
+    if (!file.moveToTrash())
+        return {};
+    const QString target = source.absolutePath() + QLatin1Char('/') + source.completeBaseName()
+        + (result.suffix().isEmpty() ? QString() : QLatin1Char('.') + result.suffix());
+    if (!QFileInfo::exists(target) && QFile::rename(result.absoluteFilePath(), target))
+        return QUrl::fromLocalFile(target);
+    return QUrl::fromLocalFile(result.absoluteFilePath());
 }
 
 bool ShellIntegration::copyFile(const QUrl &file)
