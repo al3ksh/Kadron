@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -21,29 +23,29 @@ ColumnLayout {
                 required property var modelData
                 text: modelData[1]
                 iconName: modelData[2]
-                primary: page.pdfMode === modelData[0]
-                subtle: page.pdfMode !== modelData[0]
-                onClicked: page.setPdfMode(modelData[0])
+                primary: pdfPanel.page.pdfMode === modelData[0]
+                subtle: pdfPanel.page.pdfMode !== modelData[0]
+                onClicked: pdfPanel.page.setPdfMode(modelData[0])
             }
         }
     }
     DropZone {
-        visible: page.pdfFiles.length === 0
+        visible: pdfPanel.page.pdfFiles.length === 0
         Layout.fillWidth: true
         implicitHeight: 220
-        active: page.dropArea.containsDrag
-        iconName: page.pdfMode === "images-to-pdf" ? "drop" : "pdf"
-        heading: page.pdfMode === "images-to-pdf" ? "Drop images to combine" : page.pdfMode === "merge" ? "Drop the PDFs to merge" : "Drop a PDF"
-        formats: page.pdfMode === "images-to-pdf" ? "JPG · PNG · WEBP · BMP · TIFF" : page.pdfMode === "edit" ? "PDF · reorder, rotate and remove pages visually" : "PDF"
-        onBrowseRequested: page.pdfPicker.open()
+        active: pdfPanel.page.dropArea.containsDrag
+        iconName: pdfPanel.page.pdfMode === "images-to-pdf" ? "drop" : "pdf"
+        heading: pdfPanel.page.pdfMode === "images-to-pdf" ? "Drop images to combine" : pdfPanel.page.pdfMode === "merge" ? "Drop the PDFs to merge" : "Drop a PDF"
+        formats: pdfPanel.page.pdfMode === "images-to-pdf" ? "JPG · PNG · WEBP · BMP · TIFF" : pdfPanel.page.pdfMode === "edit" ? "PDF · reorder, rotate and remove pages visually" : "PDF"
+        onBrowseRequested: pdfPanel.page.pdfPicker.open()
     }
     Rectangle {
-        visible: page.pdfFiles.length > 0 && !page.pdfUsesBoard
+        visible: pdfPanel.page.pdfFiles.length > 0 && !pdfPanel.page.pdfUsesBoard
         Layout.fillWidth: true
         implicitHeight: 54
         radius: Theme.radius
-        color: page.dropArea.containsDrag ? Theme.accentWash : Theme.field
-        border.color: page.dropArea.containsDrag ? Theme.accent : Theme.line
+        color: pdfPanel.page.dropArea.containsDrag ? Theme.accentWash : Theme.field
+        border.color: pdfPanel.page.dropArea.containsDrag ? Theme.accent : Theme.line
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 14
@@ -52,44 +54,44 @@ ColumnLayout {
             ToolIcon { name: "pdf"; tint: Theme.accent }
             Text {
                 Layout.fillWidth: true
-                text: page.dropArea.containsDrag ? "Drop to replace" : page.pdfFiles.map(function(file) { return decodeURIComponent(page.filename(file)) }).join(", ")
+                text: pdfPanel.page.dropArea.containsDrag ? "Drop to replace" : pdfPanel.page.pdfFiles.map(function(file) { return decodeURIComponent(page.filename(file)) }).join(", ")
                 color: Theme.text
                 font.pixelSize: 13
                 elide: Text.ElideMiddle
             }
             Text {
-                text: page.pdfMode === "edit" ? (Core.localPdf.loadingPages ? "Reading pages…" : Core.localPdf.pageImages.length + " pages")
-                      : page.pdfFiles.length + (page.pdfFiles.length === 1 ? " file" : " files")
+                text: pdfPanel.page.pdfMode === "edit" ? (Core.localPdf.loadingPages ? "Reading pages…" : Core.localPdf.pageImages.length + " pages")
+                      : pdfPanel.page.pdfFiles.length + (pdfPanel.page.pdfFiles.length === 1 ? " file" : " files")
                 color: Theme.textMuted
                 font.pixelSize: 11
             }
-            EditorButton { text: "Change"; subtle: true; onClicked: page.pdfPicker.open() }
-            EditorButton { iconName: "close"; subtle: true; enabled: !Core.localPdf.busy; onClicked: page.pdfFiles = [] }
+            EditorButton { text: "Change"; subtle: true; onClicked: pdfPanel.page.pdfPicker.open() }
+            EditorButton { iconName: "close"; subtle: true; enabled: !Core.localPdf.busy; onClicked: pdfPanel.page.pdfFiles = [] }
         }
     }
-    Text { visible: !Core.localPdf.qpdfAvailable && page.pdfMode !== "images-to-pdf"; text: "Install qpdf locally or set KADRON_QPDF for this operation."; color: Theme.warning; font.pixelSize: 12 }
-    Text { visible: page.pdfMode === "edit" && Core.localPdf.pagesError.length > 0; text: Core.localPdf.pagesError; color: Theme.danger; font.pixelSize: 12 }
+    Text { visible: !Core.localPdf.qpdfAvailable && pdfPanel.page.pdfMode !== "images-to-pdf"; text: "Install qpdf locally or set KADRON_QPDF for this operation."; color: Theme.warning; font.pixelSize: 12 }
+    Text { visible: pdfPanel.page.pdfMode === "edit" && Core.localPdf.pagesError.length > 0; text: Core.localPdf.pagesError; color: Theme.danger; font.pixelSize: 12 }
 
     // Visual page editor.
     RowLayout {
-        visible: page.pdfMode === "edit" && page.pdfPageModel.count > 0
+        visible: pdfPanel.page.pdfMode === "edit" && pdfPanel.page.pdfPageModel.count > 0
         Layout.fillWidth: true
         spacing: 6
         Text {
             Layout.fillWidth: true
-            text: page.pdfPageModel.count + " pages" + (page.pdfSelected > 0 ? " · " + page.pdfSelected + " selected" : " · click to select, drag to reorder, double-click to preview")
+            text: pdfPanel.page.pdfPageModel.count + " pages" + (pdfPanel.page.pdfSelected > 0 ? " · " + pdfPanel.page.pdfSelected + " selected" : " · click to select, drag to reorder, double-click to preview")
             color: Theme.textMuted
             font.pixelSize: 12
             elide: Text.ElideRight
         }
-        EditorButton { text: page.pdfSelected === page.pdfPageModel.count ? "Select none" : "Select all"; subtle: true; onClicked: page.selectAllPages(page.pdfSelected !== page.pdfPageModel.count) }
-        EditorButton { iconName: "rotateLeft"; subtle: true; enabled: page.pdfSelected > 0; onClicked: page.rotateSelected(-90); ToolTip.visible: hovered; ToolTip.text: "Rotate selected left" }
-        EditorButton { iconName: "rotateRight"; subtle: true; enabled: page.pdfSelected > 0; onClicked: page.rotateSelected(90); ToolTip.visible: hovered; ToolTip.text: "Rotate selected right" }
-        EditorButton { iconName: "trash"; subtle: true; danger: true; enabled: page.pdfSelected > 0 && page.pdfSelected < page.pdfPageModel.count; onClicked: page.deleteSelected(); ToolTip.visible: hovered; ToolTip.text: "Remove selected pages" }
-        EditorButton { text: "Reset"; subtle: true; enabled: page.pdfEdited; onClicked: page.resetPages() }
+        EditorButton { text: pdfPanel.page.pdfSelected === pdfPanel.page.pdfPageModel.count ? "Select none" : "Select all"; subtle: true; onClicked: pdfPanel.page.selectAllPages(pdfPanel.page.pdfSelected !== pdfPanel.page.pdfPageModel.count) }
+        EditorButton { iconName: "rotateLeft"; subtle: true; enabled: pdfPanel.page.pdfSelected > 0; onClicked: pdfPanel.page.rotateSelected(-90); ToolTip.visible: hovered; ToolTip.text: "Rotate selected left" }
+        EditorButton { iconName: "rotateRight"; subtle: true; enabled: pdfPanel.page.pdfSelected > 0; onClicked: pdfPanel.page.rotateSelected(90); ToolTip.visible: hovered; ToolTip.text: "Rotate selected right" }
+        EditorButton { iconName: "trash"; subtle: true; danger: true; enabled: pdfPanel.page.pdfSelected > 0 && pdfPanel.page.pdfSelected < pdfPanel.page.pdfPageModel.count; onClicked: pdfPanel.page.deleteSelected(); ToolTip.visible: hovered; ToolTip.text: "Remove selected pages" }
+        EditorButton { text: "Reset"; subtle: true; enabled: pdfPanel.page.pdfEdited; onClicked: pdfPanel.page.resetPages() }
     }
     Item {
-        visible: page.pdfMode === "edit" && (page.pdfPageModel.count > 0 || Core.localPdf.loadingPages)
+        visible: pdfPanel.page.pdfMode === "edit" && (pdfPanel.page.pdfPageModel.count > 0 || Core.localPdf.loadingPages)
         Layout.fillWidth: true
         implicitHeight: Core.localPdf.loadingPages ? 220 : pageGrid.contentHeight + 8
         // Loading skeleton in the grid's shape.
@@ -109,7 +111,7 @@ ColumnLayout {
             interactive: false
             cellWidth: 150
             cellHeight: 214
-            model: page.pdfPageModel
+            model: pdfPanel.page.pdfPageModel
             displaced: Transition { SmoothSpring { properties: "x,y" } }
             delegate: DropArea {
                 id: slot
@@ -122,8 +124,8 @@ ColumnLayout {
                 keys: ["kadron-page-card"]
                 onEntered: function(drag) {
                     if (drag.source && drag.source.visualIndex !== slot.index) {
-                        page.pdfPageModel.move(drag.source.visualIndex, slot.index, 1)
-                        page.pdfEdited = true
+                        pdfPanel.page.pdfPageModel.move(drag.source.visualIndex, slot.index, 1)
+                        pdfPanel.page.pdfEdited = true
                     }
                 }
                 Rectangle {
@@ -188,8 +190,8 @@ ColumnLayout {
                         hoverEnabled: true
                         drag.target: pageCard
                         cursorShape: pageCard.dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
-                        onClicked: page.pdfPageModel.setProperty(slot.index, "selected", !slot.selected)
-                        onDoubleClicked: page.openPagePreview(slot.index)
+                        onClicked: pdfPanel.page.pdfPageModel.setProperty(slot.index, "selected", !slot.selected)
+                        onDoubleClicked: pdfPanel.page.openPagePreview(slot.index)
                         onReleased: pageCard.Drag.drop()
                     }
                     // Per-page actions on hover.
@@ -218,9 +220,9 @@ ColumnLayout {
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        if (parent.modelData[0] === "trash") page.removePage(slot.index)
-                                        else if (parent.modelData[0] === "zoom") page.openPagePreview(slot.index)
-                                        else page.rotatePage(slot.index, parent.modelData[1])
+                                        if (parent.modelData[0] === "trash") pdfPanel.page.removePage(slot.index)
+                                        else if (parent.modelData[0] === "zoom") pdfPanel.page.openPagePreview(slot.index)
+                                        else pdfPanel.page.rotatePage(slot.index, parent.modelData[1])
                                     }
                                 }
                             }
@@ -233,39 +235,39 @@ ColumnLayout {
 
     // Merge / Images to PDF: ordered cards with an Add tile.
     RowLayout {
-        visible: page.pdfUsesBoard && page.pdfFiles.length > 0
+        visible: pdfPanel.page.pdfUsesBoard && pdfPanel.page.pdfFiles.length > 0
         Layout.fillWidth: true
         spacing: 6
         Text {
             Layout.fillWidth: true
             text: {
-                var n = page.pdfFiles.length
-                if (page.pdfMode === "images-to-pdf") return n + (n === 1 ? " image · one page each" : " images · one page each, in this order")
+                var n = pdfPanel.page.pdfFiles.length
+                if (pdfPanel.page.pdfMode === "images-to-pdf") return n + (n === 1 ? " image · one page each" : " images · one page each, in this order")
                 var pages = 0
-                for (var i = 0; i < n; i++) pages += (Core.localPdf.covers[page.pdfFiles[i].toString()] || {}).pages || 0
+                for (var i = 0; i < n; i++) pages += (Core.localPdf.covers[pdfPanel.page.pdfFiles[i].toString()] || {}).pages || 0
                 return n + (n === 1 ? " file" : " files") + (pages ? " · " + pages + " pages" : "") + (n < 2 ? " · add at least one more" : " · drag to set the order")
             }
             color: Theme.textMuted
             font.pixelSize: 12
         }
-        EditorButton { text: "Clear"; subtle: true; enabled: !Core.localPdf.busy; onClicked: page.pdfFiles = [] }
+        EditorButton { text: "Clear"; subtle: true; enabled: !Core.localPdf.busy; onClicked: pdfPanel.page.pdfFiles = [] }
     }
     FileBoard {
         objectName: "pdfFileBoard"
-        visible: page.pdfUsesBoard && page.pdfFiles.length > 0
+        visible: pdfPanel.page.pdfUsesBoard && pdfPanel.page.pdfFiles.length > 0
         Layout.fillWidth: true
         Layout.preferredHeight: implicitHeight
-        files: page.pdfFiles
-        images: page.pdfMode === "images-to-pdf"
+        files: pdfPanel.page.pdfFiles
+        images: pdfPanel.page.pdfMode === "images-to-pdf"
         covers: Core.localPdf.covers
-        onReordered: function(files) { page.pdfFiles = files }
-        onRemoveRequested: function(index) { page.removePdfFile(index) }
-        onAddRequested: page.pdfPicker.open()
+        onReordered: function(files) { pdfPanel.page.pdfFiles = files }
+        onRemoveRequested: function(index) { pdfPanel.page.removePdfFile(index) }
+        onAddRequested: pdfPanel.page.pdfPicker.open()
     }
 
     // Extract pages: pick on the thumbnails or type a range.
     RowLayout {
-        visible: page.pdfMode === "split" && page.pdfFiles.length > 0
+        visible: pdfPanel.page.pdfMode === "split" && pdfPanel.page.pdfFiles.length > 0
         Layout.fillWidth: true
         spacing: 6
         EditorField {
@@ -274,21 +276,21 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.maximumWidth: 420
             placeholderText: "Click pages below, or type e.g. 1, 3-5"
-            onTextEdited: page.splitPages = Core.localPdf.rangeToPages(text, Core.localPdf.pageImages.length)
+            onTextEdited: pdfPanel.page.splitPages = Core.localPdf.rangeToPages(text, Core.localPdf.pageImages.length)
         }
-        EditorButton { text: "All"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= Core.localPdf.pageImages.length; i++) p.push(i); page.setSplitPages(p) } }
-        EditorButton { text: "Odd"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= Core.localPdf.pageImages.length; i += 2) p.push(i); page.setSplitPages(p) } }
-        EditorButton { text: "Even"; subtle: true; onClicked: { var p = []; for (var i = 2; i <= Core.localPdf.pageImages.length; i += 2) p.push(i); page.setSplitPages(p) } }
-        EditorButton { text: "None"; subtle: true; enabled: page.splitPages.length > 0; onClicked: page.setSplitPages([]) }
+        EditorButton { text: "All"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= Core.localPdf.pageImages.length; i++) p.push(i); pdfPanel.page.setSplitPages(p) } }
+        EditorButton { text: "Odd"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= Core.localPdf.pageImages.length; i += 2) p.push(i); pdfPanel.page.setSplitPages(p) } }
+        EditorButton { text: "Even"; subtle: true; onClicked: { var p = []; for (var i = 2; i <= Core.localPdf.pageImages.length; i += 2) p.push(i); pdfPanel.page.setSplitPages(p) } }
+        EditorButton { text: "None"; subtle: true; enabled: pdfPanel.page.splitPages.length > 0; onClicked: pdfPanel.page.setSplitPages([]) }
         Item { Layout.fillWidth: true }
         Text {
-            text: page.splitPages.length > 0 ? page.splitPages.length + " of " + Core.localPdf.pageImages.length + " pages" : "Shift+click picks a run"
+            text: pdfPanel.page.splitPages.length > 0 ? pdfPanel.page.splitPages.length + " of " + Core.localPdf.pageImages.length + " pages" : "Shift+click picks a run"
             color: Theme.textMuted
             font.pixelSize: 12
         }
     }
     Item {
-        visible: page.pdfMode === "split" && page.pdfFiles.length > 0 && Core.localPdf.loadingPages
+        visible: pdfPanel.page.pdfMode === "split" && pdfPanel.page.pdfFiles.length > 0 && Core.localPdf.loadingPages
         Layout.fillWidth: true
         implicitHeight: 200
         Row {
@@ -298,20 +300,20 @@ ColumnLayout {
     }
     PagePicker {
         objectName: "pagePicker"
-        visible: page.pdfMode === "split" && page.pdfFiles.length > 0 && !Core.localPdf.loadingPages
+        visible: pdfPanel.page.pdfMode === "split" && pdfPanel.page.pdfFiles.length > 0 && !Core.localPdf.loadingPages
         Layout.fillWidth: true
         Layout.preferredHeight: implicitHeight
         images: Core.localPdf.pageImages
-        selected: page.splitPages
-        onSelectionEdited: function(pages) { page.setSplitPages(pages) }
+        selected: pdfPanel.page.splitPages
+        onSelectionEdited: function(pages) { pdfPanel.page.setSplitPages(pages) }
     }
     Text { text: "Documents stay on this device."; color: Theme.textFaint; font.pixelSize: 11 }
     EditorButton {
-        text: page.pdfMode === "edit" ? "Save PDF" : page.pdfMode === "merge" ? "Merge PDFs" : page.pdfMode === "split" ? "Extract pages" : "Create PDF"
+        text: pdfPanel.page.pdfMode === "edit" ? "Save PDF" : pdfPanel.page.pdfMode === "merge" ? "Merge PDFs" : pdfPanel.page.pdfMode === "split" ? "Extract pages" : "Create PDF"
         iconName: "save"
         primary: true
-        enabled: !Core.localPdf.busy && (page.pdfMode === "edit" ? page.pdfPageModel.count > 0 && Core.localPdf.qpdfAvailable
-                 : page.pdfFiles.length > (page.pdfMode === "merge" ? 1 : 0) && (Core.localPdf.qpdfAvailable || page.pdfMode === "images-to-pdf") && (page.pdfMode !== "split" || page.splitPages.length > 0))
-        onClicked: page.openPdfSave()
+        enabled: !Core.localPdf.busy && (pdfPanel.page.pdfMode === "edit" ? pdfPanel.page.pdfPageModel.count > 0 && Core.localPdf.qpdfAvailable
+                 : pdfPanel.page.pdfFiles.length > (pdfPanel.page.pdfMode === "merge" ? 1 : 0) && (Core.localPdf.qpdfAvailable || pdfPanel.page.pdfMode === "images-to-pdf") && (pdfPanel.page.pdfMode !== "split" || pdfPanel.page.splitPages.length > 0))
+        onClicked: pdfPanel.page.openPdfSave()
     }
 }

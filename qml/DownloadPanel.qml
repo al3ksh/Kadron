@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -28,13 +30,13 @@ ColumnLayout {
             Layout.fillWidth: true
             placeholderText: "Paste a link from YouTube, TikTok, Instagram, X… and press Enter"
             onTextChanged: probeDelay.restart()
-            onAccepted: page.quickDownload()
+            onAccepted: downloadPanel.page.quickDownload()
         }
         EditorButton {
             text: "Paste"
             iconName: "link"
             Layout.preferredHeight: downloadUrl.implicitHeight
-            onClicked: page.pasteLink()
+            onClicked: downloadPanel.page.pasteLink()
         }
     }
     Timer {
@@ -85,7 +87,7 @@ ColumnLayout {
                     height: 18
                     radius: 4
                     color: Theme.chipScrim
-                    Text { id: durationText; anchors.centerIn: parent; text: page.durationLabel(linkPreview.info.durationMs || 0); color: Theme.text; font.pixelSize: 10; font.weight: Font.DemiBold }
+                    Text { id: durationText; anchors.centerIn: parent; text: downloadPanel.page.durationLabel(linkPreview.info.durationMs || 0); color: Theme.text; font.pixelSize: 10; font.weight: Font.DemiBold }
                 }
             }
             ColumnLayout {
@@ -111,12 +113,12 @@ ColumnLayout {
                 }
                 // A video opened from a playlist: its list can be loaded too.
                 EditorButton {
-                    visible: /[?&]list=/.test(page.downloadLink) && !linkPreview.info.playlistCount
-                             && Core.localDownload.playlist.url !== page.downloadLink
+                    visible: /[?&]list=/.test(downloadPanel.page.downloadLink) && !linkPreview.info.playlistCount
+                             && Core.localDownload.playlist.url !== downloadPanel.page.downloadLink
                     text: "Load playlist"
                     iconName: "stack"
                     implicitHeight: 30
-                    onClicked: Core.localDownload.probePlaylist(page.downloadLink)
+                    onClicked: Core.localDownload.probePlaylist(downloadPanel.page.downloadLink)
                 }
                 Text {
                     Layout.fillWidth: true
@@ -140,7 +142,7 @@ ColumnLayout {
     Rectangle {
         id: playlistPanel
         readonly property var list: Core.localDownload.playlist
-        visible: list.url === page.downloadLink && page.downloadLink.length > 0
+        visible: list.url === downloadPanel.page.downloadLink && downloadPanel.page.downloadLink.length > 0
         Layout.fillWidth: true
         implicitHeight: playlistColumn.implicitHeight + 20
         radius: Theme.radius
@@ -158,18 +160,18 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: playlistPanel.list.loading ? "Reading the playlist…"
                         : playlistPanel.list.error ? playlistPanel.list.error
-                        : (playlistPanel.list.title || "Playlist") + " · " + page.playlistSelected + " of " + (playlistPanel.list.entries || []).length + " selected"
+                        : (playlistPanel.list.title || "Playlist") + " · " + downloadPanel.page.playlistSelected + " of " + (playlistPanel.list.entries || []).length + " selected"
                     color: playlistPanel.list.error ? Theme.danger : Theme.text
                     font.pixelSize: 13
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
-                EditorButton { visible: page.linkIsPlaylist; subtle: true; text: "All"; implicitHeight: 30; onClicked: page.setAllPlaylist(true) }
-                EditorButton { visible: page.linkIsPlaylist; subtle: true; text: "None"; implicitHeight: 30; onClicked: page.setAllPlaylist(false) }
+                EditorButton { visible: downloadPanel.page.linkIsPlaylist; subtle: true; text: "All"; implicitHeight: 30; onClicked: downloadPanel.page.setAllPlaylist(true) }
+                EditorButton { visible: downloadPanel.page.linkIsPlaylist; subtle: true; text: "None"; implicitHeight: 30; onClicked: downloadPanel.page.setAllPlaylist(false) }
             }
             ListView {
                 id: playlistList
-                visible: page.linkIsPlaylist
+                visible: downloadPanel.page.linkIsPlaylist
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(contentHeight, 260)
                 clip: true
@@ -177,6 +179,7 @@ ColumnLayout {
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar { policy: playlistList.contentHeight > playlistList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
                 delegate: RowLayout {
+                    id: entry
                     required property var modelData
                     required property int index
                     width: ListView.view.width
@@ -184,17 +187,17 @@ ColumnLayout {
                     ToolCheck {
                         Layout.fillWidth: true
                         implicitHeight: 30
-                        text: (index + 1) + ". " + (modelData.title || modelData.url)
-                        checked: !!page.playlistChecked[index]
+                        text: (entry.index + 1) + ". " + (entry.modelData.title || entry.modelData.url)
+                        checked: !!downloadPanel.page.playlistChecked[entry.index]
                         onToggled: {
-                            var next = page.playlistChecked.slice()
-                            next[index] = checked
-                            page.playlistChecked = next
+                            var next = downloadPanel.page.playlistChecked.slice()
+                            next[entry.index] = checked
+                            downloadPanel.page.playlistChecked = next
                         }
                     }
                     Text {
-                        visible: (modelData.durationMs || 0) > 0
-                        text: page.durationLabel(modelData.durationMs || 0)
+                        visible: (entry.modelData.durationMs || 0) > 0
+                        text: downloadPanel.page.durationLabel(entry.modelData.durationMs || 0)
                         color: Theme.textFaint
                         font.pixelSize: 11
                         Layout.rightMargin: 6
@@ -202,14 +205,14 @@ ColumnLayout {
                 }
             }
             EditorButton {
-                visible: page.linkIsPlaylist
+                visible: downloadPanel.page.linkIsPlaylist
                 primary: true
-                text: "Download " + page.playlistSelected + (page.playlistSelected === 1 ? " video" : " videos")
-                enabled: page.playlistSelected > 0 && Core.localDownload.available
-                onClicked: page.downloadPlaylist()
+                text: "Download " + downloadPanel.page.playlistSelected + (downloadPanel.page.playlistSelected === 1 ? " video" : " videos")
+                enabled: downloadPanel.page.playlistSelected > 0 && Core.localDownload.available
+                onClicked: downloadPanel.page.downloadPlaylist()
             }
             Text {
-                visible: page.linkIsPlaylist
+                visible: downloadPanel.page.linkIsPlaylist
                 text: "Saved one after another to Downloads/" + (Core.localDownload.safeFileName(playlistPanel.list.title || "") || "Playlist")
                 color: Theme.textFaint
                 font.pixelSize: 11
@@ -221,8 +224,8 @@ ColumnLayout {
     ToolCombo {
         id: downloadPreset
         Layout.preferredWidth: 360
-        currentIndex: page.downloadPresetIndex
-        onActivated: page.downloadPresetIndex = currentIndex
+        currentIndex: downloadPanel.page.downloadPresetIndex
+        onActivated: downloadPanel.page.downloadPresetIndex = currentIndex
         textRole: "label"
         valueRole: "value"
         model: [
@@ -263,10 +266,10 @@ ColumnLayout {
             Layout.preferredWidth: 120 }
     }
     EditorButton {
-        visible: !page.linkIsPlaylist
+        visible: !downloadPanel.page.linkIsPlaylist
         text: Core.localDownload.busy ? "Add to queue" : "Download"
         primary: true
         enabled: downloadUrl.text.length > 0 && Core.localDownload.available
-        onClicked: Core.localDownload.busy ? page.quickDownload() : page.openDownloadSave()
+        onClicked: Core.localDownload.busy ? downloadPanel.page.quickDownload() : downloadPanel.page.openDownloadSave()
     }
 }

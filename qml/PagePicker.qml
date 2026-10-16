@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 
 // Page thumbnails to pick from: click toggles a page, Shift+click a run.

@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 
@@ -34,19 +36,21 @@ ComboBox {
         Behavior on border.color { ColorAnimation { duration: Theme.fade } }
     }
     delegate: ItemDelegate {
+        id: option
+        required property int index
         width: control.width
         height: 34
         text: control.textAt(index)
         font: control.font
         highlighted: control.highlightedIndex === index
         contentItem: Text {
-            text: parent.text
+            text: option.text
             color: Theme.text
             font: control.font
             verticalAlignment: Text.AlignVCenter
             leftPadding: 12
         }
-        background: Rectangle { color: parent.highlighted ? Theme.accentWash : Theme.card }
+        background: Rectangle { color: option.highlighted ? Theme.accentWash : Theme.card }
     }
     popup: Popup {
         y: control.height - 1

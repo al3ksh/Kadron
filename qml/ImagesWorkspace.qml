@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -505,7 +507,7 @@ Item {
 
                 ScrollView {
                     id: settingsScroll
-                    readonly property SoftBounds softBounds: SoftBounds { flickable: settingsScroll.contentItem }
+                    readonly property SoftBounds softBounds: SoftBounds { flickable: settingsScroll.contentItem as Flickable }
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.fillHeight: true
@@ -582,7 +584,7 @@ Item {
                             Text { text: "KB"; color: Theme.textMuted; font.pixelSize: 12 }
                         }
 
-                        Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; height: 1; color: Theme.line }
+                        Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; Layout.preferredHeight: 1; color: Theme.line }
                         Text { Layout.leftMargin: 20; Layout.topMargin: 6; text: "SIZE · ALL IMAGES"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
                         ToolCombo {
                             id: resizeCombo
@@ -647,7 +649,7 @@ Item {
                             font.pixelSize: 11
                         }
 
-                        Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; height: 1; color: Theme.line }
+                        Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; Layout.preferredHeight: 1; color: Theme.line }
                         Text { Layout.leftMargin: 20; Layout.topMargin: 6; text: "CROP & ROTATE · THIS IMAGE"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
                         RowLayout {
                             Layout.fillWidth: true
@@ -686,7 +688,7 @@ Item {
                             }
                         }
 
-                        Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; height: 1; color: Theme.line }
+                        Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; Layout.preferredHeight: 1; color: Theme.line }
                         Text { Layout.leftMargin: 20; Layout.topMargin: 6; text: "THIS IMAGE"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
                         GridLayout {
                             Layout.fillWidth: true
@@ -770,7 +772,7 @@ Item {
                 }
 
                 // Save.
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line }
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.margins: 16

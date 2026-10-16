@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -1379,7 +1381,7 @@ ApplicationWindow {
                         }
                     }
                 }
-                Rectangle { visible: root.workspace === 0 && Core.editorProject.dirty; width: 7; height: 7; radius: 4; color: Theme.warning }
+                Rectangle { visible: root.workspace === 0 && Core.editorProject.dirty; implicitWidth: 7; implicitHeight: 7; radius: 4; color: Theme.warning }
                 Text { visible: root.workspace === 0 && Core.editorProject.dirty; text: "Unsaved"; color: Theme.warning; font.pixelSize: 11; Layout.rightMargin: 6 }
                 // File actions as one group, so only Export stands out.
                 Rectangle {
@@ -1396,9 +1398,10 @@ ApplicationWindow {
                         Repeater {
                             model: [["Open", "folder"], ["Import", "plus"], ["Save", "save"]]
                             delegate: Row {
+                                id: fileItem
                                 required property var modelData
                                 required property int index
-                                Rectangle { visible: index > 0; width: 1; height: 20; anchors.verticalCenter: parent.verticalCenter; color: Theme.lineStrong }
+                                Rectangle { visible: fileItem.index > 0; width: 1; height: 20; anchors.verticalCenter: parent.verticalCenter; color: Theme.lineStrong }
                                 ToolButton {
                                     id: fileAction
                                     implicitHeight: 36
@@ -1514,7 +1517,7 @@ ApplicationWindow {
                 Rectangle { anchors.left: parent.left; width: 1; height: parent.height; color: Theme.line }
                 ScrollView {
                     id: inspectorScroll
-                    readonly property SoftBounds softBounds: SoftBounds { flickable: inspectorScroll.contentItem }
+                    readonly property SoftBounds softBounds: SoftBounds { flickable: inspectorScroll.contentItem as Flickable }
                     transform: Translate { id: inspectorShift }
                     anchors.fill: parent
                     anchors.leftMargin: 18

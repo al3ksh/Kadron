@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -7,7 +9,7 @@ import QtQuick.Layouts
 ColumnLayout {
     id: card
     // AppUpdater (or a stand-in with the same properties).
-    property QtObject updater: null
+    property var updater: null
     signal restartRequested()
     spacing: 8
 

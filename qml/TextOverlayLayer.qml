@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 
 // Texts over a picture, laid out like TextOverlay::filter draws them: x and y

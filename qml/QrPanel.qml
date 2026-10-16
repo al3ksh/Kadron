@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -24,7 +26,7 @@ RowLayout {
             placeholderText: "https://..."
             onTextChanged: qrDelay.restart()
         }
-        Timer { id: qrDelay; interval: 150; onTriggered: Core.localQr.update(qrText.text, page.qrLevel) }
+        Timer { id: qrDelay; interval: 150; onTriggered: Core.localQr.update(qrText.text, qrPanel.page.qrLevel) }
         Text { text: "Colors"; color: Theme.textMuted; font.pixelSize: 12 }
         Flow {
             Layout.fillWidth: true
@@ -33,7 +35,7 @@ RowLayout {
                 model: [["#000000", "#ffffff"], ["#ffffff", "#000000"], ["#1a5fb4", "#ffffff"], ["#ffffff", "#1a5fb4"], ["#17200e", "#c9f27a"], ["#c0392b", "#fef9e7"], ["#1e272e", "#f5f6fa"]]
                 delegate: Rectangle {
                     required property var modelData
-                    readonly property bool chosen: page.qrFg === modelData[0] && page.qrBg === modelData[1]
+                    readonly property bool chosen: qrPanel.page.qrFg === modelData[0] && qrPanel.page.qrBg === modelData[1]
                     width: 36
                     height: 36
                     radius: 9
@@ -43,7 +45,7 @@ RowLayout {
                     scale: swatchMouse.pressed ? 0.92 : 1
                     Behavior on scale { SnapSpring {} }
                     Rectangle { anchors.centerIn: parent; width: 16; height: 16; radius: 3; color: parent.modelData[0] }
-                    MouseArea { id: swatchMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { page.qrFg = parent.modelData[0]; page.qrBg = parent.modelData[1] } }
+                    MouseArea { id: swatchMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { qrPanel.page.qrFg = parent.modelData[0]; qrPanel.page.qrBg = parent.modelData[1] } }
                 }
             }
         }
@@ -52,17 +54,17 @@ RowLayout {
             Text { text: "Foreground"; color: Theme.textMuted; font.pixelSize: 12 }
             EditorField {
                 Layout.preferredWidth: 100
-                text: page.qrFg
+                text: qrPanel.page.qrFg
                 validator: RegularExpressionValidator { regularExpression: /#[0-9a-fA-F]{6}/ }
-                onEditingFinished: page.qrFg = text.toLowerCase()
+                onEditingFinished: qrPanel.page.qrFg = text.toLowerCase()
             }
-            EditorButton { iconName: "loop"; subtle: true; onClicked: { var fg = page.qrFg; page.qrFg = page.qrBg; page.qrBg = fg } ToolTip.visible: hovered; ToolTip.text: "Swap colors" }
+            EditorButton { iconName: "loop"; subtle: true; onClicked: { var fg = qrPanel.page.qrFg; qrPanel.page.qrFg = qrPanel.page.qrBg; qrPanel.page.qrBg = fg } ToolTip.visible: hovered; ToolTip.text: "Swap colors" }
             Text { text: "Background"; color: Theme.textMuted; font.pixelSize: 12 }
             EditorField {
                 Layout.preferredWidth: 100
-                text: page.qrBg
+                text: qrPanel.page.qrBg
                 validator: RegularExpressionValidator { regularExpression: /#[0-9a-fA-F]{6}/ }
-                onEditingFinished: page.qrBg = text.toLowerCase()
+                onEditingFinished: qrPanel.page.qrBg = text.toLowerCase()
             }
         }
         Text { text: "Error correction"; color: Theme.textMuted; font.pixelSize: 12 }
@@ -73,8 +75,8 @@ RowLayout {
                 delegate: EditorButton {
                     required property var modelData
                     text: modelData[0] + "  " + modelData[1]
-                    primary: page.qrLevel === modelData[0]
-                    onClicked: { page.qrLevel = modelData[0]; Core.localQr.update(qrText.text, page.qrLevel) }
+                    primary: qrPanel.page.qrLevel === modelData[0]
+                    onClicked: { qrPanel.page.qrLevel = modelData[0]; Core.localQr.update(qrText.text, qrPanel.page.qrLevel) }
                 }
             }
         }
@@ -86,16 +88,16 @@ RowLayout {
                 delegate: EditorButton {
                     required property int modelData
                     text: modelData + " px"
-                    primary: page.qrSize === modelData
-                    onClicked: page.qrSize = modelData
+                    primary: qrPanel.page.qrSize === modelData
+                    onClicked: qrPanel.page.qrSize = modelData
                 }
             }
         }
         RowLayout {
             Layout.topMargin: 6
             spacing: 8
-            EditorButton { text: "Save PNG"; iconName: "save"; primary: true; enabled: Core.localQr.modules > 0; onClicked: page.openQrSave("png") }
-            EditorButton { text: "Save SVG"; iconName: "save"; enabled: Core.localQr.modules > 0; onClicked: page.openQrSave("svg") }
+            EditorButton { text: "Save PNG"; iconName: "save"; primary: true; enabled: Core.localQr.modules > 0; onClicked: qrPanel.page.openQrSave("png") }
+            EditorButton { text: "Save SVG"; iconName: "save"; enabled: Core.localQr.modules > 0; onClicked: qrPanel.page.openQrSave("svg") }
             EditorButton {
                 id: qrCopy
                 property bool copied: false
@@ -103,7 +105,7 @@ RowLayout {
                 iconName: copied ? "check" : "copy"
                 enabled: Core.localQr.modules > 0
                 ToolTip.visible: hovered; ToolTip.delay: 500; ToolTip.text: "Copy the code as a picture · Ctrl+V to paste"
-                onClicked: if (Core.localQr.copyImage(page.qrSize, page.qrFg, page.qrBg)) { copied = true; qrCopyReset.restart() }
+                onClicked: if (Core.localQr.copyImage(qrPanel.page.qrSize, qrPanel.page.qrFg, qrPanel.page.qrBg)) { copied = true; qrCopyReset.restart() }
                 Timer { id: qrCopyReset; interval: 1400; onTriggered: qrCopy.copied = false }
             }
             EditorButton { text: "Open file"; subtle: true; visible: Core.localQr.outputUrl.toString().length > 0; onClicked: Qt.openUrlExternally(Core.localQr.outputUrl) }
@@ -117,7 +119,7 @@ RowLayout {
             implicitWidth: 260
             implicitHeight: 260
             radius: 14
-            color: Core.localQr.modules > 0 ? page.qrBg : Theme.field
+            color: Core.localQr.modules > 0 ? qrPanel.page.qrBg : Theme.field
             border.color: Theme.line
             Behavior on color { ColorAnimation { duration: Theme.fade } }
             Image {
@@ -125,7 +127,7 @@ RowLayout {
                 anchors.fill: parent
                 anchors.margins: 6
                 visible: Core.localQr.modules > 0
-                source: Core.localQr.modules > 0 ? "image://qr/" + Core.localQr.revision + "?fg=" + page.qrFg.slice(1) + "&bg=" + page.qrBg.slice(1) + "&size=496" : ""
+                source: Core.localQr.modules > 0 ? "image://qr/" + Core.localQr.revision + "?fg=" + qrPanel.page.qrFg.slice(1) + "&bg=" + qrPanel.page.qrBg.slice(1) + "&size=496" : ""
                 sourceSize: Qt.size(496, 496)
                 smooth: false
                 cache: false
@@ -142,7 +144,7 @@ RowLayout {
         }
         Text {
             Layout.alignment: Qt.AlignHCenter
-            text: Core.localQr.modules > 0 ? Core.localQr.modules + " × " + Core.localQr.modules + " modules · exports " + page.qrSize + " px" : "Preview"
+            text: Core.localQr.modules > 0 ? Core.localQr.modules + " × " + Core.localQr.modules + " modules · exports " + qrPanel.page.qrSize + " px" : "Preview"
             color: Theme.textFaint
             font.pixelSize: 11
         }

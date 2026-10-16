@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -102,7 +104,7 @@ Dialog {
                 Text { text: link.title; color: Theme.text; font.pixelSize: 13; font.weight: Font.DemiBold }
                 Text { Layout.fillWidth: true; text: link.detail; color: Theme.textMuted; font.pixelSize: 11; elide: Text.ElideRight }
             }
-            ToolIcon { name: "external"; width: 16; height: 16; tint: linkMouse.containsMouse ? Theme.text : Theme.textFaint }
+            ToolIcon { name: "external"; Layout.preferredWidth: 16; Layout.preferredHeight: 16; tint: linkMouse.containsMouse ? Theme.text : Theme.textFaint }
         }
         MouseArea {
             id: linkMouse
@@ -267,7 +269,7 @@ Dialog {
 
             ScrollView {
                 id: scroller
-                readonly property SoftBounds softBounds: SoftBounds { flickable: scroller.contentItem }
+                readonly property SoftBounds softBounds: SoftBounds { flickable: scroller.contentItem as Flickable }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 contentWidth: availableWidth

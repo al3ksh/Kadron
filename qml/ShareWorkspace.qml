@@ -29,7 +29,7 @@ Item {
     Rectangle { anchors.fill: parent; color: Theme.window }
     ScrollView {
         id: scroll
-        readonly property SoftBounds softBounds: SoftBounds { flickable: scroll.contentItem }
+        readonly property SoftBounds softBounds: SoftBounds { flickable: scroll.contentItem as Flickable }
         anchors.fill: parent
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff

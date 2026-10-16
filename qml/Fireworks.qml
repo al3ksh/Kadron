@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 
 // A few bursts of sparks over the area it covers, for good news: play()

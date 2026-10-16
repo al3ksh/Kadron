@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 
 // A region of the picture for split screen: drag inside to move it, drag a

@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 
 // Startup intro, shown while the main window loads (see main.cpp). The whole

@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -361,11 +363,12 @@ Item {
                         Repeater {
                             model: 2
                             delegate: Item {
+                                id: third
                                 required property int index
                                 anchors.fill: parent
                                 visible: page.dragging
-                                Rectangle { x: frameBox.width * (index + 1) / 3; width: 1; height: frameBox.height; color: Qt.rgba(1, 1, 1, 0.4) }
-                                Rectangle { y: frameBox.height * (index + 1) / 3; height: 1; width: frameBox.width; color: Qt.rgba(1, 1, 1, 0.4) }
+                                Rectangle { x: frameBox.width * (third.index + 1) / 3; width: 1; height: frameBox.height; color: Qt.rgba(1, 1, 1, 0.4) }
+                                Rectangle { y: frameBox.height * (third.index + 1) / 3; height: 1; width: frameBox.width; color: Qt.rgba(1, 1, 1, 0.4) }
                             }
                         }
                         Rectangle {
@@ -480,6 +483,7 @@ Item {
                     Repeater {
                         model: page.mode === "crop" ? page.keyframes : []
                         delegate: Rectangle {
+                            id: marker
                             required property var modelData
                             required property int index
                             x: (page.durationSec > 0 ? modelData.t / page.durationSec : 0) * track.width - width / 2
@@ -495,7 +499,7 @@ Item {
                                 anchors.fill: parent
                                 anchors.margins: -4
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: { player.pause(); page.seek(modelData.t) }
+                                onClicked: { player.pause(); page.seek(marker.modelData.t) }
                             }
                         }
                     }
@@ -551,7 +555,7 @@ Item {
 
                 ScrollView {
                     id: settingsScroll
-                    readonly property SoftBounds softBounds: SoftBounds { flickable: settingsScroll.contentItem }
+                    readonly property SoftBounds softBounds: SoftBounds { flickable: settingsScroll.contentItem as Flickable }
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     Layout.fillHeight: true
@@ -691,7 +695,7 @@ Item {
                             }
                         }
 
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line }
                         Text { Layout.leftMargin: 20; Layout.topMargin: 6; text: page.mode === "crop" ? "CROP" : page.mode === "split" ? "SPLIT" : "FILL"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
                         RowLayout {
                             visible: page.mode === "crop"
@@ -794,7 +798,7 @@ Item {
                         }
 
                         // Text burnt into the result.
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line }
                         Text { Layout.leftMargin: 20; Layout.topMargin: 6; text: "TEXT"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2 }
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -955,7 +959,7 @@ Item {
                 }
 
                 // Export.
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line }
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.margins: 16

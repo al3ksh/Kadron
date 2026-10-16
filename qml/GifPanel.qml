@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -21,10 +23,10 @@ ColumnLayout {
         radius: 10
         color: Theme.canvas
         clip: true
-        VideoOutput { id: gifVideo; anchors.fill: parent; visible: page.gifPlayer.hasVideo; fillMode: VideoOutput.PreserveAspectFit }
-        AnimatedImage { anchors.fill: parent; visible: page.gifSourceIsGif; source: visible ? page.sourceUrl : ""; fillMode: Image.PreserveAspectFit }
+        VideoOutput { id: gifVideo; anchors.fill: parent; visible: gifPanel.page.gifPlayer.hasVideo; fillMode: VideoOutput.PreserveAspectFit }
+        AnimatedImage { anchors.fill: parent; visible: gifPanel.page.gifSourceIsGif; source: visible ? gifPanel.page.sourceUrl : ""; fillMode: Image.PreserveAspectFit }
         Rectangle {
-            visible: page.gifPlayer.hasVideo
+            visible: gifPanel.page.gifPlayer.hasVideo
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.margins: 10
@@ -32,12 +34,12 @@ ColumnLayout {
             height: 24
             radius: 12
             color: Theme.chipScrim
-            ToolIcon { x: 8; anchors.verticalCenter: parent.verticalCenter; width: 13; height: 13; name: "loop"; tint: page.gifLooping ? Theme.accent : Theme.textMuted }
+            ToolIcon { x: 8; anchors.verticalCenter: parent.verticalCenter; width: 13; height: 13; name: "loop"; tint: gifPanel.page.gifLooping ? Theme.accent : Theme.textMuted }
             Text {
                 id: loopLabel
                 x: 25
                 anchors.verticalCenter: parent.verticalCenter
-                text: (page.gifLooping ? "Looping " : "Paused · ") + ((page.gifEndMs - page.gifStartMs) / 1000).toFixed(2) + " s"
+                text: (gifPanel.page.gifLooping ? "Looping " : "Paused · ") + ((gifPanel.page.gifEndMs - gifPanel.page.gifStartMs) / 1000).toFixed(2) + " s"
                 color: Theme.textSoft
                 font.pixelSize: 11
                 font.weight: Font.DemiBold
@@ -48,30 +50,30 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 12
         EditorButton {
-            iconName: page.gifPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
-            enabled: page.gifPlayer.hasVideo
+            iconName: gifPanel.page.gifPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
+            enabled: gifPanel.page.gifPlayer.hasVideo
             Layout.alignment: Qt.AlignBottom
             Layout.bottomMargin: 29
             onClicked: {
-                if (page.gifPlayer.playbackState === MediaPlayer.PlayingState) {
-                    page.gifLooping = false
-                    page.gifPlayer.pause()
+                if (gifPanel.page.gifPlayer.playbackState === MediaPlayer.PlayingState) {
+                    gifPanel.page.gifLooping = false
+                    gifPanel.page.gifPlayer.pause()
                 } else {
-                    page.gifLooping = true
-                    if (page.gifPlayer.position < page.gifStartMs || page.gifPlayer.position >= page.gifEndMs) page.gifPlayer.position = page.gifStartMs
-                    page.gifPlayer.play()
+                    gifPanel.page.gifLooping = true
+                    if (gifPanel.page.gifPlayer.position < gifPanel.page.gifStartMs || gifPanel.page.gifPlayer.position >= gifPanel.page.gifEndMs) gifPanel.page.gifPlayer.position = gifPanel.page.gifStartMs
+                    gifPanel.page.gifPlayer.play()
                 }
             }
         }
         RangeStrip {
             Layout.fillWidth: true
-            frames: page.gifPlayer.duration > 0 && Core.thumbnails.revision >= 0 ? Core.thumbnails.framesFor(page.sourceUrl, page.gifPlayer.duration) : []
-            durationMs: page.gifPlayer.duration
-            startMs: page.gifStartMs
-            endMs: page.gifEndMs
-            positionMs: page.gifPlayer.position
-            onRangeRequested: function(startMs, endMs) { page.setGifRange(startMs, endMs) }
-            onSeekRequested: function(ms) { page.gifPlayer.position = ms }
+            frames: gifPanel.page.gifPlayer.duration > 0 && Core.thumbnails.revision >= 0 ? Core.thumbnails.framesFor(gifPanel.page.sourceUrl, gifPanel.page.gifPlayer.duration) : []
+            durationMs: gifPanel.page.gifPlayer.duration
+            startMs: gifPanel.page.gifStartMs
+            endMs: gifPanel.page.gifEndMs
+            positionMs: gifPanel.page.gifPlayer.position
+            onRangeRequested: function(startMs, endMs) { gifPanel.page.setGifRange(startMs, endMs) }
+            onSeekRequested: function(ms) { gifPanel.page.gifPlayer.position = ms }
         }
     }
     // The clip going in and the GIF coming out.
@@ -92,14 +94,14 @@ ColumnLayout {
                 spacing: 2
                 Text { text: "CLIP"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
                 Text {
-                    text: ((page.gifEndMs - page.gifStartMs) / 1000).toFixed(2) + " s"
+                    text: ((gifPanel.page.gifEndMs - gifPanel.page.gifStartMs) / 1000).toFixed(2) + " s"
                     color: Theme.text
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
                     font.features: { "tnum": 1 }
                 }
                 Text {
-                    text: "from " + page.clockLabel(page.gifStartMs)
+                    text: "from " + gifPanel.page.clockLabel(gifPanel.page.gifStartMs)
                     color: Theme.textMuted
                     font.pixelSize: 11
                     font.features: { "tnum": 1 }
@@ -112,15 +114,15 @@ ColumnLayout {
                 Text { text: "GIF"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
                 Text {
                     objectName: "gifOutSize"
-                    text: page.gifWidthPx + (page.gifHeightPx > 0 ? " × " + page.gifHeightPx : " px wide")
+                    text: gifPanel.page.gifWidthPx + (gifPanel.page.gifHeightPx > 0 ? " × " + gifPanel.page.gifHeightPx : " px wide")
                     color: Theme.accent
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
                     font.features: { "tnum": 1 }
                 }
                 Text {
-                    text: page.gifOutSec.toFixed(2) + " s · " + Math.round(page.gifOutSec * page.gifFps) + " frames"
-                          + (page.gifExtras ? " · " + page.gifExtras : "")
+                    text: gifPanel.page.gifOutSec.toFixed(2) + " s · " + Math.round(gifPanel.page.gifOutSec * gifPanel.page.gifFps) + " frames"
+                          + (gifPanel.page.gifExtras ? " · " + gifPanel.page.gifExtras : "")
                     color: Theme.textMuted
                     font.pixelSize: 11
                     font.features: { "tnum": 1 }
@@ -130,13 +132,13 @@ ColumnLayout {
                 Layout.preferredWidth: gifLimitText.implicitWidth + 20
                 Layout.preferredHeight: 26
                 radius: 13
-                color: page.gifLimitMB > 0 ? Theme.accentWash : Theme.field
-                border.color: page.gifLimitMB > 0 ? Theme.accentEdge : Theme.lineStrong
+                color: gifPanel.page.gifLimitMB > 0 ? Theme.accentWash : Theme.field
+                border.color: gifPanel.page.gifLimitMB > 0 ? Theme.accentEdge : Theme.lineStrong
                 Text {
                     id: gifLimitText
                     anchors.centerIn: parent
-                    text: page.gifLimitMB > 0 ? "≤ " + page.gifLimitMB + " MB" : "No size limit"
-                    color: page.gifLimitMB > 0 ? Theme.accent : Theme.textSoft
+                    text: gifPanel.page.gifLimitMB > 0 ? "≤ " + gifPanel.page.gifLimitMB + " MB" : "No size limit"
+                    color: gifPanel.page.gifLimitMB > 0 ? Theme.accent : Theme.textSoft
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
                 }
@@ -162,8 +164,8 @@ ColumnLayout {
                 { label: "720", value: 720, tip: "Sharp, but heavier" },
                 { label: "1080", value: 1080, tip: "Full HD width; big files" }
             ]
-            current: page.gifWidthPx
-            onActivated: function(width) { page.gifWidthPx = width }
+            current: gifPanel.page.gifWidthPx
+            onActivated: function(width) { gifPanel.page.gifWidthPx = width }
         }
         SegmentedControl {
             Layout.fillWidth: true
@@ -174,8 +176,8 @@ ColumnLayout {
                 { label: "15 fps", value: 15, tip: "Smoother motion" },
                 { label: "24 fps", value: 24, tip: "Film-smooth; about twice the size of 10 fps" }
             ]
-            current: page.gifFps
-            onActivated: function(fps) { page.gifFps = fps }
+            current: gifPanel.page.gifFps
+            onActivated: function(fps) { gifPanel.page.gifFps = fps }
         }
         Text { text: "Size limit"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
         Item { Layout.fillWidth: true; Layout.preferredWidth: 1 }
@@ -189,13 +191,13 @@ ColumnLayout {
                 { label: "5 MB", value: 5 },
                 { label: "10 MB", value: 10, tip: "Discord's upload limit" }
             ]
-            current: page.gifLimitMB
-            onActivated: function(mb) { page.gifLimitMB = mb }
+            current: gifPanel.page.gifLimitMB
+            onActivated: function(mb) { gifPanel.page.gifLimitMB = mb }
         }
         Text {
             Layout.fillWidth: true
             Layout.preferredWidth: 1
-            text: page.gifLimitMB > 0 ? "Shrinks size and frame rate until it fits." : ""
+            text: gifPanel.page.gifLimitMB > 0 ? "Shrinks size and frame rate until it fits." : ""
             color: Theme.textFaint
             font.pixelSize: 12
             wrapMode: Text.WordWrap
@@ -231,8 +233,8 @@ ColumnLayout {
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: Prefs.gifMoreOptions ? "" : page.gifExtras || "speed, bounce, exact times"
-                color: page.gifExtras ? Theme.accent : Theme.textFaint
+                text: Prefs.gifMoreOptions ? "" : gifPanel.page.gifExtras || "speed, bounce, exact times"
+                color: gifPanel.page.gifExtras ? Theme.accent : Theme.textFaint
                 font.pixelSize: 12
             }
         }
@@ -257,8 +259,8 @@ ColumnLayout {
                     { label: "1.5×", value: 1.5 },
                     { label: "2×", value: 2, glyph: "bolt", boltSize: 12 }
                 ]
-                current: page.gifSpeed
-                onActivated: function(speed) { page.gifSpeed = speed }
+                current: gifPanel.page.gifSpeed
+                onActivated: function(speed) { gifPanel.page.gifSpeed = speed }
             }
             SegmentedControl {
                 Layout.fillWidth: true
@@ -269,10 +271,10 @@ ColumnLayout {
                     { label: "Bounce", value: "bounce", tip: "Forward, then backward, like a boomerang" },
                     { label: "Once", value: "once", tip: "Plays one time and stops on the last frame" }
                 ]
-                current: page.gifOnce ? "once" : page.gifBounce ? "bounce" : "loop"
+                current: gifPanel.page.gifOnce ? "once" : gifPanel.page.gifBounce ? "bounce" : "loop"
                 onActivated: function(mode) {
-                    page.gifBounce = mode === "bounce"
-                    page.gifOnce = mode === "once"
+                    gifPanel.page.gifBounce = mode === "bounce"
+                    gifPanel.page.gifOnce = mode === "once"
                 }
             }
             Text { text: "Start (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
@@ -289,12 +291,12 @@ ColumnLayout {
         iconName: "gif"
         primary: true
         Layout.topMargin: 6
-        enabled: page.sourceUrl.toString() && Core.localTools.available && !Core.localTools.busy
-        onClicked: page.beginLocal("gif")
+        enabled: gifPanel.page.sourceUrl.toString() && Core.localTools.available && !Core.localTools.busy
+        onClicked: gifPanel.page.beginLocal("gif")
     }
-    Text { visible: page.resultSection === "gif" && Core.localTools.outputUrl.toString().length > 0 && !Core.localTools.busy; text: "Result preview · " + page.sizeLabel(Core.localTools.outputBytes); color: Theme.textMuted; font.pixelSize: 12 }
+    Text { visible: gifPanel.page.resultSection === "gif" && Core.localTools.outputUrl.toString().length > 0 && !Core.localTools.busy; text: "Result preview · " + gifPanel.page.sizeLabel(Core.localTools.outputBytes); color: Theme.textMuted; font.pixelSize: 12 }
     Rectangle {
-        visible: page.resultSection === "gif" && Core.localTools.outputUrl.toString().length > 0 && !Core.localTools.busy
+        visible: gifPanel.page.resultSection === "gif" && Core.localTools.outputUrl.toString().length > 0 && !Core.localTools.busy
         Layout.fillWidth: true
         Layout.preferredHeight: visible ? 252 : 0
         radius: 10

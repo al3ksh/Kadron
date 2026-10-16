@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 
 // Crop frame over an image: drag inside to move it, drag a corner or an edge
@@ -63,11 +65,12 @@ Item {
         Repeater {
             model: 2
             delegate: Item {
+                id: third
                 required property int index
                 anchors.fill: parent
                 visible: overlay.dragging
-                Rectangle { x: box.width * (index + 1) / 3; width: 1; height: box.height; color: Qt.rgba(1, 1, 1, 0.45) }
-                Rectangle { y: box.height * (index + 1) / 3; height: 1; width: box.width; color: Qt.rgba(1, 1, 1, 0.45) }
+                Rectangle { x: box.width * (third.index + 1) / 3; width: 1; height: box.height; color: Qt.rgba(1, 1, 1, 0.45) }
+                Rectangle { y: box.height * (third.index + 1) / 3; height: 1; width: box.width; color: Qt.rgba(1, 1, 1, 0.45) }
             }
         }
 

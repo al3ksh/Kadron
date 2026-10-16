@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -21,34 +23,34 @@ ColumnLayout {
         spacing: 12
         EditorButton {
             objectName: "audioPlayButton"
-            iconName: page.audioPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
-            enabled: page.audioPlayer.duration > 0
+            iconName: audioPanel.page.audioPlayer.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
+            enabled: audioPanel.page.audioPlayer.duration > 0
             Layout.alignment: Qt.AlignBottom
             Layout.bottomMargin: 50
-            onClicked: page.toggleAudioPreview()
+            onClicked: audioPanel.page.toggleAudioPreview()
         }
         RangeStrip {
             id: audioStrip
             objectName: "audioStrip"
             Layout.fillWidth: true
             implicitHeight: 134
-            waveLoading: page.audioPlayer.duration > 0 && waveform.length === 0
-            waveform: page.audioPlayer.duration > 0 && Core.thumbnails.revision >= 0 ? Core.thumbnails.waveformFor(page.sourceUrl) : ""
-            durationMs: page.audioPlayer.duration
-            startMs: page.audioStartMs
-            endMs: page.audioEndMs
-            positionMs: page.audioPlayer.position
-            onRangeRequested: function(startMs, endMs) { page.setAudioRange(startMs, endMs) }
-            onSeekRequested: function(ms) { page.audioPlayer.position = ms }
+            waveLoading: audioPanel.page.audioPlayer.duration > 0 && waveform.length === 0
+            waveform: audioPanel.page.audioPlayer.duration > 0 && Core.thumbnails.revision >= 0 ? Core.thumbnails.waveformFor(audioPanel.page.sourceUrl) : ""
+            durationMs: audioPanel.page.audioPlayer.duration
+            startMs: audioPanel.page.audioStartMs
+            endMs: audioPanel.page.audioEndMs
+            positionMs: audioPanel.page.audioPlayer.position
+            onRangeRequested: function(startMs, endMs) { audioPanel.page.setAudioRange(startMs, endMs) }
+            onSeekRequested: function(ms) { audioPanel.page.audioPlayer.position = ms }
         }
     }
     RowLayout {
         Layout.fillWidth: true
         spacing: 14
         Text {
-            text: page.audioPlayer.duration > 0
-                  ? "Selection " + page.clockLabel(page.audioEndMs - page.audioStartMs) + " of " + page.clockLabel(page.audioPlayer.duration)
-                  : page.audioPlayer.mediaStatus === MediaPlayer.InvalidMedia ? "This file cannot be previewed; the range fields still apply." : "Reading the file…"
+            text: audioPanel.page.audioPlayer.duration > 0
+                  ? "Selection " + audioPanel.page.clockLabel(audioPanel.page.audioEndMs - audioPanel.page.audioStartMs) + " of " + audioPanel.page.clockLabel(audioPanel.page.audioPlayer.duration)
+                  : audioPanel.page.audioPlayer.mediaStatus === MediaPlayer.InvalidMedia ? "This file cannot be previewed; the range fields still apply." : "Reading the file…"
             color: Theme.textSoft
             font.pixelSize: 12
             font.features: { "tnum": 1 }
@@ -62,11 +64,11 @@ ColumnLayout {
         Text { visible: Prefs.audioMoreOptions; text: "s"; color: Theme.textFaint; font.pixelSize: 12 }
         Item { Layout.fillWidth: true }
         VolumeControl { id: audioVolume; objectName: "audioVolume" }
-        ToolCheck { text: "Loop"; checked: page.audioLooping; onToggled: page.audioLooping = checked }
+        ToolCheck { text: "Loop"; checked: audioPanel.page.audioLooping; onToggled: audioPanel.page.audioLooping = checked }
         EditorButton {
             text: "Whole file"
             subtle: true
-            enabled: page.audioPlayer.duration > 0 && (page.audioStartMs > 0 || page.audioEndMs < page.audioPlayer.duration)
+            enabled: audioPanel.page.audioPlayer.duration > 0 && (audioPanel.page.audioStartMs > 0 || audioPanel.page.audioEndMs < audioPanel.page.audioPlayer.duration)
             onClicked: { audioStart.text = "0"; audioEnd.text = "0" }
         }
     }
@@ -89,13 +91,13 @@ ColumnLayout {
                 spacing: 2
                 Text { text: "NOW"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
                 Text {
-                    text: page.sourceBytes > 0 ? page.sizeLabel(page.sourceBytes) : "—"
+                    text: audioPanel.page.sourceBytes > 0 ? audioPanel.page.sizeLabel(audioPanel.page.sourceBytes) : "—"
                     color: Theme.text
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
                 }
                 Text {
-                    text: page.audioPlayer.duration > 0 ? page.clockLabel(page.audioPlayer.duration) : " "
+                    text: audioPanel.page.audioPlayer.duration > 0 ? audioPanel.page.clockLabel(audioPanel.page.audioPlayer.duration) : " "
                     color: Theme.textMuted
                     font.pixelSize: 11
                     font.features: { "tnum": 1 }
@@ -108,15 +110,15 @@ ColumnLayout {
                 Text { text: "OUT"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
                 Text {
                     objectName: "audioEstimate"
-                    text: page.audioEstimateBytes > 0 ? "≈ " + page.sizeLabel(page.audioEstimateBytes) : "—"
+                    text: audioPanel.page.audioEstimateBytes > 0 ? "≈ " + audioPanel.page.sizeLabel(audioPanel.page.audioEstimateBytes) : "—"
                     color: Theme.accent
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
                 }
                 Text {
-                    text: page.audioSelectionSec > 0
-                          ? page.clockLabel(page.audioSelectionSec * 1000) + " · " + page.audioFormatName.replace("m4a", "aac").toUpperCase()
-                            + (page.audioLossless ? " lossless" : " " + page.audioKbps + " kbps") + (page.audioMono ? " · mono" : "")
+                    text: audioPanel.page.audioSelectionSec > 0
+                          ? audioPanel.page.clockLabel(audioPanel.page.audioSelectionSec * 1000) + " · " + audioPanel.page.audioFormatName.replace("m4a", "aac").toUpperCase()
+                            + (audioPanel.page.audioLossless ? " lossless" : " " + audioPanel.page.audioKbps + " kbps") + (audioPanel.page.audioMono ? " · mono" : "")
                           : " "
                     color: Theme.textMuted
                     font.pixelSize: 11
@@ -125,8 +127,8 @@ ColumnLayout {
             }
             // Smaller or bigger than the source, by how much.
             Rectangle {
-                readonly property real change: page.sourceBytes > 0 && page.audioEstimateBytes > 0
-                                               ? page.audioEstimateBytes / page.sourceBytes - 1 : 0
+                readonly property real change: audioPanel.page.sourceBytes > 0 && audioPanel.page.audioEstimateBytes > 0
+                                               ? audioPanel.page.audioEstimateBytes / audioPanel.page.sourceBytes - 1 : 0
                 visible: Math.abs(change) >= 0.05
                 Layout.preferredWidth: audioChange.implicitWidth + 20
                 Layout.preferredHeight: 26
@@ -152,7 +154,7 @@ ColumnLayout {
         rowSpacing: 7
         Layout.topMargin: 4
         Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-        Text { text: page.audioLossless ? "Quality" : "Quality (kbps)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
+        Text { text: audioPanel.page.audioLossless ? "Quality" : "Quality (kbps)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
         SegmentedControl {
             Layout.fillWidth: true
             Layout.preferredWidth: 1
@@ -164,15 +166,15 @@ ColumnLayout {
                 { label: "WAV", value: "wav", tip: "Uncompressed, for further editing" },
                 { label: "FLAC", value: "flac", tip: "Lossless and smaller than WAV" }
             ]
-            current: page.audioFormatName
-            onActivated: function(format) { page.audioFormatName = format }
+            current: audioPanel.page.audioFormatName
+            onActivated: function(format) { audioPanel.page.audioFormatName = format }
         }
         Item {
             Layout.fillWidth: true
             Layout.preferredWidth: 1
             implicitHeight: 34
             SegmentedControl {
-                visible: !page.audioLossless
+                visible: !audioPanel.page.audioLossless
                 anchors.fill: parent
                 namePrefix: "audioKbps_"
                 options: [
@@ -181,11 +183,11 @@ ColumnLayout {
                     { label: "192", value: 192, tip: "High quality" },
                     { label: "320", value: 320, tip: "The most MP3 can do" }
                 ]
-                current: page.audioKbps
-                onActivated: function(kbps) { page.audioKbps = kbps }
+                current: audioPanel.page.audioKbps
+                onActivated: function(kbps) { audioPanel.page.audioKbps = kbps }
             }
             Text {
-                visible: page.audioLossless
+                visible: audioPanel.page.audioLossless
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Lossless · keeps every detail of the source"
                 color: Theme.textSoft
@@ -223,8 +225,8 @@ ColumnLayout {
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: Prefs.audioMoreOptions ? "" : page.audioExtras || "fades, loudness, channels, exact times"
-                color: page.audioExtras ? Theme.accent : Theme.textFaint
+                text: Prefs.audioMoreOptions ? "" : audioPanel.page.audioExtras || "fades, loudness, channels, exact times"
+                color: audioPanel.page.audioExtras ? Theme.accent : Theme.textFaint
                 font.pixelSize: 12
             }
         }
@@ -245,16 +247,16 @@ ColumnLayout {
                 Layout.preferredWidth: 1
                 namePrefix: "audioFadeIn_"
                 options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
-                current: page.audioFadeIn
-                onActivated: function(sec) { page.audioFadeIn = sec }
+                current: audioPanel.page.audioFadeIn
+                onActivated: function(sec) { audioPanel.page.audioFadeIn = sec }
             }
             SegmentedControl {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
                 namePrefix: "audioFadeOut_"
                 options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
-                current: page.audioFadeOut
-                onActivated: function(sec) { page.audioFadeOut = sec }
+                current: audioPanel.page.audioFadeOut
+                onActivated: function(sec) { audioPanel.page.audioFadeOut = sec }
             }
 
             Text { text: "Loudness"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
@@ -269,16 +271,16 @@ ColumnLayout {
                     { label: "Music", value: -14, tip: "−14 LUFS, what Spotify and YouTube play at" },
                     { label: "Loud", value: -9, tip: "−9 LUFS, for clips that must cut through" }
                 ]
-                current: page.audioLufs
-                onActivated: function(lufs) { page.audioLufs = lufs }
+                current: audioPanel.page.audioLufs
+                onActivated: function(lufs) { audioPanel.page.audioLufs = lufs }
             }
             SegmentedControl {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
                 namePrefix: "audioChannels_"
                 options: [{ label: "Stereo", value: false }, { label: "Mono", value: true, tip: "One channel; fine for voice" }]
-                current: page.audioMono
-                onActivated: function(mono) { page.audioMono = mono }
+                current: audioPanel.page.audioMono
+                onActivated: function(mono) { audioPanel.page.audioMono = mono }
             }
         }
     }
@@ -288,7 +290,7 @@ ColumnLayout {
         iconName: "audio"
         primary: true
         Layout.topMargin: 6
-        enabled: page.sourceUrl.toString() && Core.localTools.available && !Core.localTools.busy
-        onClicked: page.beginLocal("audio")
+        enabled: audioPanel.page.sourceUrl.toString() && Core.localTools.available && !Core.localTools.busy
+        onClicked: audioPanel.page.beginLocal("audio")
     }
 }

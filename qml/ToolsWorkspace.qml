@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -717,7 +719,7 @@ Item {
     }
     ScrollView {
         id: scroll
-        readonly property SoftBounds softBounds: SoftBounds { flickable: scroll.contentItem }
+        readonly property SoftBounds softBounds: SoftBounds { flickable: scroll.contentItem as Flickable }
         anchors.fill: parent
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -795,6 +797,7 @@ Item {
                         anchors.centerIn: parent
                         spacing: 7
                         Rectangle {
+                            id: ytdlpDot
                             anchors.verticalCenter: parent.verticalCenter
                             width: 7
                             height: 7
@@ -803,7 +806,7 @@ Item {
                             SequentialAnimation on opacity {
                                 running: Core.localDownload.updatingYtDlp || Core.localDownload.checkingYtDlp
                                 loops: Animation.Infinite
-                                onRunningChanged: if (!running) parent.opacity = 1
+                                onRunningChanged: if (!running) ytdlpDot.opacity = 1
                                 NumberAnimation { to: 0.3; duration: 500 }
                                 NumberAnimation { to: 1; duration: 500 }
                             }
@@ -1008,18 +1011,19 @@ Item {
                 Repeater {
                     model: Core.localDownload.queue
                     delegate: RowLayout {
+                        id: queued
                         required property var modelData
                         required property int index
                         Layout.fillWidth: true
                         spacing: 8
                         Text {
-                            text: (index + 1) + ". " + (modelData.title || modelData.url)
+                            text: (queued.index + 1) + ". " + (queued.modelData.title || queued.modelData.url)
                             color: Theme.textSoft
                             font.pixelSize: 12
                             elide: Text.ElideMiddle
                             Layout.fillWidth: true
                         }
-                        EditorButton { iconName: "close"; subtle: true; implicitHeight: 26; implicitWidth: 26; onClicked: Core.localDownload.removeQueued(modelData.id)
+                        EditorButton { iconName: "close"; subtle: true; implicitHeight: 26; implicitWidth: 26; onClicked: Core.localDownload.removeQueued(queued.modelData.id)
                                        ToolTip.visible: hovered; ToolTip.text: "Remove from queue" }
                     }
                 }
