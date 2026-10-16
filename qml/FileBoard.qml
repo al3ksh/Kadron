@@ -47,10 +47,18 @@ Item {
             width: grid.cellWidth
             height: grid.cellHeight
             keys: ["kadron-file-card"]
-            onEntered: function(drag) {
-                if (!slot.isAdd && drag.source && drag.source.visualIndex !== slot.index)
-                    cards.move(drag.source.visualIndex, slot.index, 1)
+            // A slot takes the dragged card only while it rests in its own cell:
+            // one still sliding aside after a move would slide under the card
+            // and swap it straight back.
+            function take(drag) {
+                if (slot.isAdd || !drag.source || drag.source.visualIndex === slot.index) return
+                var columns = Math.max(1, Math.floor(grid.width / grid.cellWidth))
+                if (Math.abs(slot.x - (slot.index % columns) * grid.cellWidth) > 1
+                        || Math.abs(slot.y - Math.floor(slot.index / columns) * grid.cellHeight) > 1) return
+                cards.move(drag.source.visualIndex, slot.index, 1)
             }
+            onEntered: function(drag) { take(drag) }
+            onPositionChanged: function(drag) { take(drag) }
 
             // Add tile.
             Rectangle {

@@ -50,6 +50,14 @@ static std::unique_ptr<QObject> createFromModule(QQmlEngine &engine, const char 
     return std::unique_ptr<QObject>(component.create());
 }
 
+// Off screen unless asked otherwise: no windows pop up on the desktop, and a
+// real mouse moving over them can't break a drag in progress.
+static const bool offscreenByDefault = [] {
+    if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM"))
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+    return true;
+}();
+
 static QMetaMethod signalOf(QObject *object, const char *name)
 {
     const auto index = object->metaObject()->indexOfSignal(name);
@@ -849,6 +857,11 @@ void UiTests::fileBoardReorder()
             QTest::mouseMove(&window, QPoint(x, 60));
             QTest::qWait(5);
         }
+        // Like a hand, rest over the target once the displaced cards settle;
+        // a slot only takes the card on a move over its final place.
+        QTest::qWait(400);
+        QTest::mouseMove(&window, QPoint(84 + 2 * 168 + 1, 60));
+        QTest::qWait(20);
         QTest::mouseRelease(&window, Qt::LeftButton, {}, QPoint(84 + 2 * 168, 60));
         QTRY_VERIFY_WITH_TIMEOUT(reordered.count() > 0, 2000);
         const auto order = reordered.last().first().toList();
