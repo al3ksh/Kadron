@@ -101,6 +101,10 @@ qt_add_qml_module(kadron_ui
         qml/EditorField.qml
         qml/Timeline.qml
         qml/ClipInspector.qml
+        qml/ExportSheet.qml
+        qml/PublishPanel.qml
+        qml/Sidebar.qml
+        qml/TimelinePanel.qml
         qml/ToolsWorkspace.qml
         qml/DownloadPanel.qml
         qml/AudioPanel.qml

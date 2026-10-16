@@ -708,8 +708,8 @@ ApplicationWindow {
     readonly property bool keyboardSeek: workspace === 0 && Core.editorProject.hasMedia && !dialogOpen && !Core.exporter.busy
     Shortcut { sequence: ","; enabled: root.keyboardSeek; autoRepeat: true; onActivated: root.nudgeSequence(-1000 / root.frameRate) }
     Shortcut { sequence: "."; enabled: root.keyboardSeek; autoRepeat: true; onActivated: root.nudgeSequence(1000 / root.frameRate) }
-    Shortcut { sequence: "Shift+Left"; enabled: root.keyboardSeek && !sequenceTimeline.activeFocus; autoRepeat: true; onActivated: root.nudgeSequence(-1000) }
-    Shortcut { sequence: "Shift+Right"; enabled: root.keyboardSeek && !sequenceTimeline.activeFocus; autoRepeat: true; onActivated: root.nudgeSequence(1000) }
+    Shortcut { sequence: "Shift+Left"; enabled: root.keyboardSeek && !timelinePanel.timeline.activeFocus; autoRepeat: true; onActivated: root.nudgeSequence(-1000) }
+    Shortcut { sequence: "Shift+Right"; enabled: root.keyboardSeek && !timelinePanel.timeline.activeFocus; autoRepeat: true; onActivated: root.nudgeSequence(1000) }
     Shortcut {
         sequence: "J"
         enabled: root.keyboardSeek
@@ -730,7 +730,7 @@ ApplicationWindow {
     readonly property bool keyboardVolume: workspace === 0 && Core.editorProject.hasMedia && !dialogOpen
     readonly property bool arrowsFree: {
         var item = root.activeFocusItem
-        return !item || item === sequenceTimeline || (item.cursorPosition === undefined && item.currentIndex === undefined && item.value === undefined)
+        return !item || item === timelinePanel.timeline || (item.cursorPosition === undefined && item.currentIndex === undefined && item.value === undefined)
     }
     Shortcut { sequence: "M"; enabled: root.keyboardVolume; onActivated: root.toggleMute() }
     Shortcut { sequence: "Up"; enabled: root.keyboardVolume && root.arrowsFree; autoRepeat: true; onActivated: root.stepVolume(0.05) }
@@ -1012,7 +1012,7 @@ ApplicationWindow {
         id: settingsDialog
         objectName: "settingsDialog"
         onTutorialRequested: tutorial.start()
-        onUpdateRequested: updateCard.act()
+        onUpdateRequested: sidebar.installUpdate()
     }
 
     Tutorial {
@@ -1081,112 +1081,11 @@ ApplicationWindow {
         return commands
     }
 
-    StudioDialog {
+    ExportSheet {
         id: exportSheet
         objectName: "exportSheet"
-        property bool losslessCut: false
-        // Only the part between the markers around the playhead, where it was
-        // when the sheet opened.
-        property bool onlyMarked: false
-        property real openedAtMs: 0
-        onAboutToShow: openedAtMs = root.sequencePositionMs
-        readonly property var markedRange: root.markerRangeAt(openedAtMs)
-        readonly property var range: onlyMarked ? markedRange : null
-        readonly property real lengthMs: range ? range.endMs - range.startMs : Core.editorProject.sequenceDurationMs
-        readonly property var presets: [
-            ["source", "Source", "Original size and frame rate"],
-            ["1080p60", "1080p60", "Full HD, up to 60 fps"],
-            ["discord", "Discord", "Under 10 MB, 720p"],
-            ["vertical", "Vertical", "1080×1920 for Shorts and Reels"]
-        ]
-        readonly property int discordKbps: Core.exporter.discordVideoKbps(lengthMs)
-        heading: "Export MP4"
-        message: ""
-        iconName: "publish"
-        width: 500
-        body: [
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 2
-                rowSpacing: 8
-                columnSpacing: 8
-                enabled: !exportSheet.losslessCut
-                opacity: enabled ? 1 : 0.45
-                Repeater {
-                    model: exportSheet.presets
-                    delegate: Rectangle {
-                        id: presetTile
-                        required property var modelData
-                        readonly property bool chosen: Prefs.exportPreset === modelData[0]
-                        objectName: "preset_" + modelData[0]
-                        Layout.fillWidth: true
-                        implicitHeight: 58
-                        radius: Theme.radius
-                        color: chosen ? Theme.accentWash : tileMouse.containsMouse ? Theme.hover : Theme.field
-                        border.color: chosen ? Theme.accentEdge : Theme.line
-                        Behavior on color { ColorAnimation { duration: Theme.fadeFast } }
-                        Column {
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 10
-                            spacing: 2
-                            Text { text: presetTile.modelData[1]; color: presetTile.chosen ? Theme.accent : Theme.text; font.family: Theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold }
-                            Text { width: parent.width; text: presetTile.modelData[2]; color: Theme.textMuted; font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight }
-                        }
-                        MouseArea { id: tileMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Prefs.exportPreset = presetTile.modelData[0] }
-                    }
-                }
-            },
-            Text {
-                Layout.fillWidth: true
-                visible: Prefs.exportPreset === "discord" && !exportSheet.losslessCut
-                text: exportSheet.discordKbps < 400 ? "Long for 10 MB: about " + exportSheet.discordKbps + " kbit/s, expect a soft picture."
-                                                    : "About " + exportSheet.discordKbps + " kbit/s for " + root.timecode(exportSheet.lengthMs) + "."
-                color: exportSheet.discordKbps < 400 ? Theme.warning : Theme.textFaint
-                font.family: Theme.fontFamily
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-            },
-            ToolCheck {
-                text: "Even out loudness (-16 LUFS)"
-                enabled: !exportSheet.losslessCut
-                checked: Prefs.exportLoudnorm
-                onToggled: Prefs.exportLoudnorm = checked
-            },
-            ToolCheck {
-                objectName: "exportOnlyMarked"
-                visible: !!exportSheet.markedRange
-                text: exportSheet.markedRange ? "Only " + root.timecode(exportSheet.markedRange.startMs) + " – " + root.timecode(exportSheet.markedRange.endMs)
-                                                + ", between the markers around the playhead" : ""
-                checked: exportSheet.onlyMarked
-                onToggled: exportSheet.onlyMarked = checked
-            },
-            Text {
-                Layout.fillWidth: true
-                visible: Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0 || Core.editorProject.markers.length > 0 || Core.exporter.busy
-                text: [Core.exporter.busy ? "An export is running: this one waits in the queue." : "",
-                       Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0 ? (exportSheet.losslessCut && !Core.editorProject.mixed ? "The logo is skipped by a lossless cut." : "Your logo from Settings goes on.") : "",
-                       Core.editorProject.markers.length > 0 ? "Markers become chapters in the file." : ""].filter(function(line) { return line.length > 0 }).join(" ")
-                color: Theme.textFaint
-                font.family: Theme.fontFamily
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
-            },
-            ToolCheck {
-                visible: !Core.editorProject.mixed
-                text: "Fast lossless cut: no re-encode, starts at the nearest keyframe"
-                checked: exportSheet.losslessCut
-                onToggled: exportSheet.losslessCut = checked
-            }
-        ]
-        EditorButton {
-            text: Core.exporter.busy ? "Queue · choose file…" : "Choose file…"
-            primary: true
-            onClicked: { exportSheet.close(); exportDialog.open() }
-        }
-        EditorButton { text: "Cancel"; subtle: true; onClicked: exportSheet.close() }
+        app: root
+        onChooseFile: exportDialog.open()
     }
     StudioDialog {
         id: replaceSourceDialog
@@ -1420,126 +1319,13 @@ ApplicationWindow {
             saturation: -0.15 * appContent.blurAmount
         }
 
-        Rectangle {
+        Sidebar {
+            id: sidebar
+            app: root
             Layout.preferredWidth: 188
             Layout.fillHeight: true
-            color: Theme.rail
-            // One shared highlight travels between rail items on a spring.
-            Item {
-                id: navHighlight
-                readonly property Item target: [navEditor, navDownload, navAudio, navCompress, navGif, navPdf, navQr, navClips, navDrop, navShortener, navImages, navReframe][root.workspace] || null
-                visible: target !== null
-                x: navColumn.x + (target ? target.x : 0)
-                y: navColumn.y + (target ? target.y : 0)
-                width: target ? target.width : 0
-                height: target ? target.height : 0
-                Behavior on y { SmoothSpring {} }
-                Rectangle { anchors.fill: parent; radius: 9; color: Theme.accentWash }
-                Rectangle { width: 3; height: 18; radius: 2; anchors.verticalCenter: parent.verticalCenter; color: Theme.accent }
-            }
-            ColumnLayout {
-                id: navColumn
-                anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                anchors.topMargin: 15
-                anchors.bottomMargin: 16
-                spacing: 0
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 8
-                    Layout.preferredHeight: 48
-                    spacing: 8
-                    BrandMark { Layout.preferredWidth: 34; Layout.preferredHeight: 34 }
-                    Column {
-                        spacing: 0
-                        Text { text: "KADRON"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 16; font.weight: Font.Bold; font.letterSpacing: 1.2 }
-                        Text { text: "MEDIA STUDIO"; color: Theme.textFaint; font.family: Theme.fontFamily; font.pixelSize: 8; font.weight: Font.DemiBold; font.letterSpacing: 1.5 }
-                    }
-                }
-                Item { Layout.preferredHeight: root.height < 820 ? 10 : 23 }
-                Text { text: "WORKSPACE"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
-                NavItem { id: navEditor; Layout.fillWidth: true; title: "Editor"; iconName: "edit"; active: root.workspace === 0 && root.inspectorMode === 0; onClicked: { root.workspace = 0; root.inspectorMode = 0 } }
-                NavItem { id: navDownload; Layout.fillWidth: true; title: "Download"; iconName: "download"; active: root.workspace === 1; onClicked: root.workspace = 1 }
-                NavItem { id: navAudio; Layout.fillWidth: true; title: "Audio"; iconName: "audio"; active: root.workspace === 2; onClicked: root.workspace = 2 }
-                NavItem { id: navCompress; Layout.fillWidth: true; title: "Compress"; iconName: "compress"; active: root.workspace === 3; onClicked: root.workspace = 3 }
-                NavItem { id: navGif; Layout.fillWidth: true; title: "GIF Studio"; iconName: "gif"; active: root.workspace === 4; onClicked: root.workspace = 4 }
-                NavItem { id: navReframe; objectName: "navReframe"; Layout.fillWidth: true; title: "Reframe"; iconName: "reframe"; active: root.workspace === 11; onClicked: root.workspace = 11 }
-                NavItem { id: navImages; objectName: "navImages"; Layout.fillWidth: true; title: "Images"; iconName: "image"; active: root.workspace === 10; onClicked: root.workspace = 10 }
-                Item { Layout.preferredHeight: root.height < 820 ? 12 : 20 }
-                Text { text: "UTILITIES"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
-                NavItem { id: navPdf; Layout.fillWidth: true; title: "PDF Tools"; iconName: "pdf"; active: root.workspace === 5; onClicked: root.workspace = 5 }
-                NavItem { id: navQr; Layout.fillWidth: true; title: "QR Code"; iconName: "qr"; active: root.workspace === 6; onClicked: root.workspace = 6 }
-                Item { Layout.preferredHeight: root.height < 820 ? 12 : 20 }
-                Text { text: "YOUR TOOLS SERVER"; color: Theme.textFaint; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 1.2; Layout.leftMargin: 13; Layout.bottomMargin: 7 }
-                NavItem { id: navClips; Layout.fillWidth: true; title: "Clips"; iconName: "publish"; active: root.workspace === 7; onClicked: root.workspace = 7 }
-                NavItem { id: navDrop; Layout.fillWidth: true; title: "Drop"; iconName: "publish"; active: root.workspace === 8; onClicked: root.workspace = 8 }
-                NavItem { id: navShortener; Layout.fillWidth: true; title: "Shortener"; iconName: "publish"; active: root.workspace === 9; onClicked: root.workspace = 9 }
-                Item { Layout.fillHeight: true }
-                UpdateCard {
-                    id: updateCard
-                    Layout.fillWidth: true
-                    Layout.bottomMargin: 12
-                    updater: Core.appUpdater
-                    // Everything else in the sidebar stays put; the card shrinks
-                    // to one row when the full one would push Settings off screen.
-                    compact: navColumn.implicitHeight - implicitHeight + fullHeight > navColumn.height
-                    onRestartRequested: root.quitApp()
-                }
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.topMargin: 10
-                    Layout.leftMargin: 4
-                    spacing: 8
-                    // Settings, with the running version beside it (click the version to look for an update).
-                    Rectangle {
-                        id: settingsButton
-                        objectName: "settingsButton"
-                        Layout.fillWidth: true
-                        implicitHeight: 32
-                        radius: Theme.radiusSmall
-                        color: settingsMouse.containsMouse || settingsDialog.visible ? Theme.hover : Theme.hoverClear
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Settings"
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 5
-                            spacing: 9
-                            ToolIcon { name: "sliders"; tint: settingsMouse.containsMouse || settingsDialog.visible ? Theme.text : Theme.textMuted }
-                            Text { text: "Settings"; color: settingsMouse.containsMouse || settingsDialog.visible ? Theme.text : Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
-                        }
-                        MouseArea {
-                            id: settingsMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: settingsDialog.open()
-                        }
-                        ToolTip.visible: settingsMouse.containsMouse
-                        ToolTip.delay: 600
-                        ToolTip.text: "Settings  Ctrl+,"
-                    }
-                    Text {
-                        objectName: "versionLink"
-                        Layout.rightMargin: 6
-                        text: Core.appUpdater.checking ? "Checking…" : "v" + Core.appUpdater.currentVersion
-                        color: versionMouse.containsMouse ? Theme.text : Theme.textFaint
-                        font.pixelSize: 10
-                        font.features: { "tnum": 1 }
-                        MouseArea {
-                            id: versionMouse
-                            anchors.fill: parent
-                            anchors.margins: -5
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            // Asking again brings back a card that was closed.
-                            onClicked: { Prefs.dismissedUpdate = ""; Core.appUpdater.check() }
-                        }
-                    }
-                }
-            }
-            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Theme.line }
+            settingsOpen: settingsDialog.visible
+            onOpenSettings: settingsDialog.open()
         }
 
         ColumnLayout {
@@ -1959,192 +1745,30 @@ ApplicationWindow {
                         onImportSubtitles: subtitleImportDialog.open()
                         onExportSubtitles: subtitleExportDialog.open()
                         onReplaceSource: replaceSourceDialog.open()
-                        onTextDone: sequenceTimeline.forceActiveFocus()
+                        onTextDone: timelinePanel.timeline.forceActiveFocus()
                     }
 
-                    ColumnLayout {
+                    PublishPanel {
                         visible: root.inspectorMode === 1
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        spacing: 9
-                        Text { text: "Tools server"; color: Theme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
-                        EditorField {
-                            id: serverField
-                            Layout.fillWidth: true
-                            text: Core.toolsClient.serverUrl
-                            placeholderText: "https://tools.example.com"
-                            onEditingFinished: Core.toolsClient.serverUrl = text
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            EditorButton { text: "Connect"; enabled: !Core.toolsClient.busy; onClicked: { Core.toolsClient.serverUrl = serverField.text; Core.toolsClient.testConnection() } }
-                            Text { text: Core.toolsClient.connected ? "Connected" : "Not connected"; color: Core.toolsClient.connected ? Theme.success : Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
-                        }
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line; Layout.topMargin: 3 }
-                        Text { text: "Publish a file"; color: Theme.text; font.pixelSize: 13; font.weight: Font.DemiBold }
-                        Text {
-                            Layout.fillWidth: true
-                            text: root.publishSource().toString() ? root.publishSource().toString().split("/").pop() : "No file selected"
-                            color: Theme.textSoft
-                            elide: Text.ElideMiddle
-                            font.pixelSize: 11
-                        }
-                        EditorButton { text: "Choose file"; Layout.fillWidth: true; onClicked: uploadDialog.open() }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            EditorButton { text: "To Clips"; Layout.fillWidth: true; enabled: !Core.toolsClient.busy && root.publishSource().toString(); onClicked: Core.toolsClient.publishClip(root.publishSource()) }
-                            EditorButton { text: "To Drop"; Layout.fillWidth: true; enabled: !Core.toolsClient.busy && root.publishSource().toString(); onClicked: Core.toolsClient.publishDrop(root.publishSource()) }
-                        }
-                        Text { text: "Guest: Clips 200 MB / 24 h, Drop 50 MB / 1 h"; color: Theme.textMuted; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line; Layout.topMargin: 3 }
-                        Text { text: "Shorten a link"; color: Theme.text; font.pixelSize: 13; font.weight: Font.DemiBold }
-                        EditorField { id: targetField; Layout.fillWidth: true; placeholderText: "https://..." }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            EditorField { id: slugField; Layout.fillWidth: true; placeholderText: "Custom slug (optional)" }
-                            EditorButton { text: "Create"; enabled: !Core.toolsClient.busy; onClicked: Core.toolsClient.shorten(targetField.text, slugField.text) }
-                        }
-                        Text {
-                            visible: Core.toolsClient.busy
-                            text: Core.toolsClient.stage + "  " + Core.toolsClient.progress + "%"
-                            color: Theme.textSoft
-                            font.pixelSize: 11
-                        }
-                        StudioProgress { visible: Core.toolsClient.busy; value: Core.toolsClient.progress / 100; Layout.fillWidth: true }
-                        Text {
-                            Layout.fillWidth: true
-                            visible: Core.toolsClient.errorText.length > 0
-                            text: Core.toolsClient.errorText
-                            wrapMode: Text.WordWrap
-                            color: Theme.danger
-                            font.pixelSize: 11
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            visible: Core.toolsClient.resultUrl.toString().length > 0
-                            EditorField {
-                                id: resultField
-                                Layout.fillWidth: true
-                                readOnly: true
-                                text: Core.toolsClient.resultUrl.toString()
-                                selectByMouse: true
-                            }
-                            EditorButton {
-                                text: "Copy"
-                                onClicked: { resultField.selectAll(); resultField.copy(); resultField.deselect() }
-                            }
-                        }
-                        EditorButton { text: "Cancel upload"; visible: Core.toolsClient.busy; danger: true; onClicked: Core.toolsClient.cancel() }
+                        source: root.publishSource()
+                        onChooseFile: uploadDialog.open()
                     }
                     }
                 }
             }
         }
 
-        Rectangle {
+        TimelinePanel {
+            id: timelinePanel
+            app: root
+            mediaPlayer: player
             visible: root.workspace === 0
             Layout.fillWidth: true
             Layout.preferredHeight: 274
-            color: Theme.panel
-            Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Theme.line }
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 20
-                anchors.rightMargin: 20
-                anchors.topMargin: 13
-                anchors.bottomMargin: 13
-                spacing: 12
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    Text { text: "Timeline"; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold }
-                    Text { text: Core.editorProject.hasMedia ? Core.editorProject.clipCount + (Core.editorProject.clipCount === 1 ? " clip · " : " clips · ") + root.timecode(Core.editorProject.sequenceDurationMs) : ""; color: Theme.accent; font.pixelSize: 11 }
-                    Text { text: Core.editorProject.hasMedia ? "Drag edges to trim, drag clips to reorder, drop audio on the track below, Ctrl + wheel to zoom" : "No clip loaded"; color: Theme.textFaint; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
-                    EditorButton { iconName: "undo"; subtle: true; enabled: Core.editorProject.canUndo && !Core.exporter.busy; onClicked: Core.editorProject.undo(); ToolTip.visible: hovered; ToolTip.text: "Undo (Ctrl+Z)" }
-                    EditorButton { iconName: "redo"; subtle: true; enabled: Core.editorProject.canRedo && !Core.exporter.busy; onClicked: Core.editorProject.redo(); ToolTip.visible: hovered; ToolTip.text: "Redo (Ctrl+Shift+Z)" }
-                    EditorButton { text: "Add clip"; iconName: "plus"; enabled: !Core.exporter.busy; onClicked: addClipDialog.open() }
-                    EditorButton {
-                        objectName: "timelineTextButton"
-                        text: "Text"
-                        iconName: "edit"
-                        enabled: Core.editorProject.hasMedia && !Core.exporter.busy && Core.editorProject.sequenceDurationMs >= 200
-                        onClicked: root.addTextAt(root.sequencePositionMs)
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: "Add text at the playhead and type it on the video"
-                    }
-                    EditorButton { text: "Fit"; subtle: true; visible: sequenceTimeline.zoom > 1; onClicked: sequenceTimeline.zoomTo(1, 0) }
-                    EditorButton { text: "From start"; iconName: "play"; enabled: Core.editorProject.canExport && !Core.exporter.busy; onClicked: root.previewSequence() }
-                    EditorButton { text: "Split"; iconName: "split"; enabled: Core.editorProject.hasMedia && !Core.exporter.busy && player.position > Core.editorProject.inMs + 100 && player.position < Core.editorProject.outMs - 100; onClicked: Core.editorProject.splitAt(player.position) }
-                    EditorButton { text: "Mark in"; enabled: Core.editorProject.hasMedia && !Core.exporter.busy; onClicked: Core.editorProject.setInMs(player.position) }
-                    EditorButton { text: "Mark out"; enabled: Core.editorProject.hasMedia && !Core.exporter.busy; onClicked: Core.editorProject.setOutMs(player.position) }
-                }
-                Timeline {
-                    id: sequenceTimeline
-                    enabled: !Core.exporter.busy
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clips: Core.editorProject.clips
-                    activeIndex: Core.editorProject.activeClipIndex
-                    playheadMs: root.sequencePositionMs
-                    playing: root.previewPlaying
-                    thumbnailSource: Core.thumbnails
-                    transition: Core.editorProject.transition
-                    audioItems: Core.editorProject.audioItems
-                    audioIndex: Core.editorProject.activeAudioIndex
-                    markers: Core.editorProject.markers
-                    markerNames: Core.editorProject.markerItems.map(function(item) { return item.name })
-                    onMarkerRemoveRequested: function(index) { Core.editorProject.removeMarker(index) }
-                    onMarkerRenameRequested: function(index) { root.renameMarker(index) }
-                    onAudioSelectRequested: function(index) { Core.editorProject.selectAudio(index) }
-                    onAudioPlaceRequested: function(index, startMs, inMs, outMs) { Core.editorProject.setAudioPlacement(index, startMs, inMs, outMs) }
-                    onAudioFadeRequested: function(index, fadeInMs, fadeOutMs) { Core.editorProject.setAudioFades(index, fadeInMs, fadeOutMs) }
-                    onAudioRemoveRequested: function(index) { Core.editorProject.removeAudio(index) }
-                    onAudioSplitRequested: function(index, atMs) { Core.editorProject.splitAudio(index, Math.round(atMs)) }
-                    onAudioAddRequested: function(startMs) {
-                        root.audioAddMs = startMs
-                        musicDialog.open()
-                    }
-                    onAudioDropped: function(urls, startMs) { root.addAudioFiles(urls, startMs) }
-                    textItems: Core.editorProject.textItems
-                    textIndex: Core.editorProject.activeTextIndex
-                    onTextSelectRequested: function(index) { Core.editorProject.selectText(index) }
-                    onTextPlaceRequested: function(index, startMs, endMs) { Core.editorProject.setTextPlacement(index, startMs, endMs) }
-                    onTextRemoveRequested: function(index) { Core.editorProject.removeText(index) }
-                    onTextSplitRequested: function(index, atMs) { Core.editorProject.splitText(index, Math.round(atMs)) }
-                    onTextDuplicateRequested: function(index) { Core.editorProject.duplicateText(index) }
-                    onTextAddRequested: function(startMs) { root.addTextAt(startMs) }
-                    onTextEditRequested: function(index) { root.typeText(index) }
-                    onScrubRequested: function(ms) { root.beginScrub(ms) }
-                    onScrubFinished: root.endScrub()
-                    onSelectRequested: function(index) {
-                        root.sequencePlaying = false
-                        root.sequenceAdvancing = false
-                        Core.editorProject.selectAudio(-1)
-                        Core.editorProject.selectText(-1)
-                        Core.editorProject.selectClip(index)
-                    }
-                    onTrimRequested: function(index, inMs, outMs, previewMs) {
-                        if (Core.editorProject.setClipRange(index, inMs, outMs) && index === Core.editorProject.activeClipIndex)
-                            root.requestSourceSeek(previewMs)
-                    }
-                    onTrimPreviewRequested: function(index, sourceMs) {
-                        if (index === Core.editorProject.activeClipIndex) root.requestSourceSeek(sourceMs)
-                    }
-                    onTrimPlayRequested: function(index, fromMs, toMs) {
-                        if (index !== Core.editorProject.activeClipIndex || root.stillActive) return
-                        root.sequencePlaying = false
-                        root.sequenceAdvancing = false
-                        root.trimPlayStopMs = toMs
-                        root.requestSourceSeek(fromMs)
-                        player.play()
-                    }
-                    onMoveRequested: function(from, to) { Core.editorProject.moveClipTo(from, to) }
-                    onSplitRequested: Core.editorProject.splitAt(player.position)
-                    onDuplicateRequested: function(index) { Core.editorProject.duplicateClip(index) }
-                    onRemoveRequested: function(index) { Core.editorProject.removeClip(index) }
-                }
-            }
+            onAddClip: addClipDialog.open()
+            onAddMusic: musicDialog.open()
         }
 
         ToolsWorkspace {
