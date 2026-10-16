@@ -5,6 +5,7 @@ import QtQuick.Dialogs
 import QtMultimedia
 import QtQuick.Effects
 import QtCore
+import Kadron.Backend
 
 ApplicationWindow {
     id: root
@@ -13,13 +14,13 @@ ApplicationWindow {
     minimumWidth: 1020
     minimumHeight: 680
     // With the startup intro, main.cpp shows the window when the intro hands off.
-    visible: !startupIntroActive
+    visible: !Core.startupIntroActive
     color: Theme.window
     // Read by WindowChrome to paint the native Windows caption in the app's colors.
     readonly property color captionColor: Theme.rail
     readonly property color captionTextColor: Theme.textSoft
     readonly property bool captionDark: Theme.dark
-    title: "Kadron" + (editorProject.projectUrl.toString() ? " - " + editorProject.projectUrl.toString().split("/").pop() : "")
+    title: "Kadron" + (Core.editorProject.projectUrl.toString() ? " - " + Core.editorProject.projectUrl.toString().split("/").pop() : "")
 
     property bool forceClose: false
     property bool closeAfterSave: false
@@ -43,7 +44,7 @@ ApplicationWindow {
     property string playerError: ""
     property string notice: ""
     // The active clip, and slider values while they are dragged (-1 when not).
-    readonly property var activeClip: editorProject.activeClipIndex >= 0 ? editorProject.clips[editorProject.activeClipIndex] || null : null
+    readonly property var activeClip: Core.editorProject.activeClipIndex >= 0 ? Core.editorProject.clips[Core.editorProject.activeClipIndex] || null : null
     property real clipVolumeDrag: -1
     // Freeze frames: a still clip is "played" by this clock while the player
     // rests on its frame.
@@ -64,7 +65,7 @@ ApplicationWindow {
             last = now
             root.syncMusic()
             if (root.activeClip && root.stillClockMs >= root.activeClip.holdMs) {
-                if (editorProject.activeClipIndex + 1 >= editorProject.clipCount) root.sequencePlaying = false
+                if (Core.editorProject.activeClipIndex + 1 >= Core.editorProject.clipCount) root.sequencePlaying = false
                 else root.advanceSequence()
             }
         }
@@ -98,32 +99,32 @@ ApplicationWindow {
     property real transitionDrag: -1
     property real audioVolumeDrag: -1
     // The selected audio track item, and the one under the playhead for the preview.
-    readonly property var activeText: editorProject.activeTextIndex >= 0 ? editorProject.textItems[editorProject.activeTextIndex] || null : null
-    readonly property var activeAudio:editorProject.activeAudioIndex >= 0 ? editorProject.audioItems[editorProject.activeAudioIndex] || null : null
+    readonly property var activeText: Core.editorProject.activeTextIndex >= 0 ? Core.editorProject.textItems[Core.editorProject.activeTextIndex] || null : null
+    readonly property var activeAudio:Core.editorProject.activeAudioIndex >= 0 ? Core.editorProject.audioItems[Core.editorProject.activeAudioIndex] || null : null
     // Two preview players, so two overlapping items are both heard. A slot
     // keeps its item while it plays on, so nothing reloads mid-sound.
     property var audioSlots: [-1, -1]
     function audioIndicesAt(ms) {
-        var items = editorProject.audioItems, found = []
+        var items = Core.editorProject.audioItems, found = []
         for (var i = items.length - 1; i >= 0; i--)
             if (ms >= items[i].startMs && ms < items[i].startMs + items[i].lengthMs) found.push(i)
         return found
     }
     function slotItem(slot) {
         var index = audioSlots[slot]
-        return index >= 0 ? editorProject.audioItems[index] || null : null
+        return index >= 0 ? Core.editorProject.audioItems[index] || null : null
     }
     // Item volume shaped by its fades, and lowered under the clip's own sound.
     function audioGain(slot) {
         var item = slotItem(slot)
         if (!item) return 0
         var index = audioSlots[slot]
-        var level = audioVolumeDrag >= 0 && index === editorProject.activeAudioIndex ? audioVolumeDrag : item.volume
+        var level = audioVolumeDrag >= 0 && index === Core.editorProject.activeAudioIndex ? audioVolumeDrag : item.volume
         var t = sequencePositionMs - item.startMs
         if (item.fadeInMs > 0 && t < item.fadeInMs) level *= Math.sin(Math.max(0, t) / item.fadeInMs * Math.PI / 2)
         var left = item.lengthMs - t
         if (item.fadeOutMs > 0 && left < item.fadeOutMs) level *= Math.sin(Math.max(0, left) / item.fadeOutMs * Math.PI / 2)
-        return Math.min(1, level) * (editorProject.musicDuck && clipGain > 0 ? 0.4 : 1)
+        return Math.min(1, level) * (Core.editorProject.musicDuck && clipGain > 0 ? 0.4 : 1)
     }
     // Where "Add audio" puts the chosen file on the sequence.
     property real audioAddMs: 0
@@ -131,21 +132,21 @@ ApplicationWindow {
     // How dark the preview gets near a join: a fade through black goes all
     // the way, a crossfade is hinted with a light dip.
     readonly property real transitionDim: {
-        var index = editorProject.activeClipIndex
-        if (editorProject.transition === "cut" || editorProject.clipCount < 2 || index < 0 || !activeClip) return 0
-        var half = (transitionDrag >= 0 ? transitionDrag : editorProject.transitionMs) / 2
+        var index = Core.editorProject.activeClipIndex
+        if (Core.editorProject.transition === "cut" || Core.editorProject.clipCount < 2 || index < 0 || !activeClip) return 0
+        var half = (transitionDrag >= 0 ? transitionDrag : Core.editorProject.transitionMs) / 2
         var position = sequencePositionMs - clipStartMs(index)
         var distance = Infinity
         if (index > 0) distance = Math.min(distance, position)
-        if (index < editorProject.clipCount - 1) distance = Math.min(distance, activeClip.lengthMs - position)
+        if (index < Core.editorProject.clipCount - 1) distance = Math.min(distance, activeClip.lengthMs - position)
         if (distance >= half) return 0
         // Eased like the export (smoothstep).
         var level = Math.max(0, distance) / half
         var depth = 1 - level * level * (3 - 2 * level)
-        return editorProject.transition === "fade" ? depth : depth * 0.35
+        return Core.editorProject.transition === "fade" ? depth : depth * 0.35
     }
     // Everything an export depends on, to tell when a result is stale.
-    function editState() { return JSON.stringify([editorProject.clips, editorProject.exportOptions()]) }
+    function editState() { return JSON.stringify([Core.editorProject.clips, Core.editorProject.exportOptions()]) }
     // Keeps the audio track preview in step with the sequence while it plays.
     function syncMusic() {
         var playing = player.playbackState === MediaPlayer.PlayingState || stillRunning || (sequencePlaying && sequenceAdvancing)
@@ -181,10 +182,10 @@ ApplicationWindow {
     function offerRecovery() {
         if (recoveryOffered) return
         recoveryOffered = true
-        recovery = editorProject.recoveryInfo()
-        if (recovery.name && !editorProject.hasMedia) recoveryDialog.open()
-        else if (recovery.name) editorProject.discardRecovery()
-        if (!Prefs.tutorialDone && !recoveryDialog.opened && !editorProject.hasMedia) tutorial.start()
+        recovery = Core.editorProject.recoveryInfo()
+        if (recovery.name && !Core.editorProject.hasMedia) recoveryDialog.open()
+        else if (recovery.name) Core.editorProject.discardRecovery()
+        if (!Prefs.tutorialDone && !recoveryDialog.opened && !Core.editorProject.hasMedia) tutorial.start()
     }
     property int inspectorMode: 0
     property int workspace: 0
@@ -194,7 +195,7 @@ ApplicationWindow {
     readonly property string sectionTitle: ["Editor", "Download", "Audio", "Compress", "GIF Studio", "PDF Tools", "QR Code", "Clips", "Drop", "Shortener", "Images", "Reframe"][workspace]
     // Workspaces 7-9 publish to the Tools server; 10 (Images) and 11 (Reframe) are local like 1-6.
     readonly property bool shareWorkspace: workspace >= 7 && workspace <= 9
-    readonly property bool anyBusy: exporter.busy || toolsClient.busy || localTools.busy || localDownload.busy || localPdf.busy || localQr.busy || localImages.busy || localReframe.busy
+    readonly property bool anyBusy: Core.exporter.busy || Core.toolsClient.busy || Core.localTools.busy || Core.localDownload.busy || Core.localPdf.busy || Core.localQr.busy || Core.localImages.busy || Core.localReframe.busy
     onWorkspaceChanged: {
         if (workspace !== 0) previewFullscreen = false
         if (workspace === 0) editorEnter.restart()
@@ -219,53 +220,53 @@ ApplicationWindow {
         return Math.floor(total / 60).toString().padStart(2, "0") + ":" + (total % 60).toString().padStart(2, "0") + "." + millis
     }
     function saveProject() {
-        if (editorProject.projectUrl.toString()) editorProject.saveProject()
+        if (Core.editorProject.projectUrl.toString()) Core.editorProject.saveProject()
         else saveDialog.open()
     }
     function syncRangeFields() {
         clipInspector.syncRangeFields()
     }
     function publishSource() {
-        return uploadFile.toString() ? uploadFile : exporter.outputUrl
+        return uploadFile.toString() ? uploadFile : Core.exporter.outputUrl
     }
     function sequenceSignature() {
         var parts = []
-        var items = editorProject.clips
+        var items = Core.editorProject.clips
         for (var i = 0; i < items.length; i++)
             parts.push(items[i].url.toString() + ":" + items[i].inMs + ":" + items[i].outMs + ":" + items[i].volume + ":" + items[i].muted + ":" + items[i].speed
                        + ":" + items[i].holdMs + ":" + items[i].rotation + ":" + items[i].cropX + ":" + items[i].cropY + ":" + items[i].cropWidth + ":" + items[i].cropHeight
                        + ":" + items[i].brightness + ":" + items[i].contrast + ":" + items[i].saturation)
-        return parts.join("|") + JSON.stringify(editorProject.exportOptions())
+        return parts.join("|") + JSON.stringify(Core.editorProject.exportOptions())
     }
     // Files dropped or picked for the audio track go one after another from startMs.
     function addAudioFiles(urls, startMs) {
         var added = 0
         for (var i = 0; i < urls.length; i++) {
-            var index = editorProject.addAudio(urls[i], startMs)
+            var index = Core.editorProject.addAudio(urls[i], startMs)
             if (index < 0) continue
             added++
-            var item = editorProject.audioItems[index]
+            var item = Core.editorProject.audioItems[index]
             startMs += item && item.lengthMs > 0 ? item.lengthMs : 0
         }
-        if (added > 0) root.notice = added === 1 ? "Added to the audio track at " + root.timecode(editorProject.audioItems[editorProject.activeAudioIndex].startMs)
+        if (added > 0) root.notice = added === 1 ? "Added to the audio track at " + root.timecode(Core.editorProject.audioItems[Core.editorProject.activeAudioIndex].startMs)
                                                   : added + " files added to the audio track"
     }
     function addMedia(url) {
-        if (exporter.busy) {
+        if (Core.exporter.busy) {
             root.notice = "Wait for the export before adding a clip"
             return
         }
-        if (editorProject.hasMedia ? editorProject.appendMedia(url) : editorProject.importMedia(url))
+        if (Core.editorProject.hasMedia ? Core.editorProject.appendMedia(url) : Core.editorProject.importMedia(url))
             root.notice = "Clip added to sequence"
     }
     // New text goes on at the given time and opens for typing on the video.
     function addTextAt(ms) {
-        const index = editorProject.addText(ms)
+        const index = Core.editorProject.addText(ms)
         if (index >= 0) typeText(index)
     }
     function typeText(index) {
         if (root.previewPlaying) root.togglePlayback()
-        editorProject.selectText(index)
+        Core.editorProject.selectText(index)
         Qt.callLater(function() { captionLayer.edit(index) })
     }
     function togglePlayback() {
@@ -286,13 +287,13 @@ ApplicationWindow {
             // Play runs on through the following clips, like the timeline reads.
             sequencePlaying = true
             sequenceAdvancing = false
-            if (player.position < editorProject.inMs || player.position >= editorProject.outMs - 20)
-                player.position = editorProject.inMs
+            if (player.position < Core.editorProject.inMs || player.position >= Core.editorProject.outMs - 20)
+                player.position = Core.editorProject.inMs
             player.play()
         }
     }
     readonly property real activeSpeed: {
-        var clip = editorProject.clips[editorProject.activeClipIndex]
+        var clip = Core.editorProject.clips[Core.editorProject.activeClipIndex]
         return clip && clip.speed ? clip.speed : 1
     }
     // Only touched while playing: setting playbackRate during load stops the FFmpeg backend from showing video.
@@ -302,21 +303,21 @@ ApplicationWindow {
         if (player.playbackRate !== activeSpeed) player.playbackRate = activeSpeed
     }
     function clipStartMs(index) {
-        var items = editorProject.clips, total = 0
+        var items = Core.editorProject.clips, total = 0
         for (var i = 0; i < index && i < items.length; i++) total += Math.max(0, items[i].lengthMs)
         return total
     }
     readonly property real sequencePositionMs: {
         if (scrubbing) return scrubTargetMs
-        var index = editorProject.activeClipIndex
+        var index = Core.editorProject.activeClipIndex
         if (index < 0) return 0
         if (stillActive) return clipStartMs(index) + Math.min(stillClockMs, activeClip.holdMs)
         var source = pendingCueIndex >= 0 && pendingSourceMs >= 0 ? pendingSourceMs : player.position
-        var offset = Math.max(0, Math.min(editorProject.outMs - editorProject.inMs, source - editorProject.inMs))
+        var offset = Math.max(0, Math.min(Core.editorProject.outMs - Core.editorProject.inMs, source - Core.editorProject.inMs))
         return clipStartMs(index) + offset / activeSpeed
     }
     function seekSequence(ms) {
-        var items = editorProject.clips
+        var items = Core.editorProject.clips
         if (items.length === 0) return
         var start = 0, index = items.length - 1
         for (var i = 0; i < items.length; i++) {
@@ -327,9 +328,9 @@ ApplicationWindow {
         var clip = items[index]
         var still = (clip.holdMs || 0) > 0
         var source = still ? clip.inMs : Math.max(clip.inMs, Math.min(clip.outMs - 1, clip.inMs + (ms - start) * (clip.speed || 1)))
-        if (index !== editorProject.activeClipIndex || pendingCueIndex >= 0) {
+        if (index !== Core.editorProject.activeClipIndex || pendingCueIndex >= 0) {
             pendingSourceMs = source
-            if (index !== editorProject.activeClipIndex) editorProject.selectClip(index)
+            if (index !== Core.editorProject.activeClipIndex) Core.editorProject.selectClip(index)
         } else requestSourceSeek(source)
         if (still) stillClockMs = Math.max(0, Math.min(clip.holdMs, ms - start))
     }
@@ -340,7 +341,7 @@ ApplicationWindow {
     }
     // Keyboard seeking: pauses, jumps by `deltaMs` on the sequence, like one scrub step.
     function nudgeSequence(deltaMs) {
-        beginScrub(Math.max(0, Math.min(editorProject.sequenceDurationMs - 1, sequencePositionMs + deltaMs)))
+        beginScrub(Math.max(0, Math.min(Core.editorProject.sequenceDurationMs - 1, sequencePositionMs + deltaMs)))
         endScrub()
     }
     // A seek made while playing carries on playing from the new spot once the
@@ -381,25 +382,25 @@ ApplicationWindow {
         issueSeek()
     }
     function cueActiveClip() {
-        pendingCueIndex = editorProject.activeClipIndex
+        pendingCueIndex = Core.editorProject.activeClipIndex
         Qt.callLater(function() { root.finishCue() })
     }
     function finishCue() {
-        if (pendingCueIndex !== editorProject.activeClipIndex || pendingCueIndex < 0) return
-        if (player.source.toString() !== editorProject.mediaUrl.toString()) return
+        if (pendingCueIndex !== Core.editorProject.activeClipIndex || pendingCueIndex < 0) return
+        if (player.source.toString() !== Core.editorProject.mediaUrl.toString()) return
         if (player.mediaStatus !== MediaPlayer.LoadedMedia && player.mediaStatus !== MediaPlayer.BufferedMedia) return
         pendingCueIndex = -1
-        player.position = pendingSourceMs >= 0 ? pendingSourceMs : editorProject.inMs
+        player.position = pendingSourceMs >= 0 ? pendingSourceMs : Core.editorProject.inMs
         pendingSourceMs = -1
         if (stillActive) player.pause()
         else if (sequencePlaying) player.play()
         sequenceAdvancing = false
     }
     function previewSequence() {
-        if (!editorProject.canExport) return
+        if (!Core.editorProject.canExport) return
         sequencePlaying = true
         sequenceAdvancing = true
-        if (editorProject.activeClipIndex !== 0) editorProject.selectClip(0)
+        if (Core.editorProject.activeClipIndex !== 0) Core.editorProject.selectClip(0)
         else cueActiveClip()
     }
     function stopSequence() {
@@ -409,18 +410,18 @@ ApplicationWindow {
     }
     function advanceSequence() {
         if (!sequencePlaying || sequenceAdvancing) return
-        if (editorProject.activeClipIndex + 1 >= editorProject.clipCount) {
+        if (Core.editorProject.activeClipIndex + 1 >= Core.editorProject.clipCount) {
             sequencePlaying = false
             player.pause()
             return
         }
         sequenceAdvancing = true
-        editorProject.selectClip(editorProject.activeClipIndex + 1)
+        Core.editorProject.selectClip(Core.editorProject.activeClipIndex + 1)
     }
     readonly property var recentFiles: {
         try {
             var list = JSON.parse(Prefs.recentFiles)
-            return Array.isArray(list) ? list.filter(function(item) { return item && item.url && editorProject.fileExists(item.url) }) : []
+            return Array.isArray(list) ? list.filter(function(item) { return item && item.url && Core.editorProject.fileExists(item.url) }) : []
         } catch (error) { return [] }
     }
     function rememberRecent(url, isProject) {
@@ -429,12 +430,12 @@ ApplicationWindow {
         list.unshift({ url: key, project: isProject })
         Prefs.recentFiles = JSON.stringify(list.slice(0, 6))
     }
-    onRecentFilesChanged: taskbar.setJumpList(recentFiles)
+    onRecentFilesChanged: Core.taskbar.setJumpList(recentFiles)
     function applyOpen(url, isProject) {
-        var opened = isProject ? editorProject.openProject(url) : editorProject.importMedia(url)
+        var opened = isProject ? Core.editorProject.openProject(url) : Core.editorProject.importMedia(url)
         if (opened) {
             root.rememberRecent(url, isProject)
-            exporter.resetResult()
+            Core.exporter.resetResult()
             root.playerError = ""
             root.notice = isProject ? "Project opened" : "Media imported"
             root.uploadFile = ""
@@ -442,26 +443,26 @@ ApplicationWindow {
     }
     // Close the project and let go of its media, so the files can be moved or deleted.
     function closeEditing() {
-        if (exporter.busy) {
+        if (Core.exporter.busy) {
             root.notice = "Finish or cancel the export before closing the project"
             return
         }
         // Work that was just exported is done: only unexported edits ask first.
-        if (editorProject.dirty && editState() !== exportedClips) closeDialog.open()
+        if (Core.editorProject.dirty && editState() !== exportedClips) closeDialog.open()
         else applyClose()
     }
     // The sequence as it was when the last export finished.
     property string exportedClips: ""
     Connections {
-        target: exporter
+        target: Core.exporter
         function onChanged() {
-            if (!exporter.busy && exporter.outputUrl.toString().length > 0 && !exporter.errorText)
+            if (!Core.exporter.busy && Core.exporter.outputUrl.toString().length > 0 && !Core.exporter.errorText)
                 root.exportedClips = root.editState()
-            if (exporter.busy || root.exportQueueStarting || root.exportQueue.length === 0) return
-            if (exporter.errorText) {
+            if (Core.exporter.busy || root.exportQueueStarting || root.exportQueue.length === 0) return
+            if (Core.exporter.errorText) {
                 root.exportQueue = []
                 root.notice = "Export failed · the queue was stopped"
-            } else if (exporter.outputUrl.toString().length > 0) {
+            } else if (Core.exporter.outputUrl.toString().length > 0) {
                 var next = root.exportQueue[0]
                 root.exportQueue = root.exportQueue.slice(1)
                 root.exportQueueStarting = true
@@ -471,8 +472,8 @@ ApplicationWindow {
     }
     function applyClose() {
         player.stop()
-        editorProject.closeProject()
-        exporter.resetResult()
+        Core.editorProject.closeProject()
+        Core.exporter.resetResult()
         exportedClips = ""
         root.playerError = ""
         root.notice = "Project closed · its files are free to move or delete"
@@ -496,7 +497,7 @@ ApplicationWindow {
             for (var i = 0; i < urls.length; i++) addMedia(urls[i])
         } else if (tool === "reframe") {
             workspace = 11
-            if (!reframeArea.load(urls[0])) notice = localReframe.busy ? "Wait for the current reframe to finish" : "Reframe takes a video file"
+            if (!reframeArea.load(urls[0])) notice = Core.localReframe.busy ? "Wait for the current reframe to finish" : "Reframe takes a video file"
         } else if (tool === "images") {
             workspace = 10
             imagesArea.addFiles(urls)
@@ -517,7 +518,7 @@ ApplicationWindow {
             root.notice = "Finish or cancel the current operation before opening another file"
             return
         }
-        if (editorProject.dirty) {
+        if (Core.editorProject.dirty) {
             pendingOpenUrl = url
             pendingIsProject = isProject
             replaceDialog.open()
@@ -526,20 +527,20 @@ ApplicationWindow {
 
     Component.onCompleted: {
         syncRangeFields()
-        taskbar.setJumpList(recentFiles)
-        if (!startupIntroActive) recoveryTimer.start()
+        Core.taskbar.setJumpList(recentFiles)
+        if (!Core.startupIntroActive) recoveryTimer.start()
     }
     Timer { id: recoveryTimer; interval: 700; onTriggered: root.offerRecovery() }
     function stopAllWork() {
         exportQueue = []
-        exporter.cancel()
-        toolsClient.cancel()
-        localTools.cancel()
-        localDownload.cancel()
-        localPdf.cancel()
-        localQr.cancel()
-        localImages.cancel()
-        localReframe.cancel()
+        Core.exporter.cancel()
+        Core.toolsClient.cancel()
+        Core.localTools.cancel()
+        Core.localDownload.cancel()
+        Core.localPdf.cancel()
+        Core.localQr.cancel()
+        Core.localImages.cancel()
+        Core.localReframe.cancel()
     }
     // Every close fades the window out; the real close runs once the fade ends.
     function fadeAndClose() {
@@ -549,8 +550,8 @@ ApplicationWindow {
         closeFade.start()
     }
     function saveAndClose() {
-        if (editorProject.projectUrl.toString()) {
-            if (editorProject.saveProject()) fadeAndClose()
+        if (Core.editorProject.projectUrl.toString()) {
+            if (Core.editorProject.saveProject()) fadeAndClose()
         } else {
             closeAfterSave = true
             saveDialog.open()
@@ -558,7 +559,7 @@ ApplicationWindow {
     }
     // Set when the close should really quit rather than hide to the tray.
     property bool quitting: false
-    readonly property bool trayAvailable: typeof trayIcon !== "undefined" && trayIcon.supported
+    readonly property bool trayAvailable: typeof Core.trayIcon !== "undefined" && Core.trayIcon.supported
     function quitApp() {
         quitting = true
         if (!visible) show()
@@ -575,40 +576,40 @@ ApplicationWindow {
         hide()
         if (!Prefs.trayHintShown && Prefs.notifications) {
             Prefs.trayHintShown = true
-            trayIcon.showMessage("Kadron is still running", "Click the tray icon to open it again. You can change this in Settings.")
+            Core.trayIcon.showMessage("Kadron is still running", "Click the tray icon to open it again. You can change this in Settings.")
         }
     }
-    Binding { target: root.trayAvailable ? trayIcon : null; property: "visible"; value: Prefs.closeToTray }
-    Binding { target: root.trayAvailable ? trayIcon : null; property: "dark"; value: Theme.dark }
+    Binding { target: root.trayAvailable ? Core.trayIcon : null; property: "visible"; value: Prefs.closeToTray }
+    Binding { target: root.trayAvailable ? Core.trayIcon : null; property: "dark"; value: Theme.dark }
     // Long jobs show on the taskbar button (a moving bar when the length is
     // unknown); one ending in the background flashes it and raises a Windows
     // notification (unless turned off in Settings) whose click opens the
     // result. A failure leaves the button red until Kadron is opened.
-    readonly property int jobProgress: exporter.busy ? exporter.progress
-        : localDownload.busy ? localDownload.progress
-        : localTools.busy ? localTools.progress
-        : localReframe.busy ? localReframe.progress
-        : toolsClient.busy ? toolsClient.progress
-        : localImages.busy ? localImages.progress
-        : localPdf.busy ? -2 : -1
-    readonly property string jobName: exporter.busy ? "Export" : localDownload.busy ? "Download"
-        : localTools.busy ? "Conversion" : localReframe.busy ? "Reframe" : toolsClient.busy ? "Upload"
-        : localPdf.busy ? "PDF" : localImages.busy ? "Images" : ""
+    readonly property int jobProgress: Core.exporter.busy ? Core.exporter.progress
+        : Core.localDownload.busy ? Core.localDownload.progress
+        : Core.localTools.busy ? Core.localTools.progress
+        : Core.localReframe.busy ? Core.localReframe.progress
+        : Core.toolsClient.busy ? Core.toolsClient.progress
+        : Core.localImages.busy ? Core.localImages.progress
+        : Core.localPdf.busy ? -2 : -1
+    readonly property string jobName: Core.exporter.busy ? "Export" : Core.localDownload.busy ? "Download"
+        : Core.localTools.busy ? "Conversion" : Core.localReframe.busy ? "Reframe" : Core.toolsClient.busy ? "Upload"
+        : Core.localPdf.busy ? "PDF" : Core.localImages.busy ? "Images" : ""
     property string runningJob: ""
     property url notifiedFile: ""
     function jobOutput(name) {
         switch (name) {
-        case "Export": return exporter.outputUrl
-        case "Download": return localDownload.outputUrl
-        case "Conversion": return localTools.outputUrl
-        case "Reframe": return localReframe.outputUrl
-        case "PDF": return localPdf.outputUrl
-        case "Images": return localImages.outputFolder
+        case "Export": return Core.exporter.outputUrl
+        case "Download": return Core.localDownload.outputUrl
+        case "Conversion": return Core.localTools.outputUrl
+        case "Reframe": return Core.localReframe.outputUrl
+        case "PDF": return Core.localPdf.outputUrl
+        case "Images": return Core.localImages.outputFolder
         }
         return ""
     }
-    onJobProgressChanged: taskbar.setProgress(root, jobProgress)
-    onActiveChanged: if (active && jobProgress === -1) taskbar.setProgress(root, -1)
+    onJobProgressChanged: Core.taskbar.setProgress(root, jobProgress)
+    onActiveChanged: if (active && jobProgress === -1) Core.taskbar.setProgress(root, -1)
     onJobNameChanged: {
         if (jobName) {
             runningJob = jobName
@@ -618,23 +619,23 @@ ApplicationWindow {
         runningJob = ""
         if (!finished || root.active) return
         // A queued download follows at once: one notice when the queue is done.
-        if (finished === "Download" && localDownload.queue.length > 0) return
-        var error = editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText
-            || localDownload.errorText || localPdf.errorText || localImages.errorText || localReframe.errorText
-        if (error) taskbar.setProgress(root, 100, true)
-        if (root.visible) taskbar.flash(root)
+        if (finished === "Download" && Core.localDownload.queue.length > 0) return
+        var error = Core.editorProject.errorText || Core.exporter.errorText || Core.toolsClient.errorText || Core.localTools.errorText
+            || Core.localDownload.errorText || Core.localPdf.errorText || Core.localImages.errorText || Core.localReframe.errorText
+        if (error) Core.taskbar.setProgress(root, 100, true)
+        if (root.visible) Core.taskbar.flash(root)
         if (!root.trayAvailable || !Prefs.notifications) return
         var output = error ? "" : jobOutput(finished)
-        notifiedFile = output && editorProject.fileExists(output) ? output : ""
+        notifiedFile = output && Core.editorProject.fileExists(output) ? output : ""
         var name = notifiedFile.toString() ? decodeURIComponent(notifiedFile.toString().split("/").pop()) : ""
-        trayIcon.showMessage(finished + (error ? " failed" : " finished"),
+        Core.trayIcon.showMessage(finished + (error ? " failed" : " finished"),
                              error || (name ? name + "\nClick to open it." : root.notice || "Open Kadron to see the result."))
     }
     Connections {
-        target: root.trayAvailable ? trayIcon : null
+        target: root.trayAvailable ? Core.trayIcon : null
         function onActivated() { root.showFromTray() }
         function onMessageClicked() {
-            if (root.notifiedFile.toString() && editorProject.fileExists(root.notifiedFile)) Qt.openUrlExternally(root.notifiedFile)
+            if (root.notifiedFile.toString() && Core.editorProject.fileExists(root.notifiedFile)) Qt.openUrlExternally(root.notifiedFile)
             else root.showFromTray()
             root.notifiedFile = ""
         }
@@ -649,7 +650,7 @@ ApplicationWindow {
             hideToTray()
             return
         }
-        if (editorProject.dirty || root.anyBusy) quitDialog.open()
+        if (Core.editorProject.dirty || root.anyBusy) quitDialog.open()
         else fadeAndClose()
     }
     NumberAnimation {
@@ -663,7 +664,7 @@ ApplicationWindow {
     }
 
     Connections {
-        target: editorProject
+        target: Core.editorProject
         function onSilenceRemoved(parts, removedMs) {
             root.notice = removedMs > 0 ? "Removed " + (removedMs / 1000).toFixed(1) + " s of silence · " + parts + (parts === 1 ? " part" : " parts") + " left"
                                         : "No silence long enough to cut"
@@ -673,38 +674,38 @@ ApplicationWindow {
             var signature = root.sequenceSignature()
             if (signature !== root.editSignature) {
                 root.editSignature = signature
-                exporter.resetResult()
+                Core.exporter.resetResult()
             }
-            if (root.currentClipIndex !== editorProject.activeClipIndex) {
-                root.currentClipIndex = editorProject.activeClipIndex
+            if (root.currentClipIndex !== Core.editorProject.activeClipIndex) {
+                root.currentClipIndex = Core.editorProject.activeClipIndex
                 root.stillClockMs = 0
                 root.cropEditing = false
                 root.lookDrag = null
                 if (!root.sequencePlaying) player.pause()
                 root.cueActiveClip()
             }
-            var mediaKey = editorProject.mediaUrl.toString()
+            var mediaKey = Core.editorProject.mediaUrl.toString()
             if (mediaKey !== root.currentMediaKey) {
                 root.currentMediaKey = mediaKey
             }
-            if (editorProject.hasMedia && editorProject.durationMs > 0)
-                thumbnails.generate(editorProject.mediaUrl, editorProject.durationMs)
+            if (Core.editorProject.hasMedia && Core.editorProject.durationMs > 0)
+                Core.thumbnails.generate(Core.editorProject.mediaUrl, Core.editorProject.durationMs)
         }
     }
 
     Shortcut { sequence: StandardKey.Open; onActivated: mediaDialog.open() }
-    Shortcut { sequence: StandardKey.Save; enabled: editorProject.hasMedia; onActivated: root.saveProject() }
-    Shortcut { sequence: "Space"; enabled: root.workspace === 0 && editorProject.hasMedia; onActivated: root.togglePlayback() }
-    Shortcut { sequence: "I"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.setInMs(player.position) }
-    Shortcut { sequence: "O"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.setOutMs(player.position) }
-    Shortcut { sequences: [StandardKey.Undo]; enabled: root.workspace === 0 && editorProject.canUndo && !exporter.busy; onActivated: editorProject.undo() }
-    Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; enabled: root.workspace === 0 && editorProject.canRedo && !exporter.busy; onActivated: editorProject.redo() }
+    Shortcut { sequence: StandardKey.Save; enabled: Core.editorProject.hasMedia; onActivated: root.saveProject() }
+    Shortcut { sequence: "Space"; enabled: root.workspace === 0 && Core.editorProject.hasMedia; onActivated: root.togglePlayback() }
+    Shortcut { sequence: "I"; enabled: root.workspace === 0 && Core.editorProject.hasMedia && !Core.exporter.busy; onActivated: Core.editorProject.setInMs(player.position) }
+    Shortcut { sequence: "O"; enabled: root.workspace === 0 && Core.editorProject.hasMedia && !Core.exporter.busy; onActivated: Core.editorProject.setOutMs(player.position) }
+    Shortcut { sequences: [StandardKey.Undo]; enabled: root.workspace === 0 && Core.editorProject.canUndo && !Core.exporter.busy; onActivated: Core.editorProject.undo() }
+    Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; enabled: root.workspace === 0 && Core.editorProject.canRedo && !Core.exporter.busy; onActivated: Core.editorProject.redo() }
     Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.visible ? settingsDialog.close() : settingsDialog.open() }
     Shortcut { sequence: "Ctrl+/"; onActivated: settingsDialog.visible && settingsDialog.section === 3 ? settingsDialog.close() : settingsDialog.show(3) }
     Shortcut { sequences: ["Ctrl+P", "Ctrl+Shift+P"]; onActivated: commandPalette.visible ? commandPalette.close() : commandPalette.show() }
-    Shortcut { sequence: "Ctrl+W"; enabled: root.workspace === 0 && editorProject.hasMedia && !root.dialogOpen; onActivated: root.closeEditing() }
+    Shortcut { sequence: "Ctrl+W"; enabled: root.workspace === 0 && Core.editorProject.hasMedia && !root.dialogOpen; onActivated: root.closeEditing() }
     // Frame steps, J/K/L and one-second jumps; the timeline keeps its own arrows while focused.
-    readonly property bool keyboardSeek: workspace === 0 && editorProject.hasMedia && !dialogOpen && !exporter.busy
+    readonly property bool keyboardSeek: workspace === 0 && Core.editorProject.hasMedia && !dialogOpen && !Core.exporter.busy
     Shortcut { sequence: ","; enabled: root.keyboardSeek; autoRepeat: true; onActivated: root.nudgeSequence(-1000 / root.frameRate) }
     Shortcut { sequence: "."; enabled: root.keyboardSeek; autoRepeat: true; onActivated: root.nudgeSequence(1000 / root.frameRate) }
     Shortcut { sequence: "Shift+Left"; enabled: root.keyboardSeek && !sequenceTimeline.activeFocus; autoRepeat: true; onActivated: root.nudgeSequence(-1000) }
@@ -723,10 +724,10 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Shift+C"; enabled: root.keyboardSeek; onActivated: root.copyFrame() }
     // Markers: N drops or lifts one at the playhead, [ and ] jump between them.
     Shortcut { sequence: "N"; enabled: root.keyboardSeek; onActivated: root.toggleMarker() }
-    Shortcut { sequence: "["; enabled: root.keyboardSeek && editorProject.markers.length > 0; autoRepeat: true; onActivated: root.jumpMarker(-1) }
-    Shortcut { sequence: "]"; enabled: root.keyboardSeek && editorProject.markers.length > 0; autoRepeat: true; onActivated: root.jumpMarker(1) }
+    Shortcut { sequence: "["; enabled: root.keyboardSeek && Core.editorProject.markers.length > 0; autoRepeat: true; onActivated: root.jumpMarker(-1) }
+    Shortcut { sequence: "]"; enabled: root.keyboardSeek && Core.editorProject.markers.length > 0; autoRepeat: true; onActivated: root.jumpMarker(1) }
     // Preview sound: M mutes, Up and Down step the level unless a field or list has the keys.
-    readonly property bool keyboardVolume: workspace === 0 && editorProject.hasMedia && !dialogOpen
+    readonly property bool keyboardVolume: workspace === 0 && Core.editorProject.hasMedia && !dialogOpen
     readonly property bool arrowsFree: {
         var item = root.activeFocusItem
         return !item || item === sequenceTimeline || (item.cursorPosition === undefined && item.currentIndex === undefined && item.value === undefined)
@@ -735,7 +736,7 @@ ApplicationWindow {
     Shortcut { sequence: "Up"; enabled: root.keyboardVolume && root.arrowsFree; autoRepeat: true; onActivated: root.stepVolume(0.05) }
     Shortcut { sequence: "Down"; enabled: root.keyboardVolume && root.arrowsFree; autoRepeat: true; onActivated: root.stepVolume(-0.05) }
     // Preview fills the screen: F or a double-click, Escape to come back.
-    Shortcut { sequence: "F"; enabled: root.workspace === 0 && editorProject.hasMedia && !root.dialogOpen; onActivated: root.previewFullscreen = !root.previewFullscreen }
+    Shortcut { sequence: "F"; enabled: root.workspace === 0 && Core.editorProject.hasMedia && !root.dialogOpen; onActivated: root.previewFullscreen = !root.previewFullscreen }
     Shortcut { sequence: "Esc"; enabled: root.previewFullscreen; onActivated: root.previewFullscreen = false }
     function toggleMute() {
         if (Prefs.previewVolume <= 0.001) {
@@ -753,16 +754,16 @@ ApplicationWindow {
         root.notice = "Preview volume " + Math.round(Prefs.previewVolume * 100) + "%"
     }
     function toggleMarker() {
-        var count = editorProject.markers.length
-        if (!editorProject.toggleMarker(Math.round(root.sequencePositionMs))) return
-        root.notice = editorProject.markers.length > count ? "Marker at " + root.timecode(root.sequencePositionMs) + " · [ and ] jump between markers" : "Marker removed"
+        var count = Core.editorProject.markers.length
+        if (!Core.editorProject.toggleMarker(Math.round(root.sequencePositionMs))) return
+        root.notice = Core.editorProject.markers.length > count ? "Marker at " + root.timecode(root.sequencePositionMs) + " · [ and ] jump between markers" : "Marker removed"
     }
     // The stretch between the markers around ms: from the last one at or before
     // it (else the start) to the next one (else the end); null without markers.
     function markerRangeAt(ms) {
-        var list = editorProject.markers
+        var list = Core.editorProject.markers
         if (list.length === 0) return null
-        var from = 0, to = editorProject.sequenceDurationMs
+        var from = 0, to = Core.editorProject.sequenceDurationMs
         for (var i = 0; i < list.length; i++) {
             var mark = Number(list[i])
             if (mark <= ms + 40) from = mark
@@ -771,7 +772,7 @@ ApplicationWindow {
         return to - from >= 100 ? { startMs: from, endMs: to } : null
     }
     function jumpMarker(direction) {
-        var list = editorProject.markers, here = root.sequencePositionMs, target = -1
+        var list = Core.editorProject.markers, here = root.sequencePositionMs, target = -1
         for (var i = 0; i < list.length; i++) {
             var ms = Number(list[i])
             if (direction > 0 && ms > here + 40) { target = ms; break }
@@ -781,7 +782,7 @@ ApplicationWindow {
         root.beginScrub(target)
         root.endScrub()
     }
-    Shortcut { sequence: "Ctrl+K"; enabled: root.workspace === 0 && editorProject.hasMedia && !exporter.busy; onActivated: editorProject.splitAt(player.position) }
+    Shortcut { sequence: "Ctrl+K"; enabled: root.workspace === 0 && Core.editorProject.hasMedia && !Core.exporter.busy; onActivated: Core.editorProject.splitAt(player.position) }
 
     FileDialog {
         id: mediaDialog
@@ -806,8 +807,8 @@ ApplicationWindow {
     }
     // The preview frame as a full-size picture, named after the clip and the moment.
     function saveFrame() {
-        if (!editorProject.hasMedia) return
-        var name = decodeURIComponent(editorProject.mediaUrl.toString().replace(/^.*\//, "").replace(/\.[^.]*$/, ""))
+        if (!Core.editorProject.hasMedia) return
+        var name = decodeURIComponent(Core.editorProject.mediaUrl.toString().replace(/^.*\//, "").replace(/\.[^.]*$/, ""))
         frameDialog.sourceMs = player.position
         frameDialog.selectedFile = StandardPaths.writableLocation(StandardPaths.PicturesLocation) + "/" + name + " " + root.timecode(root.sequencePositionMs).replace(/:/g, "-") + ".png"
         frameDialog.open()
@@ -819,7 +820,7 @@ ApplicationWindow {
         fileMode: FileDialog.SaveFile
         defaultSuffix: "png"
         nameFilters: ["PNG image (*.png)", "JPEG image (*.jpg)"]
-        onAccepted: editorProject.saveFrame(sourceMs, selectedFile)
+        onAccepted: Core.editorProject.saveFrame(sourceMs, selectedFile)
     }
     // Fullscreen preview: the window goes fullscreen and the preview covers it.
     property bool previewFullscreen: false
@@ -871,19 +872,19 @@ ApplicationWindow {
         try { return decodeURIComponent(a) === decodeURIComponent(b) } catch (e) { return a === b }
     }
     function copyFrame() {
-        if (!editorProject.hasMedia) return
-        var name = decodeURIComponent(editorProject.mediaUrl.toString().replace(/^.*\//, "").replace(/\.[^.]*$/, ""))
+        if (!Core.editorProject.hasMedia) return
+        var name = decodeURIComponent(Core.editorProject.mediaUrl.toString().replace(/^.*\//, "").replace(/\.[^.]*$/, ""))
         var target = StandardPaths.writableLocation(StandardPaths.TempLocation) + "/" + name + " " + root.timecode(root.sequencePositionMs).replace(/:/g, "-") + ".png"
         root.frameCopyTarget = target.toString()
-        editorProject.saveFrame(player.position, target)
+        Core.editorProject.saveFrame(player.position, target)
     }
     Connections {
-        target: editorProject
+        target: Core.editorProject
         function onFrameSaved(file, error) {
             var copying = root.frameCopyTarget.length > 0 && root.sameFile(file.toString(), root.frameCopyTarget)
             root.frameCopyTarget = ""
             if (error) root.notice = error
-            else if (copying) root.notice = shellIntegration.copyFile(file) ? "Frame copied · paste it with Ctrl+V" : "Couldn't copy the frame"
+            else if (copying) root.notice = Core.shellIntegration.copyFile(file) ? "Frame copied · paste it with Ctrl+V" : "Couldn't copy the frame"
             else root.notice = "Frame saved · " + decodeURIComponent(file.toString().replace(/^.*\//, ""))
         }
     }
@@ -894,7 +895,7 @@ ApplicationWindow {
         defaultSuffix: "kadr"
         nameFilters: ["Kadron project (*.kadr)"]
         onAccepted: {
-            if (editorProject.saveProject(selectedFile)) {
+            if (Core.editorProject.saveProject(selectedFile)) {
                 root.rememberRecent(selectedFile, true)
                 root.notice = "Project saved"
                 if (root.closeAfterSave) root.fadeAndClose()
@@ -913,7 +914,7 @@ ApplicationWindow {
         nameFilters: ["MP4 video (*.mp4)"]
         onAccepted: {
             var job = root.exportJob(selectedFile)
-            if (!exporter.busy && !root.exportQueueStarting) { root.runExportJob(job); return }
+            if (!Core.exporter.busy && !root.exportQueueStarting) { root.runExportJob(job); return }
             root.exportQueue = root.exportQueue.concat([job])
             root.notice = "Export queued · " + root.exportQueue.length + " waiting"
         }
@@ -921,22 +922,22 @@ ApplicationWindow {
     // Everything an export needs, taken now, so a queued one keeps the choices
     // made when it was added.
     function exportJob(target) {
-        var options = editorProject.exportOptions()
+        var options = Core.editorProject.exportOptions()
         options.preset = Prefs.exportPreset
         options.loudnorm = Prefs.exportLoudnorm
         var range = exportSheet.range
         if (range) { options.rangeStartMs = range.startMs; options.rangeEndMs = range.endMs }
-        var lossless = exportSheet.losslessCut && !editorProject.mixed
+        var lossless = exportSheet.losslessCut && !Core.editorProject.mixed
         if (!lossless && Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0) {
-            if (editorProject.fileExists(Prefs.watermarkPath))
+            if (Core.editorProject.fileExists(Prefs.watermarkPath))
                 options.watermark = { path: Prefs.watermarkPath, corner: Prefs.watermarkCorner, opacity: Prefs.watermarkOpacity, size: Prefs.watermarkSize }
             else root.notice = "The logo from Settings is missing · exporting without it"
         }
         // A single clip with nothing added is a plain trim, or a lossless cut;
         // its timeline starts at the clip's in point.
-        return { target: target, lossless: lossless, mixed: editorProject.mixed, clips: editorProject.clips, mediaUrl: editorProject.mediaUrl,
-                 inMs: range ? editorProject.inMs + range.startMs : editorProject.inMs,
-                 outMs: range ? editorProject.inMs + range.endMs : editorProject.outMs, options: options }
+        return { target: target, lossless: lossless, mixed: Core.editorProject.mixed, clips: Core.editorProject.clips, mediaUrl: Core.editorProject.mediaUrl,
+                 inMs: range ? Core.editorProject.inMs + range.startMs : Core.editorProject.inMs,
+                 outMs: range ? Core.editorProject.inMs + range.endMs : Core.editorProject.outMs, options: options }
     }
     // The one file a finished export was cut from, or "" when it mixed several.
     property url exportSourceUrl: ""
@@ -946,13 +947,13 @@ ApplicationWindow {
         for (var i = 1; i < job.clips.length; i++) if (job.clips[i].url.toString() !== first) return ""
         return first
     }
-    readonly property bool canReplaceSource: exportSourceUrl.toString().length > 0 && !exporter.busy && !exporter.errorText
-                                             && exporter.outputUrl.toString().length > 0 && exporter.outputUrl.toString() !== exportSourceUrl.toString()
-                                             && editorProject.fileExists(exportSourceUrl) && editorProject.fileExists(exporter.outputUrl)
+    readonly property bool canReplaceSource: exportSourceUrl.toString().length > 0 && !Core.exporter.busy && !Core.exporter.errorText
+                                             && Core.exporter.outputUrl.toString().length > 0 && Core.exporter.outputUrl.toString() !== exportSourceUrl.toString()
+                                             && Core.editorProject.fileExists(exportSourceUrl) && Core.editorProject.fileExists(Core.exporter.outputUrl)
     // The player lets go of the file first, so Windows allows moving it.
     property bool releasingMedia: false
     function replaceSource() {
-        var original = exportSourceUrl, replacement = exporter.outputUrl
+        var original = exportSourceUrl, replacement = Core.exporter.outputUrl
         stopSequence()
         releasingMedia = true
         replaceTimer.original = original
@@ -965,42 +966,42 @@ ApplicationWindow {
         property url replacement
         interval: 400
         onTriggered: {
-            var result = shellIntegration.replaceFile(original, replacement)
+            var result = Core.shellIntegration.replaceFile(original, replacement)
             root.releasingMedia = false
             if (result.toString().length === 0) {
                 root.notice = "Couldn't move the original to the Recycle Bin · it may be open in another app"
                 return
             }
             root.exportSourceUrl = ""
-            editorProject.importMedia(result)
+            Core.editorProject.importMedia(result)
             root.notice = "Original replaced · " + decodeURIComponent(result.toString().replace(/^.*\//, "")) + " is open in the editor"
         }
     }
     function runExportJob(job) {
         exportSourceUrl = singleSource(job)
-        if (job.lossless) exporter.start(job.mediaUrl, job.target, job.inMs, job.outMs, { copy: true })
-        else if (job.mixed) exporter.startSequence(job.clips, job.target, job.options)
-        else exporter.start(job.mediaUrl, job.target, job.inMs, job.outMs, job.options)
+        if (job.lossless) Core.exporter.start(job.mediaUrl, job.target, job.inMs, job.outMs, { copy: true })
+        else if (job.mixed) Core.exporter.startSequence(job.clips, job.target, job.options)
+        else Core.exporter.start(job.mediaUrl, job.target, job.inMs, job.outMs, job.options)
     }
     function cancelExport() {
         var dropped = exportQueue.length
         exportQueue = []
-        exporter.cancel()
+        Core.exporter.cancel()
         if (dropped > 0) notice = "Export cancelled · " + dropped + (dropped === 1 ? " queued export dropped" : " queued exports dropped")
     }
     function copyChapters() {
-        var list = editorProject.chapterList()
-        root.notice = editorProject.markers.length > 0 && shellIntegration.copyText(list)
+        var list = Core.editorProject.chapterList()
+        root.notice = Core.editorProject.markers.length > 0 && Core.shellIntegration.copyText(list)
                 ? "Chapters copied · paste them into a YouTube description" : "Add markers first: each one starts a chapter"
     }
     function freezeFrame() {
         if (root.stillActive) return
-        if (editorProject.insertFreeze(editorProject.activeClipIndex, player.position))
+        if (Core.editorProject.insertFreeze(Core.editorProject.activeClipIndex, player.position))
             root.notice = "Frame held for 2 s · set the length under Picture"
     }
     property int renamingMarker: -1
     function renameMarker(index) {
-        var item = editorProject.markerItems[index]
+        var item = Core.editorProject.markerItems[index]
         if (!item) return
         renamingMarker = index
         markerNameField.text = item.name || ""
@@ -1026,16 +1027,16 @@ ApplicationWindow {
         source: root.paletteCommands
     }
     function paletteCommands() {
-        var editing = editorProject.hasMedia && !exporter.busy
+        var editing = Core.editorProject.hasMedia && !Core.exporter.busy
         var commands = [
             { title: "Open project…", group: "File", run: function() { openDialog.open() } },
             { title: "Import media…", group: "File", keys: "Ctrl+O", run: function() { mediaDialog.open() } },
-            { title: "Save project", group: "File", keys: "Ctrl+S", enabled: editorProject.hasMedia, run: root.saveProject },
-            { title: exporter.busy ? "Queue another export…" : "Export MP4…", group: "File", enabled: editorProject.canExport && exporter.available, run: function() { root.workspace = 0; exportSheet.open() } },
-            { title: "Copy chapters", group: "File", enabled: editorProject.markers.length > 0, run: root.copyChapters },
-            { title: "Import subtitles (SRT, VTT)…", group: "File", enabled: editorProject.hasMedia && !exporter.busy, run: function() { root.workspace = 0; subtitleImportDialog.open() } },
-            { title: "Export subtitles as SRT…", group: "File", enabled: editorProject.textItems.length > 0, run: function() { root.workspace = 0; subtitleExportDialog.open() } },
-            { title: "Close project", group: "File", keys: "Ctrl+W", enabled: editorProject.hasMedia, run: root.closeEditing },
+            { title: "Save project", group: "File", keys: "Ctrl+S", enabled: Core.editorProject.hasMedia, run: root.saveProject },
+            { title: Core.exporter.busy ? "Queue another export…" : "Export MP4…", group: "File", enabled: Core.editorProject.canExport && Core.exporter.available, run: function() { root.workspace = 0; exportSheet.open() } },
+            { title: "Copy chapters", group: "File", enabled: Core.editorProject.markers.length > 0, run: root.copyChapters },
+            { title: "Import subtitles (SRT, VTT)…", group: "File", enabled: Core.editorProject.hasMedia && !Core.exporter.busy, run: function() { root.workspace = 0; subtitleImportDialog.open() } },
+            { title: "Export subtitles as SRT…", group: "File", enabled: Core.editorProject.textItems.length > 0, run: function() { root.workspace = 0; subtitleExportDialog.open() } },
+            { title: "Close project", group: "File", keys: "Ctrl+W", enabled: Core.editorProject.hasMedia, run: root.closeEditing },
             { title: "Settings", group: "App", keys: "Ctrl+,", run: function() { settingsDialog.open() } },
             { title: "Keyboard shortcuts", group: "App", keys: "Ctrl+/", run: function() { settingsDialog.show(3) } },
             { title: "Show the tutorial", group: "App", run: function() { tutorial.start() } },
@@ -1047,23 +1048,23 @@ ApplicationWindow {
         var edit = [
             ["Play / pause", "Space", root.togglePlayback],
             ["Add clip…", "", function() { addClipDialog.open() }],
-            ["Split at playhead", "Ctrl+K", function() { editorProject.splitAt(player.position) }],
-            ["Mark in", "I", function() { editorProject.setInMs(player.position) }],
-            ["Mark out", "O", function() { editorProject.setOutMs(player.position) }],
-            ["Undo", "Ctrl+Z", function() { editorProject.undo() }],
-            ["Redo", "Ctrl+Y", function() { editorProject.redo() }],
+            ["Split at playhead", "Ctrl+K", function() { Core.editorProject.splitAt(player.position) }],
+            ["Mark in", "I", function() { Core.editorProject.setInMs(player.position) }],
+            ["Mark out", "O", function() { Core.editorProject.setOutMs(player.position) }],
+            ["Undo", "Ctrl+Z", function() { Core.editorProject.undo() }],
+            ["Redo", "Ctrl+Y", function() { Core.editorProject.redo() }],
             ["Save frame as image…", "Ctrl+Shift+S", root.saveFrame],
             ["Copy frame", "Ctrl+Shift+C", root.copyFrame],
             ["Add or remove marker", "N", root.toggleMarker],
             ["Previous marker", "[", function() { root.jumpMarker(-1) }],
             ["Next marker", "]", function() { root.jumpMarker(1) }],
-            ["Clear markers", "", function() { editorProject.clearMarkers() }],
+            ["Clear markers", "", function() { Core.editorProject.clearMarkers() }],
             ["Freeze frame at playhead", "", root.freezeFrame],
-            ["Rotate clip right", "", function() { editorProject.setClipRotation(editorProject.activeClipIndex, root.clipLook.rotation + 90) }],
+            ["Rotate clip right", "", function() { Core.editorProject.setClipRotation(Core.editorProject.activeClipIndex, root.clipLook.rotation + 90) }],
             ["Crop clip", "", function() { root.cropEditing = true }],
             ["Fullscreen preview", "F", function() { root.previewFullscreen = true }],
             ["Mute preview", "M", root.toggleMute],
-            ["Remove silence from clip", "", function() { editorProject.removeSilence(editorProject.activeClipIndex) }],
+            ["Remove silence from clip", "", function() { Core.editorProject.removeSilence(Core.editorProject.activeClipIndex) }],
             ["Previous / next frame", ", .", null],
             ["Jump one second", "Shift+← →", null],
             ["Back 5 s / pause / play", "J K L", null],
@@ -1091,14 +1092,14 @@ ApplicationWindow {
         onAboutToShow: openedAtMs = root.sequencePositionMs
         readonly property var markedRange: root.markerRangeAt(openedAtMs)
         readonly property var range: onlyMarked ? markedRange : null
-        readonly property real lengthMs: range ? range.endMs - range.startMs : editorProject.sequenceDurationMs
+        readonly property real lengthMs: range ? range.endMs - range.startMs : Core.editorProject.sequenceDurationMs
         readonly property var presets: [
             ["source", "Source", "Original size and frame rate"],
             ["1080p60", "1080p60", "Full HD, up to 60 fps"],
             ["discord", "Discord", "Under 10 MB, 720p"],
             ["vertical", "Vertical", "1080×1920 for Shorts and Reels"]
         ]
-        readonly property int discordKbps: exporter.discordVideoKbps(lengthMs)
+        readonly property int discordKbps: Core.exporter.discordVideoKbps(lengthMs)
         heading: "Export MP4"
         message: ""
         iconName: "publish"
@@ -1164,24 +1165,24 @@ ApplicationWindow {
             },
             Text {
                 Layout.fillWidth: true
-                visible: Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0 || editorProject.markers.length > 0 || exporter.busy
-                text: [exporter.busy ? "An export is running: this one waits in the queue." : "",
-                       Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0 ? (exportSheet.losslessCut && !editorProject.mixed ? "The logo is skipped by a lossless cut." : "Your logo from Settings goes on.") : "",
-                       editorProject.markers.length > 0 ? "Markers become chapters in the file." : ""].filter(function(line) { return line.length > 0 }).join(" ")
+                visible: Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0 || Core.editorProject.markers.length > 0 || Core.exporter.busy
+                text: [Core.exporter.busy ? "An export is running: this one waits in the queue." : "",
+                       Prefs.watermarkEnabled && Prefs.watermarkPath.length > 0 ? (exportSheet.losslessCut && !Core.editorProject.mixed ? "The logo is skipped by a lossless cut." : "Your logo from Settings goes on.") : "",
+                       Core.editorProject.markers.length > 0 ? "Markers become chapters in the file." : ""].filter(function(line) { return line.length > 0 }).join(" ")
                 color: Theme.textFaint
                 font.family: Theme.fontFamily
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
             },
             ToolCheck {
-                visible: !editorProject.mixed
+                visible: !Core.editorProject.mixed
                 text: "Fast lossless cut: no re-encode, starts at the nearest keyframe"
                 checked: exportSheet.losslessCut
                 onToggled: exportSheet.losslessCut = checked
             }
         ]
         EditorButton {
-            text: exporter.busy ? "Queue · choose file…" : "Choose file…"
+            text: Core.exporter.busy ? "Queue · choose file…" : "Choose file…"
             primary: true
             onClicked: { exportSheet.close(); exportDialog.open() }
         }
@@ -1211,10 +1212,10 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 placeholderText: "Chapter title"
                 maximumLength: 80
-                onAccepted: { editorProject.setMarkerName(root.renamingMarker, text); markerNameDialog.close() }
+                onAccepted: { Core.editorProject.setMarkerName(root.renamingMarker, text); markerNameDialog.close() }
             }
         ]
-        EditorButton { text: "Save"; primary: true; onClicked: { editorProject.setMarkerName(root.renamingMarker, markerNameField.text); markerNameDialog.close() } }
+        EditorButton { text: "Save"; primary: true; onClicked: { Core.editorProject.setMarkerName(root.renamingMarker, markerNameField.text); markerNameDialog.close() } }
         EditorButton { text: "Cancel"; subtle: true; onClicked: markerNameDialog.close() }
     }
     FileDialog {
@@ -1222,7 +1223,7 @@ ApplicationWindow {
         title: "Import subtitles"
         nameFilters: ["Subtitles (*.srt *.vtt)", "All files (*)"]
         onAccepted: {
-            var count = editorProject.importSubtitles(selectedFile, 0)
+            var count = Core.editorProject.importSubtitles(selectedFile, 0)
             if (count > 0) root.notice = count + (count === 1 ? " caption added" : " captions added") + " to the text track"
             else if (count === 0) root.notice = "No captions found in that file"
         }
@@ -1233,7 +1234,7 @@ ApplicationWindow {
         fileMode: FileDialog.SaveFile
         defaultSuffix: "srt"
         nameFilters: ["SubRip subtitles (*.srt)"]
-        onAccepted: if (editorProject.exportSubtitles(selectedFile)) root.notice = "Subtitles saved · " + decodeURIComponent(selectedFile.toString().replace(/^.*\//, ""))
+        onAccepted: if (Core.editorProject.exportSubtitles(selectedFile)) root.notice = "Subtitles saved · " + decodeURIComponent(selectedFile.toString().replace(/^.*\//, ""))
     }
     FileDialog {
         id: musicDialog
@@ -1280,7 +1281,7 @@ ApplicationWindow {
             onClicked: {
                 recoveryDialog.close()
                 root.workspace = 0
-                if (editorProject.restoreRecovery()) root.notice = "Unsaved work restored · save it to keep it"
+                if (Core.editorProject.restoreRecovery()) root.notice = "Unsaved work restored · save it to keep it"
             }
         }
         EditorButton {
@@ -1288,7 +1289,7 @@ ApplicationWindow {
             danger: true
             onClicked: {
                 recoveryDialog.close()
-                editorProject.discardRecovery()
+                Core.editorProject.discardRecovery()
             }
         }
     }
@@ -1305,8 +1306,8 @@ ApplicationWindow {
             primary: true
             onClicked: {
                 closeDialog.close()
-                if (editorProject.projectUrl.toString()) {
-                    if (editorProject.saveProject()) root.applyClose()
+                if (Core.editorProject.projectUrl.toString()) {
+                    if (Core.editorProject.saveProject()) root.applyClose()
                 } else {
                     root.closeAfterSaveProject = true
                     saveDialog.open()
@@ -1320,25 +1321,25 @@ ApplicationWindow {
     StudioDialog {
         id: quitDialog
         objectName: "quitDialog"
-        heading: editorProject.dirty ? "Save changes before closing?" : "Stop work and close?"
+        heading: Core.editorProject.dirty ? "Save changes before closing?" : "Stop work and close?"
         message: root.anyBusy
-                 ? (editorProject.dirty ? "Your project has unsaved changes, and running work will stop. A server upload already submitted may continue processing."
+                 ? (Core.editorProject.dirty ? "Your project has unsaved changes, and running work will stop. A server upload already submitted may continue processing."
                                         : "Running work will stop. A server upload already submitted may continue processing.")
                  : "Your project has unsaved changes. Save them now or close without saving."
-        iconName: editorProject.dirty ? "save" : "close"
-        warning: !editorProject.dirty
+        iconName: Core.editorProject.dirty ? "save" : "close"
+        warning: !Core.editorProject.dirty
         EditorButton {
-            visible: editorProject.dirty
+            visible: Core.editorProject.dirty
             text: "Save and close"
             iconName: "save"
             primary: true
-            enabled: editorProject.hasMedia
+            enabled: Core.editorProject.hasMedia
             onClicked: root.saveAndClose()
         }
         EditorButton {
-            text: editorProject.dirty ? "Don't save" : "Stop and close"
+            text: Core.editorProject.dirty ? "Don't save" : "Stop and close"
             danger: true
-            subtle: editorProject.dirty
+            subtle: Core.editorProject.dirty
             onClicked: root.fadeAndClose()
         }
         Item { Layout.fillWidth: true }
@@ -1356,20 +1357,20 @@ ApplicationWindow {
     MediaPlayer {
         id: player
         objectName: "editorPlayer"
-        source: root.releasingMedia ? "" : editorProject.mediaUrl
-        audioOutput: AudioOutput { volume: editorVolume.effectiveVolume * root.clipGain * (editorProject.transition === "fade" ? 1 - root.transitionDim : 1) }
+        source: root.releasingMedia ? "" : Core.editorProject.mediaUrl
+        audioOutput: AudioOutput { volume: editorVolume.effectiveVolume * root.clipGain * (Core.editorProject.transition === "fade" ? 1 - root.transitionDim : 1) }
         videoOutput: videoOutput
         onPlaybackStateChanged: {
             if (playbackState !== MediaPlayer.PlayingState) root.trimPlayStopMs = -1
             root.applySpeed()
             root.syncMusic()
         }
-        onDurationChanged: function(duration) { if (source.toString() === editorProject.mediaUrl.toString()) editorProject.setDurationMs(duration) }
+        onDurationChanged: function(duration) { if (source.toString() === Core.editorProject.mediaUrl.toString()) Core.editorProject.setDurationMs(duration) }
         onMediaStatusChanged: if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) root.finishCue()
         onPositionChanged: {
             if (playbackState === MediaPlayer.PlayingState && root.stillActive) pause()
             else if (root.trimPlayStopMs >= 0) { if (playbackState === MediaPlayer.PlayingState && position >= root.trimPlayStopMs) pause() }
-            else if (playbackState === MediaPlayer.PlayingState && editorProject.outMs > editorProject.inMs && position >= editorProject.outMs) {
+            else if (playbackState === MediaPlayer.PlayingState && Core.editorProject.outMs > Core.editorProject.inMs && position >= Core.editorProject.outMs) {
                 if (root.sequencePlaying) root.advanceSequence()
                 else pause()
             }
@@ -1400,7 +1401,7 @@ ApplicationWindow {
     Timer {
         interval: 250
         repeat: true
-        running: editorProject.audioCount > 0 && root.workspace === 0
+        running: Core.editorProject.audioCount > 0 && root.workspace === 0
         onTriggered: root.syncMusic()
     }
 
@@ -1479,7 +1480,7 @@ ApplicationWindow {
                     id: updateCard
                     Layout.fillWidth: true
                     Layout.bottomMargin: 12
-                    updater: appUpdater
+                    updater: Core.appUpdater
                     // Everything else in the sidebar stays put; the card shrinks
                     // to one row when the full one would push Settings off screen.
                     compact: navColumn.implicitHeight - implicitHeight + fullHeight > navColumn.height
@@ -1522,7 +1523,7 @@ ApplicationWindow {
                     Text {
                         objectName: "versionLink"
                         Layout.rightMargin: 6
-                        text: appUpdater.checking ? "Checking…" : "v" + appUpdater.currentVersion
+                        text: Core.appUpdater.checking ? "Checking…" : "v" + Core.appUpdater.currentVersion
                         color: versionMouse.containsMouse ? Theme.text : Theme.textFaint
                         font.pixelSize: 10
                         font.features: { "tnum": 1 }
@@ -1533,7 +1534,7 @@ ApplicationWindow {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             // Asking again brings back a card that was closed.
-                            onClicked: { Prefs.dismissedUpdate = ""; appUpdater.check() }
+                            onClicked: { Prefs.dismissedUpdate = ""; Core.appUpdater.check() }
                         }
                     }
                 }
@@ -1568,7 +1569,7 @@ ApplicationWindow {
                             id: headerSubtitle
                             anchors.verticalCenter: parent.verticalCenter
                             width: Math.min(implicitWidth, parent.width - (closeProjectButton.visible ? closeProjectButton.width + 4 : 0))
-                            text: root.workspace === 0 ? (editorProject.hasMedia ? editorProject.mediaName : "Create a project or import media") : root.shareWorkspace ? "Connected tools · your server" : "Private processing · on this device"
+                            text: root.workspace === 0 ? (Core.editorProject.hasMedia ? Core.editorProject.mediaName : "Create a project or import media") : root.shareWorkspace ? "Connected tools · your server" : "Private processing · on this device"
                             color: Theme.textMuted
                             font.pixelSize: 11
                             elide: Text.ElideMiddle
@@ -1577,8 +1578,8 @@ ApplicationWindow {
                             id: closeProjectButton
                             objectName: "closeProjectButton"
                             anchors.verticalCenter: parent.verticalCenter
-                            visible: root.workspace === 0 && editorProject.hasMedia
-                            enabled: !exporter.busy
+                            visible: root.workspace === 0 && Core.editorProject.hasMedia
+                            enabled: !Core.exporter.busy
                             implicitWidth: 18
                             implicitHeight: 18
                             padding: 0
@@ -1592,8 +1593,8 @@ ApplicationWindow {
                         }
                     }
                 }
-                Rectangle { visible: root.workspace === 0 && editorProject.dirty; width: 7; height: 7; radius: 4; color: Theme.warning }
-                Text { visible: root.workspace === 0 && editorProject.dirty; text: "Unsaved"; color: Theme.warning; font.pixelSize: 11; Layout.rightMargin: 6 }
+                Rectangle { visible: root.workspace === 0 && Core.editorProject.dirty; width: 7; height: 7; radius: 4; color: Theme.warning }
+                Text { visible: root.workspace === 0 && Core.editorProject.dirty; text: "Unsaved"; color: Theme.warning; font.pixelSize: 11; Layout.rightMargin: 6 }
                 // File actions as one group, so only Export stands out.
                 Rectangle {
                     visible: root.workspace === 0
@@ -1617,7 +1618,7 @@ ApplicationWindow {
                                     implicitHeight: 36
                                     leftPadding: 14
                                     rightPadding: 15
-                                    enabled: modelData[0] !== "Save" || editorProject.hasMedia
+                                    enabled: modelData[0] !== "Save" || Core.editorProject.hasMedia
                                     onClicked: {
                                         if (modelData[0] === "Open") openDialog.open()
                                         else if (modelData[0] === "Import") mediaDialog.open()
@@ -1651,7 +1652,7 @@ ApplicationWindow {
                         }
                     }
                 }
-                EditorButton { text: exporter.busy ? "Queue export" : "Export MP4"; visible: root.workspace === 0; primary: true; enabled: editorProject.canExport && exporter.available; onClicked: exportSheet.open() }
+                EditorButton { text: Core.exporter.busy ? "Queue export" : "Export MP4"; visible: root.workspace === 0; primary: true; enabled: Core.editorProject.canExport && Core.exporter.available; onClicked: exportSheet.open() }
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line }
         }
@@ -1761,14 +1762,14 @@ ApplicationWindow {
                         y: lookFrame.frame.y
                         width: lookFrame.frame.width
                         height: lookFrame.frame.height
-                        texts: editorProject.textItems
+                        texts: Core.editorProject.textItems
                         timeMs: root.sequencePositionMs
-                        selectedIndex: editorProject.activeTextIndex
+                        selectedIndex: Core.editorProject.activeTextIndex
                         draftSize: clipInspector.captionDraftSize
-                        editable: !exporter.busy
-                        onPicked: function(index) { editorProject.selectText(index) }
-                        onMoved: function(index, x, y) { editorProject.setTextStyle(index, { x: x, y: y }) }
-                        onEdited: function(index, text) { editorProject.setTextContent(index, text) }
+                        editable: !Core.exporter.busy
+                        onPicked: function(index) { Core.editorProject.selectText(index) }
+                        onMoved: function(index, x, y) { Core.editorProject.setTextStyle(index, { x: x, y: y }) }
+                        onEdited: function(index, text) { Core.editorProject.setTextContent(index, text) }
                     }
                     // Crop frame over the whole turned picture while cropping.
                     CropOverlay {
@@ -1782,31 +1783,31 @@ ApplicationWindow {
                         viewSize: Qt.size(Math.max(1, lookFrame.frame.width), Math.max(1, lookFrame.frame.height))
                         revision: root.cropRevision
                         onCommitted: function(crop) {
-                            editorProject.setClipCrop(editorProject.activeClipIndex, crop.cropX, crop.cropY, crop.cropW, crop.cropH)
+                            Core.editorProject.setClipCrop(Core.editorProject.activeClipIndex, crop.cropX, crop.cropY, crop.cropW, crop.cropH)
                             root.cropRevision++
                         }
                     }
                     Column {
                         anchors.centerIn: parent
                         spacing: 13
-                        visible: !editorProject.hasMedia || !player.hasVideo
+                        visible: !Core.editorProject.hasMedia || !player.hasVideo
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: !editorProject.hasMedia ? "Your next edit starts here" : player.hasVideo ? editorProject.mediaName : "Audio clip"
+                            text: !Core.editorProject.hasMedia ? "Your next edit starts here" : player.hasVideo ? Core.editorProject.mediaName : "Audio clip"
                             color: Theme.text
                             font.pixelSize: 18
                             font.weight: Font.DemiBold
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            visible: editorProject.hasMedia && !player.hasVideo
-                            text: editorProject.mediaName
+                            visible: Core.editorProject.hasMedia && !player.hasVideo
+                            text: Core.editorProject.mediaName
                             color: Theme.textMuted
                             font.pixelSize: 12
                         }
                         EditorButton {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            visible: !editorProject.hasMedia
+                            visible: !Core.editorProject.hasMedia
                             text: "Import media"
                             primary: true
                             onClicked: mediaDialog.open()
@@ -1815,7 +1816,7 @@ ApplicationWindow {
                         Column {
                             objectName: "recentList"
                             anchors.horizontalCenter: parent.horizontalCenter
-                            visible: !editorProject.hasMedia && root.recentFiles.length > 0
+                            visible: !Core.editorProject.hasMedia && root.recentFiles.length > 0
                             width: 340
                             spacing: 2
                             topPadding: 14
@@ -1897,15 +1898,15 @@ ApplicationWindow {
                         anchors.leftMargin: 18
                         anchors.rightMargin: 18
                         spacing: 10
-                        EditorButton { text: root.previewPlaying ? "Pause" : "Play"; iconName: root.previewPlaying ? "pause" : "play"; enabled: editorProject.hasMedia; onClicked: root.togglePlayback() }
+                        EditorButton { text: root.previewPlaying ? "Pause" : "Play"; iconName: root.previewPlaying ? "pause" : "play"; enabled: Core.editorProject.hasMedia; onClicked: root.togglePlayback() }
                         Text { text: root.timecode(root.sequencePositionMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
-                        Text { text: "/ " + root.timecode(editorProject.sequenceDurationMs); color: Theme.textMuted; font.pixelSize: 12 }
+                        Text { text: "/ " + root.timecode(Core.editorProject.sequenceDurationMs); color: Theme.textMuted; font.pixelSize: 12 }
                         Item { Layout.fillWidth: true }
                         EditorButton {
                             objectName: "saveFrameButton"
                             subtle: true
                             iconName: "camera"
-                            enabled: editorProject.hasMedia
+                            enabled: Core.editorProject.hasMedia
                             onClicked: root.saveFrame()
                             ToolTip.visible: hovered
                             ToolTip.delay: 600
@@ -1970,14 +1971,14 @@ ApplicationWindow {
                         EditorField {
                             id: serverField
                             Layout.fillWidth: true
-                            text: toolsClient.serverUrl
+                            text: Core.toolsClient.serverUrl
                             placeholderText: "https://tools.example.com"
-                            onEditingFinished: toolsClient.serverUrl = text
+                            onEditingFinished: Core.toolsClient.serverUrl = text
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            EditorButton { text: "Connect"; enabled: !toolsClient.busy; onClicked: { toolsClient.serverUrl = serverField.text; toolsClient.testConnection() } }
-                            Text { text: toolsClient.connected ? "Connected" : "Not connected"; color: toolsClient.connected ? Theme.success : Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
+                            EditorButton { text: "Connect"; enabled: !Core.toolsClient.busy; onClicked: { Core.toolsClient.serverUrl = serverField.text; Core.toolsClient.testConnection() } }
+                            Text { text: Core.toolsClient.connected ? "Connected" : "Not connected"; color: Core.toolsClient.connected ? Theme.success : Theme.textMuted; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignRight }
                         }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line; Layout.topMargin: 3 }
                         Text { text: "Publish a file"; color: Theme.text; font.pixelSize: 13; font.weight: Font.DemiBold }
@@ -1991,8 +1992,8 @@ ApplicationWindow {
                         EditorButton { text: "Choose file"; Layout.fillWidth: true; onClicked: uploadDialog.open() }
                         RowLayout {
                             Layout.fillWidth: true
-                            EditorButton { text: "To Clips"; Layout.fillWidth: true; enabled: !toolsClient.busy && root.publishSource().toString(); onClicked: toolsClient.publishClip(root.publishSource()) }
-                            EditorButton { text: "To Drop"; Layout.fillWidth: true; enabled: !toolsClient.busy && root.publishSource().toString(); onClicked: toolsClient.publishDrop(root.publishSource()) }
+                            EditorButton { text: "To Clips"; Layout.fillWidth: true; enabled: !Core.toolsClient.busy && root.publishSource().toString(); onClicked: Core.toolsClient.publishClip(root.publishSource()) }
+                            EditorButton { text: "To Drop"; Layout.fillWidth: true; enabled: !Core.toolsClient.busy && root.publishSource().toString(); onClicked: Core.toolsClient.publishDrop(root.publishSource()) }
                         }
                         Text { text: "Guest: Clips 200 MB / 24 h, Drop 50 MB / 1 h"; color: Theme.textMuted; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.line; Layout.topMargin: 3 }
@@ -2001,31 +2002,31 @@ ApplicationWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             EditorField { id: slugField; Layout.fillWidth: true; placeholderText: "Custom slug (optional)" }
-                            EditorButton { text: "Create"; enabled: !toolsClient.busy; onClicked: toolsClient.shorten(targetField.text, slugField.text) }
+                            EditorButton { text: "Create"; enabled: !Core.toolsClient.busy; onClicked: Core.toolsClient.shorten(targetField.text, slugField.text) }
                         }
                         Text {
-                            visible: toolsClient.busy
-                            text: toolsClient.stage + "  " + toolsClient.progress + "%"
+                            visible: Core.toolsClient.busy
+                            text: Core.toolsClient.stage + "  " + Core.toolsClient.progress + "%"
                             color: Theme.textSoft
                             font.pixelSize: 11
                         }
-                        StudioProgress { visible: toolsClient.busy; value: toolsClient.progress / 100; Layout.fillWidth: true }
+                        StudioProgress { visible: Core.toolsClient.busy; value: Core.toolsClient.progress / 100; Layout.fillWidth: true }
                         Text {
                             Layout.fillWidth: true
-                            visible: toolsClient.errorText.length > 0
-                            text: toolsClient.errorText
+                            visible: Core.toolsClient.errorText.length > 0
+                            text: Core.toolsClient.errorText
                             wrapMode: Text.WordWrap
                             color: Theme.danger
                             font.pixelSize: 11
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            visible: toolsClient.resultUrl.toString().length > 0
+                            visible: Core.toolsClient.resultUrl.toString().length > 0
                             EditorField {
                                 id: resultField
                                 Layout.fillWidth: true
                                 readOnly: true
-                                text: toolsClient.resultUrl.toString()
+                                text: Core.toolsClient.resultUrl.toString()
                                 selectByMouse: true
                             }
                             EditorButton {
@@ -2033,7 +2034,7 @@ ApplicationWindow {
                                 onClicked: { resultField.selectAll(); resultField.copy(); resultField.deselect() }
                             }
                         }
-                        EditorButton { text: "Cancel upload"; visible: toolsClient.busy; danger: true; onClicked: toolsClient.cancel() }
+                        EditorButton { text: "Cancel upload"; visible: Core.toolsClient.busy; danger: true; onClicked: Core.toolsClient.cancel() }
                     }
                     }
                 }
@@ -2057,61 +2058,61 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     spacing: 8
                     Text { text: "Timeline"; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold }
-                    Text { text: editorProject.hasMedia ? editorProject.clipCount + (editorProject.clipCount === 1 ? " clip · " : " clips · ") + root.timecode(editorProject.sequenceDurationMs) : ""; color: Theme.accent; font.pixelSize: 11 }
-                    Text { text: editorProject.hasMedia ? "Drag edges to trim, drag clips to reorder, drop audio on the track below, Ctrl + wheel to zoom" : "No clip loaded"; color: Theme.textFaint; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
-                    EditorButton { iconName: "undo"; subtle: true; enabled: editorProject.canUndo && !exporter.busy; onClicked: editorProject.undo(); ToolTip.visible: hovered; ToolTip.text: "Undo (Ctrl+Z)" }
-                    EditorButton { iconName: "redo"; subtle: true; enabled: editorProject.canRedo && !exporter.busy; onClicked: editorProject.redo(); ToolTip.visible: hovered; ToolTip.text: "Redo (Ctrl+Shift+Z)" }
-                    EditorButton { text: "Add clip"; iconName: "plus"; enabled: !exporter.busy; onClicked: addClipDialog.open() }
+                    Text { text: Core.editorProject.hasMedia ? Core.editorProject.clipCount + (Core.editorProject.clipCount === 1 ? " clip · " : " clips · ") + root.timecode(Core.editorProject.sequenceDurationMs) : ""; color: Theme.accent; font.pixelSize: 11 }
+                    Text { text: Core.editorProject.hasMedia ? "Drag edges to trim, drag clips to reorder, drop audio on the track below, Ctrl + wheel to zoom" : "No clip loaded"; color: Theme.textFaint; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                    EditorButton { iconName: "undo"; subtle: true; enabled: Core.editorProject.canUndo && !Core.exporter.busy; onClicked: Core.editorProject.undo(); ToolTip.visible: hovered; ToolTip.text: "Undo (Ctrl+Z)" }
+                    EditorButton { iconName: "redo"; subtle: true; enabled: Core.editorProject.canRedo && !Core.exporter.busy; onClicked: Core.editorProject.redo(); ToolTip.visible: hovered; ToolTip.text: "Redo (Ctrl+Shift+Z)" }
+                    EditorButton { text: "Add clip"; iconName: "plus"; enabled: !Core.exporter.busy; onClicked: addClipDialog.open() }
                     EditorButton {
                         objectName: "timelineTextButton"
                         text: "Text"
                         iconName: "edit"
-                        enabled: editorProject.hasMedia && !exporter.busy && editorProject.sequenceDurationMs >= 200
+                        enabled: Core.editorProject.hasMedia && !Core.exporter.busy && Core.editorProject.sequenceDurationMs >= 200
                         onClicked: root.addTextAt(root.sequencePositionMs)
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         ToolTip.text: "Add text at the playhead and type it on the video"
                     }
                     EditorButton { text: "Fit"; subtle: true; visible: sequenceTimeline.zoom > 1; onClicked: sequenceTimeline.zoomTo(1, 0) }
-                    EditorButton { text: "From start"; iconName: "play"; enabled: editorProject.canExport && !exporter.busy; onClicked: root.previewSequence() }
-                    EditorButton { text: "Split"; iconName: "split"; enabled: editorProject.hasMedia && !exporter.busy && player.position > editorProject.inMs + 100 && player.position < editorProject.outMs - 100; onClicked: editorProject.splitAt(player.position) }
-                    EditorButton { text: "Mark in"; enabled: editorProject.hasMedia && !exporter.busy; onClicked: editorProject.setInMs(player.position) }
-                    EditorButton { text: "Mark out"; enabled: editorProject.hasMedia && !exporter.busy; onClicked: editorProject.setOutMs(player.position) }
+                    EditorButton { text: "From start"; iconName: "play"; enabled: Core.editorProject.canExport && !Core.exporter.busy; onClicked: root.previewSequence() }
+                    EditorButton { text: "Split"; iconName: "split"; enabled: Core.editorProject.hasMedia && !Core.exporter.busy && player.position > Core.editorProject.inMs + 100 && player.position < Core.editorProject.outMs - 100; onClicked: Core.editorProject.splitAt(player.position) }
+                    EditorButton { text: "Mark in"; enabled: Core.editorProject.hasMedia && !Core.exporter.busy; onClicked: Core.editorProject.setInMs(player.position) }
+                    EditorButton { text: "Mark out"; enabled: Core.editorProject.hasMedia && !Core.exporter.busy; onClicked: Core.editorProject.setOutMs(player.position) }
                 }
                 Timeline {
                     id: sequenceTimeline
-                    enabled: !exporter.busy
+                    enabled: !Core.exporter.busy
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    clips: editorProject.clips
-                    activeIndex: editorProject.activeClipIndex
+                    clips: Core.editorProject.clips
+                    activeIndex: Core.editorProject.activeClipIndex
                     playheadMs: root.sequencePositionMs
                     playing: root.previewPlaying
-                    thumbnailSource: thumbnails
-                    transition: editorProject.transition
-                    audioItems: editorProject.audioItems
-                    audioIndex: editorProject.activeAudioIndex
-                    markers: editorProject.markers
-                    markerNames: editorProject.markerItems.map(function(item) { return item.name })
-                    onMarkerRemoveRequested: function(index) { editorProject.removeMarker(index) }
+                    thumbnailSource: Core.thumbnails
+                    transition: Core.editorProject.transition
+                    audioItems: Core.editorProject.audioItems
+                    audioIndex: Core.editorProject.activeAudioIndex
+                    markers: Core.editorProject.markers
+                    markerNames: Core.editorProject.markerItems.map(function(item) { return item.name })
+                    onMarkerRemoveRequested: function(index) { Core.editorProject.removeMarker(index) }
                     onMarkerRenameRequested: function(index) { root.renameMarker(index) }
-                    onAudioSelectRequested: function(index) { editorProject.selectAudio(index) }
-                    onAudioPlaceRequested: function(index, startMs, inMs, outMs) { editorProject.setAudioPlacement(index, startMs, inMs, outMs) }
-                    onAudioFadeRequested: function(index, fadeInMs, fadeOutMs) { editorProject.setAudioFades(index, fadeInMs, fadeOutMs) }
-                    onAudioRemoveRequested: function(index) { editorProject.removeAudio(index) }
-                    onAudioSplitRequested: function(index, atMs) { editorProject.splitAudio(index, Math.round(atMs)) }
+                    onAudioSelectRequested: function(index) { Core.editorProject.selectAudio(index) }
+                    onAudioPlaceRequested: function(index, startMs, inMs, outMs) { Core.editorProject.setAudioPlacement(index, startMs, inMs, outMs) }
+                    onAudioFadeRequested: function(index, fadeInMs, fadeOutMs) { Core.editorProject.setAudioFades(index, fadeInMs, fadeOutMs) }
+                    onAudioRemoveRequested: function(index) { Core.editorProject.removeAudio(index) }
+                    onAudioSplitRequested: function(index, atMs) { Core.editorProject.splitAudio(index, Math.round(atMs)) }
                     onAudioAddRequested: function(startMs) {
                         root.audioAddMs = startMs
                         musicDialog.open()
                     }
                     onAudioDropped: function(urls, startMs) { root.addAudioFiles(urls, startMs) }
-                    textItems: editorProject.textItems
-                    textIndex: editorProject.activeTextIndex
-                    onTextSelectRequested: function(index) { editorProject.selectText(index) }
-                    onTextPlaceRequested: function(index, startMs, endMs) { editorProject.setTextPlacement(index, startMs, endMs) }
-                    onTextRemoveRequested: function(index) { editorProject.removeText(index) }
-                    onTextSplitRequested: function(index, atMs) { editorProject.splitText(index, Math.round(atMs)) }
-                    onTextDuplicateRequested: function(index) { editorProject.duplicateText(index) }
+                    textItems: Core.editorProject.textItems
+                    textIndex: Core.editorProject.activeTextIndex
+                    onTextSelectRequested: function(index) { Core.editorProject.selectText(index) }
+                    onTextPlaceRequested: function(index, startMs, endMs) { Core.editorProject.setTextPlacement(index, startMs, endMs) }
+                    onTextRemoveRequested: function(index) { Core.editorProject.removeText(index) }
+                    onTextSplitRequested: function(index, atMs) { Core.editorProject.splitText(index, Math.round(atMs)) }
+                    onTextDuplicateRequested: function(index) { Core.editorProject.duplicateText(index) }
                     onTextAddRequested: function(startMs) { root.addTextAt(startMs) }
                     onTextEditRequested: function(index) { root.typeText(index) }
                     onScrubRequested: function(ms) { root.beginScrub(ms) }
@@ -2119,29 +2120,29 @@ ApplicationWindow {
                     onSelectRequested: function(index) {
                         root.sequencePlaying = false
                         root.sequenceAdvancing = false
-                        editorProject.selectAudio(-1)
-                        editorProject.selectText(-1)
-                        editorProject.selectClip(index)
+                        Core.editorProject.selectAudio(-1)
+                        Core.editorProject.selectText(-1)
+                        Core.editorProject.selectClip(index)
                     }
                     onTrimRequested: function(index, inMs, outMs, previewMs) {
-                        if (editorProject.setClipRange(index, inMs, outMs) && index === editorProject.activeClipIndex)
+                        if (Core.editorProject.setClipRange(index, inMs, outMs) && index === Core.editorProject.activeClipIndex)
                             root.requestSourceSeek(previewMs)
                     }
                     onTrimPreviewRequested: function(index, sourceMs) {
-                        if (index === editorProject.activeClipIndex) root.requestSourceSeek(sourceMs)
+                        if (index === Core.editorProject.activeClipIndex) root.requestSourceSeek(sourceMs)
                     }
                     onTrimPlayRequested: function(index, fromMs, toMs) {
-                        if (index !== editorProject.activeClipIndex || root.stillActive) return
+                        if (index !== Core.editorProject.activeClipIndex || root.stillActive) return
                         root.sequencePlaying = false
                         root.sequenceAdvancing = false
                         root.trimPlayStopMs = toMs
                         root.requestSourceSeek(fromMs)
                         player.play()
                     }
-                    onMoveRequested: function(from, to) { editorProject.moveClipTo(from, to) }
-                    onSplitRequested: editorProject.splitAt(player.position)
-                    onDuplicateRequested: function(index) { editorProject.duplicateClip(index) }
-                    onRemoveRequested: function(index) { editorProject.removeClip(index) }
+                    onMoveRequested: function(from, to) { Core.editorProject.moveClipTo(from, to) }
+                    onSplitRequested: Core.editorProject.splitAt(player.position)
+                    onDuplicateRequested: function(index) { Core.editorProject.duplicateClip(index) }
+                    onRemoveRequested: function(index) { Core.editorProject.removeClip(index) }
                 }
             }
         }
@@ -2201,9 +2202,9 @@ ApplicationWindow {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 14
                 spacing: 8
-                Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || localImages.errorText || localReframe.errorText ? Theme.danger : root.anyBusy ? Theme.warning : Theme.accent }
+                Rectangle { Layout.preferredWidth: 6; Layout.preferredHeight: 6; radius: 3; color: Core.editorProject.errorText || Core.exporter.errorText || Core.toolsClient.errorText || Core.localTools.errorText || Core.localDownload.errorText || Core.localPdf.errorText || Core.localQr.errorText || Core.localImages.errorText || Core.localReframe.errorText ? Theme.danger : root.anyBusy ? Theme.warning : Theme.accent }
                 Text {
-                    text: editorProject.errorText || exporter.errorText || toolsClient.errorText || localTools.errorText || localDownload.errorText || localPdf.errorText || localQr.errorText || localImages.errorText || localReframe.errorText || (exporter.busy ? exporter.stage + " " + exporter.progress + "%" : localTools.busy ? localTools.stage + " " + localTools.progress + "%" : localDownload.busy ? localDownload.stage + " " + localDownload.progress + "%" : localPdf.busy ? localPdf.stage : localQr.busy ? localQr.stage : localImages.busy ? localImages.stage : localReframe.busy ? localReframe.stage + " " + localReframe.progress + "%" : toolsClient.busy ? toolsClient.stage + " " + toolsClient.progress + "%" : root.notice || "Ready")
+                    text: Core.editorProject.errorText || Core.exporter.errorText || Core.toolsClient.errorText || Core.localTools.errorText || Core.localDownload.errorText || Core.localPdf.errorText || Core.localQr.errorText || Core.localImages.errorText || Core.localReframe.errorText || (Core.exporter.busy ? Core.exporter.stage + " " + Core.exporter.progress + "%" : Core.localTools.busy ? Core.localTools.stage + " " + Core.localTools.progress + "%" : Core.localDownload.busy ? Core.localDownload.stage + " " + Core.localDownload.progress + "%" : Core.localPdf.busy ? Core.localPdf.stage : Core.localQr.busy ? Core.localQr.stage : Core.localImages.busy ? Core.localImages.stage : Core.localReframe.busy ? Core.localReframe.stage + " " + Core.localReframe.progress + "%" : Core.toolsClient.busy ? Core.toolsClient.stage + " " + Core.toolsClient.progress + "%" : root.notice || "Ready")
                     color: Theme.textSoft
                     font.pixelSize: 11
                     elide: Text.ElideRight

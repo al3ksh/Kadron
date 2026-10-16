@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QTimer>
@@ -14,9 +16,10 @@ class QNetworkReply;
 // Portable copies (no uninstaller next to kadron.exe) are updated by the same
 // installer in portable mode, which only replaces the files in their folder.
 // Development builds are pointed at the release page instead.
-class AppUpdater final : public QObject
+class AppUpdater : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(QString currentVersion READ currentVersion CONSTANT)
     Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY changed)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY changed)

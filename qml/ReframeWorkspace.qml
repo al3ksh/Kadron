@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtQuick.Effects
 import QtMultimedia
+import Kadron.Backend
 
 // Reframe: a landscape video becomes 9:16, 1:1, 4:5 or 16:9. In "crop" mode
 // a frame follows the action: move it at different moments and each move is
@@ -76,8 +77,8 @@ Item {
         else h = videoAspect / ratio
         return Qt.size(w / zoom, h / zoom)
     }
-    readonly property size outputSize: localReframe.reframeOutput(aspectW, aspectH)
-    readonly property size cropPixels: localReframe.reframeCrop(videoPixels, aspectW, aspectH, zoom)
+    readonly property size outputSize: Core.localReframe.reframeOutput(aspectW, aspectH)
+    readonly property size cropPixels: Core.localReframe.reframeCrop(videoPixels, aspectW, aspectH, zoom)
     readonly property point center: dragging ? Qt.point(dragX, dragY) : centerAt(seconds)
     readonly property int nearKey: nearestKey(seconds)
     // How much the crop is enlarged to fill the output; 1080p to 9:16 is 1.8×, past 2× it looks soft.
@@ -85,7 +86,7 @@ Item {
 
     function isVideo(url) { return /\.(mp4|mov|mkv|webm|avi|m4v|wmv|mpe?g|ts)$/i.test(url.toString()) }
     function load(url) {
-        if (!isVideo(url) || localReframe.busy) return false
+        if (!isVideo(url) || Core.localReframe.busy) return false
         sourceUrl = url
         keyframes = []
         zoom = 1
@@ -122,7 +123,7 @@ Item {
     // higher, clear of the app buttons over the bottom of a short.
     property string captionNotice: ""
     function importCaptions(url) {
-        var cues = editorProject.readSubtitles(url)
+        var cues = Core.editorProject.readSubtitles(url)
         if (cues.length === 0) { captionNotice = "No captions found in that file"; return }
         var tall = aspectH > aspectW
         var list = texts.slice()
@@ -209,7 +210,7 @@ Item {
         nameFilters: ["MP4 video (*.mp4)"]
         onAccepted: {
             player.pause()
-            localReframe.reframe(page.sourceUrl, selectedFile, {
+            Core.localReframe.reframe(page.sourceUrl, selectedFile, {
                 mode: page.mode, aspectW: page.aspectW, aspectH: page.aspectH, zoom: page.zoom,
                 keyframes: page.keyframes.length > 0 ? page.keyframes : [{ t: 0, x: page.center.x, y: page.center.y }],
                 share: page.camOnTop ? page.camShare : 1 - page.camShare,
@@ -303,7 +304,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                 }
-                EditorButton { text: "Change"; subtle: true; enabled: !localReframe.busy; onClicked: openDialog.open() }
+                EditorButton { text: "Change"; subtle: true; enabled: !Core.localReframe.busy; onClicked: openDialog.open() }
             }
 
             // Stage: the source with the frame over it.
@@ -673,7 +674,7 @@ Item {
                                     timeMs: player.position
                                     selectedIndex: page.textIndex
                                     draftSize: reframeTextStyle.draftSize
-                                    editable: !localReframe.busy
+                                    editable: !Core.localReframe.busy
                                     onPicked: function(index) { page.textIndex = index }
                                     onMoved: function(index, x, y) { page.updateText(index, { x: x, y: y }) }
                                     onEdited: function(index, text) { page.updateText(index, { text: text.slice(0, 500) }) }
@@ -801,7 +802,7 @@ Item {
                             Layout.rightMargin: 20
                             Layout.bottomMargin: 14
                             spacing: 6
-                            enabled: !localReframe.busy
+                            enabled: !Core.localReframe.busy
                             Flow {
                                 visible: page.texts.length > 1 && page.texts.length <= 12
                                 Layout.fillWidth: true
@@ -961,55 +962,55 @@ Item {
                     spacing: 8
                     Text {
                         Layout.fillWidth: true
-                        visible: localReframe.busy || localReframe.outputUrl.toString().length > 0
-                        text: localReframe.busy ? localReframe.stage + " · " + localReframe.progress + "%"
-                                                : decodeURIComponent(localReframe.outputUrl.toString().split("/").pop())
+                        visible: Core.localReframe.busy || Core.localReframe.outputUrl.toString().length > 0
+                        text: Core.localReframe.busy ? Core.localReframe.stage + " · " + Core.localReframe.progress + "%"
+                                                : decodeURIComponent(Core.localReframe.outputUrl.toString().split("/").pop())
                         color: Theme.textSoft
                         font.pixelSize: 12
                         elide: Text.ElideMiddle
                     }
-                    Text { Layout.fillWidth: true; visible: localReframe.errorText.length > 0 && !localReframe.busy; text: localReframe.errorText; color: Theme.danger; font.pixelSize: 11; wrapMode: Text.WordWrap; maximumLineCount: 4; elide: Text.ElideRight }
-                    StudioProgress { Layout.fillWidth: true; visible: localReframe.busy; value: localReframe.progress / 100 }
+                    Text { Layout.fillWidth: true; visible: Core.localReframe.errorText.length > 0 && !Core.localReframe.busy; text: Core.localReframe.errorText; color: Theme.danger; font.pixelSize: 11; wrapMode: Text.WordWrap; maximumLineCount: 4; elide: Text.ElideRight }
+                    StudioProgress { Layout.fillWidth: true; visible: Core.localReframe.busy; value: Core.localReframe.progress / 100 }
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 6
                         EditorButton {
                             objectName: "reframeExport"
                             Layout.fillWidth: true
-                            visible: !localReframe.busy
+                            visible: !Core.localReframe.busy
                             primary: true
                             iconName: "save"
                             text: "Export video…"
-                            enabled: localReframe.available && page.picture.width > 0
+                            enabled: Core.localReframe.available && page.picture.width > 0
                             onClicked: page.exportVideo()
                         }
-                        EditorButton { Layout.fillWidth: true; visible: localReframe.busy; text: "Stop"; danger: true; onClicked: localReframe.cancel() }
+                        EditorButton { Layout.fillWidth: true; visible: Core.localReframe.busy; text: "Stop"; danger: true; onClicked: Core.localReframe.cancel() }
                         EditorButton {
-                            visible: !localReframe.busy && localReframe.outputUrl.toString().length > 0
+                            visible: !Core.localReframe.busy && Core.localReframe.outputUrl.toString().length > 0
                             iconName: "play"
                             subtle: true
-                            onClicked: Qt.openUrlExternally(localReframe.outputUrl)
+                            onClicked: Qt.openUrlExternally(Core.localReframe.outputUrl)
                             ToolTip.visible: hovered
                             ToolTip.text: "Play the result"
                         }
                         EditorButton {
-                            visible: !localReframe.busy && localReframe.outputUrl.toString().length > 0
+                            visible: !Core.localReframe.busy && Core.localReframe.outputUrl.toString().length > 0
                             iconName: "folder"
                             subtle: true
-                            onClicked: shellIntegration.reveal(localReframe.outputUrl)
+                            onClicked: Core.shellIntegration.reveal(Core.localReframe.outputUrl)
                             ToolTip.visible: hovered
                             ToolTip.text: "Show in folder"
                         }
                         CopyButton {
-                            visible: !localReframe.busy && localReframe.outputUrl.toString().length > 0
+                            visible: !Core.localReframe.busy && Core.localReframe.outputUrl.toString().length > 0
                             compact: true
                             subtle: true
-                            file: localReframe.outputUrl
+                            file: Core.localReframe.outputUrl
                         }
                         EditorButton {
                             iconName: "close"
                             subtle: true
-                            enabled: !localReframe.busy
+                            enabled: !Core.localReframe.busy
                             onClicked: { player.stop(); page.sourceUrl = ""; page.keyframes = [] }
                             ToolTip.visible: hovered
                             ToolTip.text: "Close the video"

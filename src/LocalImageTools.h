@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QFutureWatcher>
 #include <QMutex>
 #include <QObject>
@@ -24,9 +26,10 @@
 //   image after its EXIF orientation and the rotation/flips.
 // Saved images never carry metadata: FFmpeg re-encodes them and drops EXIF,
 // GPS and camera details.
-class LocalImageTools final : public QObject
+class LocalImageTools : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(bool available READ available CONSTANT)
     // Per source URL string: {name, bytes, width, height, format, hasAlpha,
     // orientation, camera, taken, hasGps, latitude, longitude, thumb, error}.

@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtMultimedia
 import QtCore
+import Kadron.Backend
 
 Item {
     id: toolsPage
@@ -69,22 +70,22 @@ Item {
         var base = decodeURIComponent(source.toString().split("/").pop()).replace(/\.[^.]*$/, "")
         var target = compressFolder + "/" + encodeURIComponent(base + "-compressed") + "." + selectedFormat
         compressStarting = true
-        if (!localTools.compress(source, target, selectedFormat, compressQuality, compressToSize ? compressMB : 0,
+        if (!Core.localTools.compress(source, target, selectedFormat, compressQuality, compressToSize ? compressMB : 0,
                                  compressWidth, compressPanel.noAudioBox.checked)) compressFailed++
         compressStarting = false
-        if (!localTools.busy) Qt.callLater(compressNext)
+        if (!Core.localTools.busy) Qt.callLater(compressNext)
     }
     function cancelCompressBatch() {
         compressQueue = []
-        localTools.cancel()
+        Core.localTools.cancel()
     }
     Connections {
-        target: localTools
+        target: Core.localTools
         function onChanged() {
-            if (!toolsPage.compressRunning || toolsPage.compressStarting || localTools.busy) return
-            if (localTools.errorText) toolsPage.compressFailed++
+            if (!toolsPage.compressRunning || toolsPage.compressStarting || Core.localTools.busy) return
+            if (Core.localTools.errorText) toolsPage.compressFailed++
             toolsPage.compressStarting = true
-            Qt.callLater(function() { toolsPage.compressStarting = false; if (!localTools.busy) toolsPage.compressNext() })
+            Qt.callLater(function() { toolsPage.compressStarting = false; if (!Core.localTools.busy) toolsPage.compressNext() })
         }
     }
     property var pdfFiles: []
@@ -97,12 +98,12 @@ Item {
     ListModel { id: pageModel }
     onPdfFilesChanged: {
         if (pdfMode === "edit" || pdfMode === "split") loadPdfPages()
-        else if (pdfMode === "merge") localPdf.loadCovers(pdfFiles)
+        else if (pdfMode === "merge") Core.localPdf.loadCovers(pdfFiles)
         setSplitPages([])
     }
     function setSplitPages(pages) {
         splitPages = pages
-        var range = localPdf.pagesToRange(pages)
+        var range = Core.localPdf.pagesToRange(pages)
         if (pdfPanel.pagesField.text !== range && !pdfPanel.pagesField.activeFocus) pdfPanel.pagesField.text = range
     }
     // Merge and Images to PDF add to the list; the other modes take one file.
@@ -120,8 +121,8 @@ Item {
         pdfFiles = next
     }
     Connections {
-        target: localPdf
-        function onPagesChanged() { if (!localPdf.loadingPages) toolsPage.resetPages() }
+        target: Core.localPdf
+        function onPagesChanged() { if (!Core.localPdf.loadingPages) toolsPage.resetPages() }
         function onPagePreviewReady(page, image) { if (page === pagePreview.page) pagePreview.image = image }
     }
     Connections {
@@ -137,12 +138,12 @@ Item {
         else if (mode === "edit" || mode === "split") loadPdfPages()
     }
     function loadPdfPages() {
-        if (pdfFiles.length === 0) localPdf.clearPages()
-        else if (localPdf.pagesDocument.toString() !== pdfFiles[0].toString() || localPdf.pageImages.length === 0) localPdf.loadPages(pdfFiles[0])
+        if (pdfFiles.length === 0) Core.localPdf.clearPages()
+        else if (Core.localPdf.pagesDocument.toString() !== pdfFiles[0].toString() || Core.localPdf.pageImages.length === 0) Core.localPdf.loadPages(pdfFiles[0])
     }
     function resetPages() {
         pageModel.clear()
-        for (var i = 0; i < localPdf.pageImages.length; i++) pageModel.append({ page: i + 1, rotation: 0, selected: false })
+        for (var i = 0; i < Core.localPdf.pageImages.length; i++) pageModel.append({ page: i + 1, rotation: 0, selected: false })
         pdfEdited = false
     }
     function countSelected() {
@@ -174,8 +175,8 @@ Item {
         pagePreview.index = index
         pagePreview.page = item.page
         pagePreview.pageRotation = item.rotation
-        pagePreview.image = localPdf.pageImages[item.page - 1] || ""
-        localPdf.renderPreview(item.page)
+        pagePreview.image = Core.localPdf.pageImages[item.page - 1] || ""
+        Core.localPdf.renderPreview(item.page)
     }
     function rotatePage(index, angle) {
         pageModel.setProperty(index, "rotation", pageModel.get(index).rotation + angle)
@@ -245,7 +246,7 @@ Item {
     readonly property var compressFormats: isImage ? ["WebP", "JPG", "PNG", "GIF"] : ["MP4", "WebM", "GIF"]
     readonly property string compressFormatName: compressFormats.indexOf(compressPick) >= 0 ? compressPick : compressFormats[0]
     readonly property bool compressToSize: compressGoal === "size" && !isImage && compressMB > 0
-    readonly property real sourceBytes: (section === 2 || section === 3) && hasSource ? localTools.fileBytes(sourceUrl) : 0
+    readonly property real sourceBytes: (section === 2 || section === 3) && hasSource ? Core.localTools.fileBytes(sourceUrl) : 0
     // What the file should weigh against what it does now, 0..1.
     readonly property real compressShare: compressToSize && sourceBytes > 0 ? Math.min(1, compressMB * 1048576 / sourceBytes) : 1
     function qualityName(quality) {
@@ -258,26 +259,26 @@ Item {
     // current download. The field empties for the next link.
     readonly property url downloadsFolder: StandardPaths.writableLocation(StandardPaths.DownloadLocation)
     readonly property string downloadLink: downloadPanel.urlField.text.trim()
-    readonly property bool linkIsPlaylist: localDownload.playlist.url === downloadLink && !!localDownload.playlist.entries
+    readonly property bool linkIsPlaylist: Core.localDownload.playlist.url === downloadLink && !!Core.localDownload.playlist.entries
     function gifOptions() {
         return { gifStart: Number(downloadPanel.gifStartField.text), gifDuration: Number(downloadPanel.gifDurationField.text), gifFps: Number(downloadPanel.gifFpsField.text),
                  gifWidth: Number(downloadPanel.gifWidthField.text), gifTargetMB: Number(downloadPanel.gifTargetField.text) }
     }
     function quickDownload() {
         var link = downloadLink
-        if (!localDownload.available || !/^https?:\/\/\S+/i.test(link)) return
+        if (!Core.localDownload.available || !/^https?:\/\/\S+/i.test(link)) return
         if (linkIsPlaylist) {
             downloadPlaylist()
             return
         }
-        var info = localDownload.preview.url === link ? localDownload.preview : ({})
+        var info = Core.localDownload.preview.url === link ? Core.localDownload.preview : ({})
         resultSection = "download"
-        localDownload.enqueue(link, downloadPanel.presetBox.currentValue, downloadsFolder, info.title || "", gifOptions())
+        Core.localDownload.enqueue(link, downloadPanel.presetBox.currentValue, downloadsFolder, info.title || "", gifOptions())
         downloadPanel.urlField.clear()
     }
     function startDownload(target) {
         resultSection = "download"
-        localDownload.download(downloadPanel.urlField.text, downloadPanel.presetBox.currentValue, target,
+        Core.localDownload.download(downloadPanel.urlField.text, downloadPanel.presetBox.currentValue, target,
                                Number(downloadPanel.gifStartField.text), Number(downloadPanel.gifDurationField.text),
                                Number(downloadPanel.gifFpsField.text), Number(downloadPanel.gifWidthField.text), Number(downloadPanel.gifTargetField.text))
     }
@@ -285,31 +286,31 @@ Item {
     property var playlistChecked: []
     readonly property int playlistSelected: playlistChecked.filter(function(checked) { return checked }).length
     function setAllPlaylist(checked) {
-        var entries = localDownload.playlist.entries || []
+        var entries = Core.localDownload.playlist.entries || []
         playlistChecked = entries.map(function() { return checked })
     }
     Connections {
-        target: localDownload
+        target: Core.localDownload
         function onPlaylistChanged() { toolsPage.setAllPlaylist(true) }
         function onFinished(file, url, title) { toolsPage.rememberDownload(file, url, title) }
     }
     function downloadPlaylist() {
-        var playlist = localDownload.playlist
+        var playlist = Core.localDownload.playlist
         var entries = playlist.entries || []
-        var name = localDownload.safeFileName(playlist.title || "") || "Playlist"
+        var name = Core.localDownload.safeFileName(playlist.title || "") || "Playlist"
         var folder = downloadsFolder.toString() + "/" + name
         resultSection = "download"
         for (var i = 0; i < entries.length; ++i) {
             if (playlistChecked[i])
-                localDownload.enqueue(entries[i].url, downloadPanel.presetBox.currentValue, folder, entries[i].title || "", gifOptions())
+                Core.localDownload.enqueue(entries[i].url, downloadPanel.presetBox.currentValue, folder, entries[i].title || "", gifOptions())
         }
-        localDownload.clearPlaylist()
+        Core.localDownload.clearPlaylist()
         downloadPanel.urlField.clear()
     }
     // Ctrl+V anywhere on the Download page fills the link field; text fields
     // keep their own paste.
     Shortcut {
-        sequence: StandardKey.Paste
+        sequences: [StandardKey.Paste]
         enabled: toolsPage.visible && toolsPage.section === 1
                  && !(toolsPage.Window.activeFocusItem instanceof TextInput)
         onActivated: toolsPage.pasteLink()
@@ -320,7 +321,7 @@ Item {
         downloadPanel.urlField.text = downloadPanel.urlField.text.trim()
         downloadPanel.urlField.forceActiveFocus()
     }
-    readonly property bool downloadIsMedia: /\.(mp4|mkv|webm|mov|m4a|mp3|opus|ogg|wav|flac|aac)$/i.test(localDownload.outputUrl.toString())
+    readonly property bool downloadIsMedia: /\.(mp4|mkv|webm|mov|m4a|mp3|opus|ogg|wav|flac|aac)$/i.test(Core.localDownload.outputUrl.toString())
     readonly property bool hasSource: sourceUrl.toString().length > 0
     readonly property bool fileSection: section >= 2 && section <= 5
     readonly property bool gifSourceIsGif: sourceUrl.toString().toLowerCase().endsWith(".gif")
@@ -527,7 +528,7 @@ Item {
     }
     function openDownloadSave() {
         var extension = downloadExtension()
-        var name = localDownload.preview.fileName || "download"
+        var name = Core.localDownload.preview.fileName || "download"
         downloadSave.defaultSuffix = extension
         downloadSave.nameFilters = [formatLabel(extension)]
         downloadSave.currentFolder = StandardPaths.writableLocation(StandardPaths.DownloadLocation)
@@ -567,17 +568,17 @@ Item {
         onAccepted: {
             toolsPage.resultSection = toolsPage.pendingAction
             if (toolsPage.pendingAction === "audio")
-                localTools.convertAudio(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
+                Core.localTools.convertAudio(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
                                         toolsPage.audioKbps, toolsPage.audioLufs !== 0,
                                         Number(audioPanel.startField.text), Number(audioPanel.endField.text),
                                         { fadeIn: toolsPage.audioFadeIn, fadeOut: toolsPage.audioFadeOut,
                                           lufs: toolsPage.audioLufs || -14, mono: toolsPage.audioMono })
             else if (toolsPage.pendingAction === "compress")
-                localTools.compress(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
+                Core.localTools.compress(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
                                     toolsPage.compressQuality, toolsPage.compressToSize ? toolsPage.compressMB : 0,
                                     toolsPage.compressWidth, compressPanel.noAudioBox.checked)
             else
-                localTools.createGif(toolsPage.sourceUrl, selectedFile, Number(gifPanel.startField.text),
+                Core.localTools.createGif(toolsPage.sourceUrl, selectedFile, Number(gifPanel.startField.text),
                                      Number(gifPanel.durationField.text), toolsPage.gifFps,
                                      toolsPage.gifWidthPx, toolsPage.gifLimitMB,
                                      { speed: toolsPage.gifSpeed, bounce: toolsPage.gifBounce, once: toolsPage.gifOnce })
@@ -600,9 +601,9 @@ Item {
             if (toolsPage.pdfMode === "edit") {
                 var pages = []
                 for (var i = 0; i < pageModel.count; i++) pages.push({ page: pageModel.get(i).page, rotation: pageModel.get(i).rotation })
-                localPdf.compose(pages, selectedFile)
+                Core.localPdf.compose(pages, selectedFile)
             } else {
-                localPdf.process(toolsPage.pdfMode, toolsPage.pdfFiles, localPdf.pagesToRange(toolsPage.splitPages), 0, selectedFile)
+                Core.localPdf.process(toolsPage.pdfMode, toolsPage.pdfFiles, Core.localPdf.pagesToRange(toolsPage.splitPages), 0, selectedFile)
             }
         }
     }
@@ -707,7 +708,7 @@ Item {
         id: qrSave
         title: "Save QR code"
         fileMode: FileDialog.SaveFile
-        onAccepted: localQr.save(selectedFile, toolsPage.qrSize, toolsPage.qrFg, toolsPage.qrBg)
+        onAccepted: Core.localQr.save(selectedFile, toolsPage.qrSize, toolsPage.qrFg, toolsPage.qrBg)
     }
 
     Rectangle {
@@ -760,10 +761,10 @@ Item {
                     id: ytdlpPill
                     objectName: "ytdlpPill"
                     visible: toolsPage.section === 1
-                    readonly property bool needsAction: !localDownload.updatingYtDlp
-                        && (!localDownload.ytDlpVersion || localDownload.ytDlpOutdated || localDownload.ytDlpUpdateFailed)
-                    readonly property bool upToDate: !!localDownload.ytDlpVersion && !!localDownload.ytDlpLatest
-                        && !localDownload.ytDlpUpdateAvailable && !localDownload.ytDlpUpdateFailed
+                    readonly property bool needsAction: !Core.localDownload.updatingYtDlp
+                        && (!Core.localDownload.ytDlpVersion || Core.localDownload.ytDlpOutdated || Core.localDownload.ytDlpUpdateFailed)
+                    readonly property bool upToDate: !!Core.localDownload.ytDlpVersion && !!Core.localDownload.ytDlpLatest
+                        && !Core.localDownload.ytDlpUpdateAvailable && !Core.localDownload.ytDlpUpdateFailed
                     Layout.preferredWidth: pillRow.implicitWidth + 22
                     Layout.preferredHeight: 28
                     Layout.rightMargin: 8
@@ -775,18 +776,18 @@ Item {
                         id: pillMouse
                         anchors.fill: parent
                         hoverEnabled: true
-                        cursorShape: localDownload.updatingYtDlp || localDownload.busy ? Qt.ArrowCursor : Qt.PointingHandCursor
+                        cursorShape: Core.localDownload.updatingYtDlp || Core.localDownload.busy ? Qt.ArrowCursor : Qt.PointingHandCursor
                         onClicked: {
-                            if (localDownload.updatingYtDlp || localDownload.busy) return
-                            if (ytdlpPill.needsAction) localDownload.updateYtDlp()
-                            else localDownload.checkYtDlpRelease(false)
+                            if (Core.localDownload.updatingYtDlp || Core.localDownload.busy) return
+                            if (ytdlpPill.needsAction) Core.localDownload.updateYtDlp()
+                            else Core.localDownload.checkYtDlpRelease(false)
                         }
                         ToolTip.visible: containsMouse
                         ToolTip.delay: 400
-                        ToolTip.text: localDownload.ytDlpUpdateFailed ? localDownload.updateText
-                            : !localDownload.ytDlpVersion ? "Kadron can download its own copy of yt-dlp"
-                            : "Installed " + localDownload.ytDlpVersion
-                              + (localDownload.ytDlpLatest ? " · newest " + localDownload.ytDlpLatest : "")
+                        ToolTip.text: Core.localDownload.ytDlpUpdateFailed ? Core.localDownload.updateText
+                            : !Core.localDownload.ytDlpVersion ? "Kadron can download its own copy of yt-dlp"
+                            : "Installed " + Core.localDownload.ytDlpVersion
+                              + (Core.localDownload.ytDlpLatest ? " · newest " + Core.localDownload.ytDlpLatest : "")
                               + (ytdlpPill.needsAction ? " · click to update" : " · click to check again")
                     }
                     Row {
@@ -800,7 +801,7 @@ Item {
                             radius: 3.5
                             color: ytdlpPill.needsAction ? Theme.warning : ytdlpPill.upToDate ? Theme.accent : Theme.textMuted
                             SequentialAnimation on opacity {
-                                running: localDownload.updatingYtDlp || localDownload.checkingYtDlp
+                                running: Core.localDownload.updatingYtDlp || Core.localDownload.checkingYtDlp
                                 loops: Animation.Infinite
                                 onRunningChanged: if (!running) parent.opacity = 1
                                 NumberAnimation { to: 0.3; duration: 500 }
@@ -809,21 +810,21 @@ Item {
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: localDownload.updatingYtDlp ? localDownload.updateText
-                                : !localDownload.ytDlpVersion ? "yt-dlp not found"
-                                : localDownload.ytDlpUpdateFailed ? "yt-dlp update failed"
-                                : localDownload.ytDlpUpdateAvailable ? "yt-dlp " + localDownload.ytDlpLatest + " available"
-                                : ytdlpPill.upToDate ? "yt-dlp " + localDownload.ytDlpVersion + " · up to date"
-                                : localDownload.checkingYtDlp ? "yt-dlp " + localDownload.ytDlpVersion + " · checking…"
-                                : "yt-dlp " + localDownload.ytDlpVersion
-                                  + (localDownload.ytDlpOutdated ? " · " + localDownload.ytDlpAgeDays + " days old" : "")
+                            text: Core.localDownload.updatingYtDlp ? Core.localDownload.updateText
+                                : !Core.localDownload.ytDlpVersion ? "yt-dlp not found"
+                                : Core.localDownload.ytDlpUpdateFailed ? "yt-dlp update failed"
+                                : Core.localDownload.ytDlpUpdateAvailable ? "yt-dlp " + Core.localDownload.ytDlpLatest + " available"
+                                : ytdlpPill.upToDate ? "yt-dlp " + Core.localDownload.ytDlpVersion + " · up to date"
+                                : Core.localDownload.checkingYtDlp ? "yt-dlp " + Core.localDownload.ytDlpVersion + " · checking…"
+                                : "yt-dlp " + Core.localDownload.ytDlpVersion
+                                  + (Core.localDownload.ytDlpOutdated ? " · " + Core.localDownload.ytDlpAgeDays + " days old" : "")
                             color: ytdlpPill.needsAction ? Theme.warning : Theme.textMuted
                             font.pixelSize: 11
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: ytdlpPill.needsAction
-                            text: !localDownload.ytDlpVersion ? "Install" : localDownload.ytDlpUpdateFailed ? "Retry" : "Update"
+                            text: !Core.localDownload.ytDlpVersion ? "Install" : Core.localDownload.ytDlpUpdateFailed ? "Retry" : "Update"
                             color: Theme.accentSoft
                             font.pixelSize: 11
                             font.weight: Font.DemiBold
@@ -899,11 +900,11 @@ Item {
                             elide: Text.ElideMiddle
                         }
                         EditorButton { text: "Change"; subtle: true; onClicked: sourceDialog.open() }
-                        EditorButton { iconName: "close"; subtle: true; enabled: !localTools.busy; onClicked: toolsPage.setSource(""); ToolTip.visible: hovered; ToolTip.text: "Clear file" }
+                        EditorButton { iconName: "close"; subtle: true; enabled: !Core.localTools.busy; onClicked: toolsPage.setSource(""); ToolTip.visible: hovered; ToolTip.text: "Clear file" }
                     }
                 }
                 Text {
-                    visible: !localTools.available
+                    visible: !Core.localTools.available
                     text: "FFmpeg and FFprobe are unavailable. Set their paths before processing."
                     color: Theme.warning
                     font.pixelSize: 12
@@ -936,32 +937,32 @@ Item {
             }
 
             Rectangle {
-                visible: localTools.busy || localTools.errorText.length > 0 || localTools.outputUrl.toString().length > 0 || localDownload.busy || localDownload.errorText.length > 0 || localDownload.outputUrl.toString().length > 0 || localPdf.busy || localPdf.errorText.length > 0 || localPdf.outputUrl.toString().length > 0
+                visible: Core.localTools.busy || Core.localTools.errorText.length > 0 || Core.localTools.outputUrl.toString().length > 0 || Core.localDownload.busy || Core.localDownload.errorText.length > 0 || Core.localDownload.outputUrl.toString().length > 0 || Core.localPdf.busy || Core.localPdf.errorText.length > 0 || Core.localPdf.outputUrl.toString().length > 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
                 color: Theme.line
                 Layout.topMargin: 8
             }
             RowLayout {
-                visible: toolsPage.section >= 2 && toolsPage.section <= 4 && (localTools.busy || localTools.errorText || localTools.outputUrl.toString() || (toolsPage.section === 3 && toolsPage.compressSummary.length > 0))
+                visible: toolsPage.section >= 2 && toolsPage.section <= 4 && (Core.localTools.busy || Core.localTools.errorText || Core.localTools.outputUrl.toString() || (toolsPage.section === 3 && toolsPage.compressSummary.length > 0))
                 Layout.fillWidth: true
                 spacing: 10
                 Text {
                     text: toolsPage.section === 3 && (toolsPage.compressRunning || toolsPage.compressSummary)
-                          ? (toolsPage.compressRunning ? "File " + (toolsPage.compressTotal - toolsPage.compressQueue.length) + " of " + toolsPage.compressTotal + " · " + localTools.stage
+                          ? (toolsPage.compressRunning ? "File " + (toolsPage.compressTotal - toolsPage.compressQueue.length) + " of " + toolsPage.compressTotal + " · " + Core.localTools.stage
                                                        : toolsPage.compressSummary)
-                          : localTools.errorText || localTools.stage
-                    color: localTools.errorText && !toolsPage.compressRunning && !toolsPage.compressSummary ? Theme.danger : Theme.textSoft
+                          : Core.localTools.errorText || Core.localTools.stage
+                    color: Core.localTools.errorText && !toolsPage.compressRunning && !toolsPage.compressSummary ? Theme.danger : Theme.textSoft
                     font.pixelSize: 12
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
-                Text { text: localTools.busy ? localTools.progress + "%" : localTools.outputUrl.toString() ? toolsPage.sizeLabel(localTools.outputBytes) + (toolsPage.resultSection === "compress" && toolsPage.sourceBytes > localTools.outputBytes && localTools.outputBytes > 0 ? " · " + Math.round((1 - localTools.outputBytes / toolsPage.sourceBytes) * 100) + "% smaller" : "") : ""; color: Theme.textMuted; font.pixelSize: 12 }
+                Text { text: Core.localTools.busy ? Core.localTools.progress + "%" : Core.localTools.outputUrl.toString() ? toolsPage.sizeLabel(Core.localTools.outputBytes) + (toolsPage.resultSection === "compress" && toolsPage.sourceBytes > Core.localTools.outputBytes && Core.localTools.outputBytes > 0 ? " · " + Math.round((1 - Core.localTools.outputBytes / toolsPage.sourceBytes) * 100) + "% smaller" : "") : ""; color: Theme.textMuted; font.pixelSize: 12 }
                 EditorButton {
                     text: toolsPage.compressRunning ? "Cancel all" : "Cancel"
-                    visible: localTools.busy
+                    visible: Core.localTools.busy
                     danger: true
-                    onClicked: toolsPage.compressRunning ? toolsPage.cancelCompressBatch() : localTools.cancel()
+                    onClicked: toolsPage.compressRunning ? toolsPage.cancelCompressBatch() : Core.localTools.cancel()
                 }
                 EditorButton {
                     visible: toolsPage.section === 3 && !toolsPage.compressRunning && toolsPage.compressSummary.length > 0
@@ -971,41 +972,41 @@ Item {
                     onClicked: Qt.openUrlExternally(toolsPage.compressFolder)
                 }
             }
-            StudioProgress { visible: toolsPage.section >= 2 && toolsPage.section <= 4 && localTools.busy; value: localTools.progress / 100; Layout.fillWidth: true }
+            StudioProgress { visible: toolsPage.section >= 2 && toolsPage.section <= 4 && Core.localTools.busy; value: Core.localTools.progress / 100; Layout.fillWidth: true }
             RowLayout {
                 id: toolResultRow
-                visible: toolsPage.section >= 2 && toolsPage.section <= 4 && toolsPage.resultSection === (toolsPage.section === 2 ? "audio" : toolsPage.section === 3 ? "compress" : "gif") && localTools.outputUrl.toString().length > 0 && !localTools.busy
+                visible: toolsPage.section >= 2 && toolsPage.section <= 4 && toolsPage.resultSection === (toolsPage.section === 2 ? "audio" : toolsPage.section === 3 ? "compress" : "gif") && Core.localTools.outputUrl.toString().length > 0 && !Core.localTools.busy
                 Layout.fillWidth: true
-                ResultEntrance { target: toolResultRow; file: localTools.busy ? "" : localTools.outputUrl }
-                Text { text: toolsPage.filename(localTools.outputUrl); color: Theme.textSoft; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true
-                       DragOutFile { anchors.fill: parent; file: localTools.outputUrl } }
-                EditorButton { iconName: "folder"; subtle: true; implicitWidth: 38; onClicked: shellIntegration.reveal(localTools.outputUrl)
+                ResultEntrance { target: toolResultRow; file: Core.localTools.busy ? "" : Core.localTools.outputUrl }
+                Text { text: toolsPage.filename(Core.localTools.outputUrl); color: Theme.textSoft; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true
+                       DragOutFile { anchors.fill: parent; file: Core.localTools.outputUrl } }
+                EditorButton { iconName: "folder"; subtle: true; implicitWidth: 38; onClicked: Core.shellIntegration.reveal(Core.localTools.outputUrl)
                                ToolTip.visible: hovered; ToolTip.text: "Show in folder" }
-                CopyButton { file: localTools.outputUrl }
-                EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(localTools.outputUrl) }
-                EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(localTools.outputUrl) }
+                CopyButton { file: Core.localTools.outputUrl }
+                EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(Core.localTools.outputUrl) }
+                EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(Core.localTools.outputUrl) }
             }
             RowLayout {
-                visible: toolsPage.section === 1 ? (localDownload.busy || localDownload.errorText || localDownload.outputUrl.toString()) : toolsPage.section === 5 && (localPdf.busy || localPdf.errorText || localPdf.outputUrl.toString())
+                visible: toolsPage.section === 1 ? (Core.localDownload.busy || Core.localDownload.errorText || Core.localDownload.outputUrl.toString()) : toolsPage.section === 5 && (Core.localPdf.busy || Core.localPdf.errorText || Core.localPdf.outputUrl.toString())
                 Layout.fillWidth: true
                 spacing: 10
-                Text { text: toolsPage.section === 1 ? (localDownload.errorText || (localDownload.currentTitle && localDownload.busy ? localDownload.currentTitle + " · " : "") + localDownload.stage) : (localPdf.errorText || localPdf.stage); color: toolsPage.section === 1 ? (localDownload.errorText ? Theme.danger : Theme.textSoft) : (localPdf.errorText ? Theme.danger : Theme.textSoft); font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                Text { text: toolsPage.section === 1 ? (localDownload.busy ? localDownload.progress + "%" : localDownload.outputUrl.toString() ? toolsPage.sizeLabel(localDownload.outputBytes) : "") : (localPdf.outputUrl.toString() ? toolsPage.sizeLabel(localPdf.outputBytes) : ""); color: Theme.textMuted; font.pixelSize: 12 }
-                EditorButton { text: "Cancel"; visible: toolsPage.section === 1 ? localDownload.busy : localPdf.busy; danger: true; onClicked: toolsPage.section === 1 ? localDownload.cancel() : localPdf.cancel() }
+                Text { text: toolsPage.section === 1 ? (Core.localDownload.errorText || (Core.localDownload.currentTitle && Core.localDownload.busy ? Core.localDownload.currentTitle + " · " : "") + Core.localDownload.stage) : (Core.localPdf.errorText || Core.localPdf.stage); color: toolsPage.section === 1 ? (Core.localDownload.errorText ? Theme.danger : Theme.textSoft) : (Core.localPdf.errorText ? Theme.danger : Theme.textSoft); font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                Text { text: toolsPage.section === 1 ? (Core.localDownload.busy ? Core.localDownload.progress + "%" : Core.localDownload.outputUrl.toString() ? toolsPage.sizeLabel(Core.localDownload.outputBytes) : "") : (Core.localPdf.outputUrl.toString() ? toolsPage.sizeLabel(Core.localPdf.outputBytes) : ""); color: Theme.textMuted; font.pixelSize: 12 }
+                EditorButton { text: "Cancel"; visible: toolsPage.section === 1 ? Core.localDownload.busy : Core.localPdf.busy; danger: true; onClicked: toolsPage.section === 1 ? Core.localDownload.cancel() : Core.localPdf.cancel() }
             }
-            StudioProgress { visible: toolsPage.section === 1 && localDownload.busy; value: localDownload.progress / 100; Layout.fillWidth: true }
+            StudioProgress { visible: toolsPage.section === 1 && Core.localDownload.busy; value: Core.localDownload.progress / 100; Layout.fillWidth: true }
             // Links waiting behind the current download.
             ColumnLayout {
-                visible: toolsPage.section === 1 && localDownload.queue.length > 0
+                visible: toolsPage.section === 1 && Core.localDownload.queue.length > 0
                 Layout.fillWidth: true
                 spacing: 4
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "Up next · " + localDownload.queue.length; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
-                    EditorButton { text: "Clear queue"; subtle: true; implicitHeight: 30; onClicked: localDownload.clearQueue() }
+                    Text { text: "Up next · " + Core.localDownload.queue.length; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
+                    EditorButton { text: "Clear queue"; subtle: true; implicitHeight: 30; onClicked: Core.localDownload.clearQueue() }
                 }
                 Repeater {
-                    model: localDownload.queue
+                    model: Core.localDownload.queue
                     delegate: RowLayout {
                         required property var modelData
                         required property int index
@@ -1018,25 +1019,25 @@ Item {
                             elide: Text.ElideMiddle
                             Layout.fillWidth: true
                         }
-                        EditorButton { iconName: "close"; subtle: true; implicitHeight: 26; implicitWidth: 26; onClicked: localDownload.removeQueued(modelData.id)
+                        EditorButton { iconName: "close"; subtle: true; implicitHeight: 26; implicitWidth: 26; onClicked: Core.localDownload.removeQueued(modelData.id)
                                        ToolTip.visible: hovered; ToolTip.text: "Remove from queue" }
                     }
                 }
             }
             RowLayout {
                 id: fileResultRow
-                readonly property url file: toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl
-                visible: (toolsPage.section === 1 && toolsPage.resultSection === "download" && localDownload.outputUrl.toString().length > 0 && !localDownload.busy) || (toolsPage.section === 5 && toolsPage.resultSection === "pdf" && localPdf.outputUrl.toString().length > 0 && !localPdf.busy)
+                readonly property url file: toolsPage.section === 1 ? Core.localDownload.outputUrl : Core.localPdf.outputUrl
+                visible: (toolsPage.section === 1 && toolsPage.resultSection === "download" && Core.localDownload.outputUrl.toString().length > 0 && !Core.localDownload.busy) || (toolsPage.section === 5 && toolsPage.resultSection === "pdf" && Core.localPdf.outputUrl.toString().length > 0 && !Core.localPdf.busy)
                 Layout.fillWidth: true
-                ResultEntrance { target: fileResultRow; file: localDownload.busy || localPdf.busy ? "" : fileResultRow.file }
-                Text { text: toolsPage.filename(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl); color: Theme.textSoft; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true
-                       DragOutFile { anchors.fill: parent; file: toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl } }
-                EditorButton { iconName: "folder"; subtle: true; implicitWidth: 38; onClicked: shellIntegration.reveal(fileResultRow.file)
+                ResultEntrance { target: fileResultRow; file: Core.localDownload.busy || Core.localPdf.busy ? "" : fileResultRow.file }
+                Text { text: toolsPage.filename(toolsPage.section === 1 ? Core.localDownload.outputUrl : Core.localPdf.outputUrl); color: Theme.textSoft; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true
+                       DragOutFile { anchors.fill: parent; file: toolsPage.section === 1 ? Core.localDownload.outputUrl : Core.localPdf.outputUrl } }
+                EditorButton { iconName: "folder"; subtle: true; implicitWidth: 38; onClicked: Core.shellIntegration.reveal(fileResultRow.file)
                                ToolTip.visible: hovered; ToolTip.text: "Show in folder" }
                 CopyButton { file: fileResultRow.file }
-                EditorButton { text: "Open in editor"; iconName: "edit"; visible: toolsPage.section === 1 && toolsPage.downloadIsMedia; onClicked: toolsPage.openInEditor(localDownload.outputUrl) }
-                EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
-                EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(toolsPage.section === 1 ? localDownload.outputUrl : localPdf.outputUrl) }
+                EditorButton { text: "Open in editor"; iconName: "edit"; visible: toolsPage.section === 1 && toolsPage.downloadIsMedia; onClicked: toolsPage.openInEditor(Core.localDownload.outputUrl) }
+                EditorButton { text: "Open file"; onClicked: Qt.openUrlExternally(toolsPage.section === 1 ? Core.localDownload.outputUrl : Core.localPdf.outputUrl) }
+                EditorButton { text: "Publish"; onClicked: toolsPage.publishFile(toolsPage.section === 1 ? Core.localDownload.outputUrl : Core.localPdf.outputUrl) }
             }
             // Recent downloads: open, find, edit or fetch them again.
             ColumnLayout {
@@ -1083,7 +1084,7 @@ Item {
                         delegate: Rectangle {
                             id: historyRow
                             required property var modelData
-                            readonly property bool present: editorProject.fileExists(modelData.file)
+                            readonly property bool present: Core.editorProject.fileExists(modelData.file)
                             Layout.fillWidth: true
                             implicitHeight: 38
                             radius: 8
@@ -1109,7 +1110,7 @@ Item {
                                                onClicked: Qt.openUrlExternally(historyRow.modelData.file)
                                                ToolTip.visible: hovered; ToolTip.text: "Open" }
                                 EditorButton { iconName: "folder"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: historyRow.present
-                                               onClicked: shellIntegration.reveal(historyRow.modelData.file)
+                                               onClicked: Core.shellIntegration.reveal(historyRow.modelData.file)
                                                ToolTip.visible: hovered; ToolTip.text: "Show in folder" }
                                 EditorButton { iconName: "edit"; subtle: true; implicitWidth: 30; implicitHeight: 30
                                                visible: historyRow.present && toolsPage.isMediaFile(historyRow.modelData.file)
@@ -1118,7 +1119,7 @@ Item {
                                 EditorButton { iconName: "download"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: !!historyRow.modelData.url
                                                onClicked: {
                                                    toolsPage.resultSection = "download"
-                                                   localDownload.enqueue(historyRow.modelData.url, downloadPanel.presetBox.currentValue, toolsPage.downloadsFolder,
+                                                   Core.localDownload.enqueue(historyRow.modelData.url, downloadPanel.presetBox.currentValue, toolsPage.downloadsFolder,
                                                                          historyRow.modelData.title, toolsPage.gifOptions())
                                                }
                                                ToolTip.visible: hovered; ToolTip.text: "Download again" }

@@ -1,3 +1,4 @@
+#include "AppCore.h"
 #include "EditorProject.h"
 #include "ExportController.h"
 #include "ThumbnailStrip.h"
@@ -23,7 +24,6 @@
 #include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlExtensionPlugin>
-#include <QQmlContext>
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QTimer>
@@ -35,6 +35,7 @@
 #include <QTextStream>
 
 Q_IMPORT_QML_PLUGIN(KadronPlugin)
+Q_IMPORT_QML_PLUGIN(Kadron_BackendPlugin)
 
 static void fileMessageHandler(QtMsgType, const QMessageLogContext &, const QString &message)
 {
@@ -109,26 +110,27 @@ int main(int argc, char *argv[])
     TrayIcon trayIcon;
     TaskbarProgress taskbar;
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty("editorProject", &project);
-    engine.rootContext()->setContextProperty("exporter", &exporter);
-    engine.rootContext()->setContextProperty("thumbnails", &thumbnails);
-    engine.rootContext()->setContextProperty("toolsClient", &toolsClient);
-    engine.rootContext()->setContextProperty("localTools", &localTools);
-    engine.rootContext()->setContextProperty("localReframe", &localReframe);
-    engine.rootContext()->setContextProperty("localDownload", &localDownload);
-    engine.rootContext()->setContextProperty("localPdf", &localPdf);
-    engine.rootContext()->setContextProperty("localQr", &localQr);
-    engine.rootContext()->setContextProperty("localImages", &localImages);
-    engine.rootContext()->setContextProperty("appUpdater", &appUpdater);
-    engine.rootContext()->setContextProperty("shellIntegration", &shellIntegration);
-    engine.rootContext()->setContextProperty("trayIcon", &trayIcon);
-    engine.rootContext()->setContextProperty("taskbar", &taskbar);
+    auto *core = AppCore::instance();
+    core->editorProject = &project;
+    core->exporter = &exporter;
+    core->thumbnails = &thumbnails;
+    core->toolsClient = &toolsClient;
+    core->localTools = &localTools;
+    core->localReframe = &localReframe;
+    core->localDownload = &localDownload;
+    core->localPdf = &localPdf;
+    core->localQr = &localQr;
+    core->localImages = &localImages;
+    core->appUpdater = &appUpdater;
+    core->shellIntegration = &shellIntegration;
+    core->trayIcon = &trayIcon;
+    core->taskbar = &taskbar;
     engine.addImageProvider(QStringLiteral("qr"), new QrImageProvider(&localQr));
     QTemporaryDir screenshotSettings;
     const auto screenshotPath = qEnvironmentVariable("KADRON_SCREENSHOT");
     const bool playIntro = screenshotPath.isEmpty() && !qEnvironmentVariableIsSet("KADRON_NO_INTRO")
                            && QSettings().value(QStringLiteral("preferences/startupIntro"), true).toBool();
-    engine.rootContext()->setContextProperty("startupIntroActive", playIntro);
+    core->startupIntroActive = playIntro;
     // Screenshot runs keep their preferences in a throwaway store and can pick
     // the appearance, so they never change the user's own settings.
     if (qEnvironmentVariableIsSet("KADRON_SCREENSHOT")) {

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
+import Kadron.Backend
 
 // Audio: trim on the waveform and convert to another format.
 ColumnLayout {
@@ -32,7 +33,7 @@ ColumnLayout {
             Layout.fillWidth: true
             implicitHeight: 134
             waveLoading: page.audioPlayer.duration > 0 && waveform.length === 0
-            waveform: page.audioPlayer.duration > 0 && thumbnails.revision >= 0 ? thumbnails.waveformFor(page.sourceUrl) : ""
+            waveform: page.audioPlayer.duration > 0 && Core.thumbnails.revision >= 0 ? Core.thumbnails.waveformFor(page.sourceUrl) : ""
             durationMs: page.audioPlayer.duration
             startMs: page.audioStartMs
             endMs: page.audioEndMs
@@ -287,7 +288,7 @@ ColumnLayout {
         iconName: "audio"
         primary: true
         Layout.topMargin: 6
-        enabled: page.sourceUrl.toString() && localTools.available && !localTools.busy
+        enabled: page.sourceUrl.toString() && Core.localTools.available && !Core.localTools.busy
         onClicked: page.beginLocal("audio")
     }
 }

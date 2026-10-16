@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Kadron.Backend
 
 // Download: a link with its preview, the format and the queue, run by yt-dlp on this device.
 ColumnLayout {
@@ -39,13 +40,13 @@ ColumnLayout {
     Timer {
         id: probeDelay
         interval: 450
-        onTriggered: localDownload.probe(downloadUrl.text)
+        onTriggered: Core.localDownload.probe(downloadUrl.text)
     }
     // What the link points to, looked up locally before downloading.
     Rectangle {
         id: linkPreview
-        readonly property var info: localDownload.preview.url === downloadUrl.text.trim() ? localDownload.preview : ({})
-        readonly property bool lookingUp: localDownload.probing || probeDelay.running
+        readonly property var info: Core.localDownload.preview.url === downloadUrl.text.trim() ? Core.localDownload.preview : ({})
+        readonly property bool lookingUp: Core.localDownload.probing || probeDelay.running
         visible: /^https?:\/\/\S+\.\S+/.test(downloadUrl.text.trim())
         Layout.fillWidth: true
         implicitHeight: 124
@@ -111,16 +112,16 @@ ColumnLayout {
                 // A video opened from a playlist: its list can be loaded too.
                 EditorButton {
                     visible: /[?&]list=/.test(page.downloadLink) && !linkPreview.info.playlistCount
-                             && localDownload.playlist.url !== page.downloadLink
+                             && Core.localDownload.playlist.url !== page.downloadLink
                     text: "Load playlist"
                     iconName: "stack"
                     implicitHeight: 30
-                    onClicked: localDownload.probePlaylist(page.downloadLink)
+                    onClicked: Core.localDownload.probePlaylist(page.downloadLink)
                 }
                 Text {
                     Layout.fillWidth: true
-                    visible: !localDownload.probing && !!linkPreview.info.error
-                    text: "yt-dlp: " + (linkPreview.info.error || "") + (localDownload.ytDlpOutdated ? " — try updating yt-dlp" : "")
+                    visible: !Core.localDownload.probing && !!linkPreview.info.error
+                    text: "yt-dlp: " + (linkPreview.info.error || "") + (Core.localDownload.ytDlpOutdated ? " — try updating yt-dlp" : "")
                     color: Theme.warning
                     font.pixelSize: 11
                     wrapMode: Text.WordWrap
@@ -138,7 +139,7 @@ ColumnLayout {
     // The videos of a playlist link, ticked for download.
     Rectangle {
         id: playlistPanel
-        readonly property var list: localDownload.playlist
+        readonly property var list: Core.localDownload.playlist
         visible: list.url === page.downloadLink && page.downloadLink.length > 0
         Layout.fillWidth: true
         implicitHeight: playlistColumn.implicitHeight + 20
@@ -204,18 +205,18 @@ ColumnLayout {
                 visible: page.linkIsPlaylist
                 primary: true
                 text: "Download " + page.playlistSelected + (page.playlistSelected === 1 ? " video" : " videos")
-                enabled: page.playlistSelected > 0 && localDownload.available
+                enabled: page.playlistSelected > 0 && Core.localDownload.available
                 onClicked: page.downloadPlaylist()
             }
             Text {
                 visible: page.linkIsPlaylist
-                text: "Saved one after another to Downloads/" + (localDownload.safeFileName(playlistPanel.list.title || "") || "Playlist")
+                text: "Saved one after another to Downloads/" + (Core.localDownload.safeFileName(playlistPanel.list.title || "") || "Playlist")
                 color: Theme.textFaint
                 font.pixelSize: 11
             }
         }
     }
-    Text { visible: !localDownload.available; text: "Install yt-dlp and FFmpeg locally, or set KADRON_YTDLP and KADRON_FFMPEG."; color: Theme.warning; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+    Text { visible: !Core.localDownload.available; text: "Install yt-dlp and FFmpeg locally, or set KADRON_YTDLP and KADRON_FFMPEG."; color: Theme.warning; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
     Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12 }
     ToolCombo {
         id: downloadPreset
@@ -263,9 +264,9 @@ ColumnLayout {
     }
     EditorButton {
         visible: !page.linkIsPlaylist
-        text: localDownload.busy ? "Add to queue" : "Download"
+        text: Core.localDownload.busy ? "Add to queue" : "Download"
         primary: true
-        enabled: downloadUrl.text.length > 0 && localDownload.available
-        onClicked: localDownload.busy ? page.quickDownload() : page.openDownloadSave()
+        enabled: downloadUrl.text.length > 0 && Core.localDownload.available
+        onClicked: Core.localDownload.busy ? page.quickDownload() : page.openDownloadSave()
     }
 }

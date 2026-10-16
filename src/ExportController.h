@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include "TextOverlay.h"
 
 #include <QObject>
@@ -12,9 +14,10 @@
 #include <QVector>
 #include <memory>
 
-class ExportController final : public QObject
+class ExportController : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(bool available READ available CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(int progress READ progress NOTIFY changed)

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Kadron.Backend
 
 // Compress: video or images, optionally to a target size.
 ColumnLayout {
@@ -173,7 +174,7 @@ ColumnLayout {
         text: page.compressBatch.length > 1 ? "Compress " + page.compressBatch.length + " files…" : "Compress"
         iconName: "compress"
         primary: true
-        enabled: page.sourceUrl.toString() && localTools.available && !localTools.busy && !page.compressRunning
+        enabled: page.sourceUrl.toString() && Core.localTools.available && !Core.localTools.busy && !page.compressRunning
         onClicked: {
             if (page.compressBatch.length < 2) { page.beginLocal("compress"); return }
             var first = page.compressBatch[0].toString()

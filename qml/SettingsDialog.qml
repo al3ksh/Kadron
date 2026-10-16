@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import Kadron.Backend
 
 // App settings: appearance, editor and export defaults, general behaviour, the
 // keyboard map and About.
@@ -225,7 +226,7 @@ Dialog {
                 }
                 Item { Layout.fillHeight: true }
                 Text {
-                    text: "Kadron " + appUpdater.currentVersion
+                    text: "Kadron " + Core.appUpdater.currentVersion
                     color: Theme.textFaint
                     font.pixelSize: 10
                     Layout.leftMargin: 10
@@ -545,16 +546,16 @@ Dialog {
                         ToolCheck {
                             id: explorerCheck
                             objectName: "explorerMenuCheck"
-                            readonly property bool available: typeof shellIntegration !== "undefined" && shellIntegration.supported
+                            readonly property bool available: typeof Core.shellIntegration !== "undefined" && Core.shellIntegration.supported
                             visible: available
                             text: "Show Kadron in Explorer's right-click menu"
-                            checked: available && shellIntegration.enabled
-                            onToggled: shellIntegration.enabled = checked
+                            checked: available && Core.shellIntegration.enabled
+                            onToggled: Core.shellIntegration.enabled = checked
                         }
                         ToolCheck {
                             id: trayCheck
                             objectName: "closeToTrayCheck"
-                            readonly property bool available: typeof trayIcon !== "undefined" && trayIcon.supported
+                            readonly property bool available: typeof Core.trayIcon !== "undefined" && Core.trayIcon.supported
                             visible: available
                             text: "Keep Kadron running in the tray when the window is closed"
                             checked: Prefs.closeToTray
@@ -645,7 +646,7 @@ Dialog {
                             ColumnLayout {
                                 spacing: 3
                                 Text { text: "Kadron"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 22; font.weight: Font.DemiBold }
-                                Text { text: "Media studio · version " + appUpdater.currentVersion; color: Theme.textMuted; font.pixelSize: 12 }
+                                Text { text: "Media studio · version " + Core.appUpdater.currentVersion; color: Theme.textMuted; font.pixelSize: 12 }
                             }
                         }
                         Hint {
@@ -657,29 +658,29 @@ Dialog {
                             spacing: 10
                             EditorButton {
                                 objectName: "aboutCheckUpdates"
-                                text: appUpdater.checking ? "Checking…" : "Check for updates"
+                                text: Core.appUpdater.checking ? "Checking…" : "Check for updates"
                                 iconName: "loop"
                                 subtle: true
-                                enabled: !appUpdater.checking
-                                onClicked: appUpdater.check()
+                                enabled: !Core.appUpdater.checking
+                                onClicked: Core.appUpdater.check()
                             }
                             EditorButton {
                                 id: aboutUpdateButton
                                 objectName: "aboutUpdate"
-                                visible: appUpdater.updateAvailable
+                                visible: Core.appUpdater.updateAvailable
                                 primary: true
-                                enabled: !appUpdater.downloading
-                                iconName: appUpdater.ready ? "rotateRight" : appUpdater.canInstall ? "download" : "link"
-                                text: appUpdater.downloading ? "Downloading " + Math.round(appUpdater.progress * 100) + "%"
-                                      : appUpdater.ready ? "Restart to update"
-                                      : appUpdater.canInstall ? "Update" : "Open release"
+                                enabled: !Core.appUpdater.downloading
+                                iconName: Core.appUpdater.ready ? "rotateRight" : Core.appUpdater.canInstall ? "download" : "link"
+                                text: Core.appUpdater.downloading ? "Downloading " + Math.round(Core.appUpdater.progress * 100) + "%"
+                                      : Core.appUpdater.ready ? "Restart to update"
+                                      : Core.appUpdater.canInstall ? "Update" : "Open release"
                                 onClicked: dialog.updateRequested()
                                 onVisibleChanged: if (visible) aboutFireworks.play()
                                 // More every few seconds while the offer is on screen, as on the sidebar card.
                                 Timer {
                                     interval: 2600
                                     repeat: true
-                                    running: aboutUpdateButton.visible && !appUpdater.downloading
+                                    running: aboutUpdateButton.visible && !Core.appUpdater.downloading
                                     onTriggered: aboutFireworks.play()
                                 }
                                 Fireworks {
@@ -692,8 +693,8 @@ Dialog {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: appUpdater.statusText
-                                color: appUpdater.updateAvailable ? Theme.accent : Theme.textFaint
+                                text: Core.appUpdater.statusText
+                                color: Core.appUpdater.updateAvailable ? Theme.accent : Theme.textFaint
                                 font.pixelSize: 11
                                 elide: Text.ElideRight
                             }

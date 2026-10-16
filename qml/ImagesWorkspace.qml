@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtCore
+import Kadron.Backend
 
 // Images: batch convert, resize, crop and clean photos on this device.
 // Output settings apply to every image; crop, rotation and flips belong to
@@ -17,7 +18,7 @@ Item {
     // Bumped on every edit so bindings that read `edits` re-evaluate.
     property int revision: 0
     readonly property var current: revision, selected >= 0 && selected < edits.count ? edits.get(selected) : null
-    readonly property var currentInfo: current ? (localImages.infos[current.url] || null) : null
+    readonly property var currentInfo: current ? (Core.localImages.infos[current.url] || null) : null
 
     // Output settings, shared by all images.
     property string format: "same"
@@ -29,7 +30,7 @@ Item {
     readonly property var aspects: [["free", "Free", 0], ["original", "Original", -1], ["1:1", "1:1", 1], ["4:5", "4:5", 0.8],
                                    ["3:2", "3:2", 1.5], ["16:9", "16:9", 16 / 9], ["9:16", "9:16", 9 / 16]]
 
-    function isImage(url) { return localImages.isImageFile(url) }
+    function isImage(url) { return Core.localImages.isImageFile(url) }
     function sizeLabel(bytes) {
         if (!bytes) return "0 KB"
         return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB"
@@ -55,9 +56,9 @@ Item {
             added.push(urls[j])
         }
         if (added.length > 0) {
-            localImages.inspect(added)
+            Core.localImages.inspect(added)
             if (selected < 0) selected = edits.count - added.length
-            localImages.clearResults()
+            Core.localImages.clearResults()
         }
         revision++
         return added.length
@@ -71,7 +72,7 @@ Item {
     function clearAll() {
         edits.clear()
         selected = -1
-        localImages.clearResults()
+        Core.localImages.clearResults()
         revision++
     }
     function update(index, changes) {
@@ -138,14 +139,14 @@ Item {
     Timer {
         id: previewTimer
         interval: 350
-        onTriggered: if (imagesPage.current && imagesPage.previewKey) localImages.renderPreview(imagesPage.job(imagesPage.current))
+        onTriggered: if (imagesPage.current && imagesPage.previewKey) Core.localImages.renderPreview(imagesPage.job(imagesPage.current))
     }
     // Inspecting finishes after the image is added; start its preview then.
     Connections {
-        target: localImages
+        target: Core.localImages
         function onInfosChanged() { if (imagesPage.previewKey) previewTimer.restart() }
     }
-    readonly property var preview: localImages.preview
+    readonly property var preview: Core.localImages.preview
     readonly property bool previewCurrent: preview && preview.key === previewKey && previewKey !== ""
 
     function saveAll() {
@@ -159,7 +160,7 @@ Item {
         onAccepted: {
             var jobs = []
             for (var i = 0; i < edits.count; i++) jobs.push(imagesPage.job(edits.get(i)))
-            localImages.process(jobs, selectedFolder)
+            Core.localImages.process(jobs, selectedFolder)
         }
     }
     FileDialog {
@@ -407,7 +408,7 @@ Item {
                     id: card
                     required property int index
                     required property string url
-                    readonly property var info: localImages.infos[url] || null
+                    readonly property var info: Core.localImages.infos[url] || null
                     readonly property bool chosen: index === imagesPage.selected
                     width: 118
                     height: 118
@@ -776,52 +777,52 @@ Item {
                     spacing: 8
                     Text {
                         Layout.fillWidth: true
-                        visible: localImages.busy || localImages.results.length > 0 || localImages.errorText.length > 0
+                        visible: Core.localImages.busy || Core.localImages.results.length > 0 || Core.localImages.errorText.length > 0
                         text: {
-                            if (localImages.busy) return localImages.stage + "…"
+                            if (Core.localImages.busy) return Core.localImages.stage + "…"
                             var before = 0, after = 0
-                            for (var i = 0; i < localImages.results.length; i++) {
-                                var r = localImages.results[i]
+                            for (var i = 0; i < Core.localImages.results.length; i++) {
+                                var r = Core.localImages.results[i]
                                 if (!r.error) { before += r.sourceBytes; after += r.bytes }
                             }
-                            return localImages.stage + (after > 0 ? " · " + imagesPage.sizeLabel(before) + " → " + imagesPage.sizeLabel(after) : "")
+                            return Core.localImages.stage + (after > 0 ? " · " + imagesPage.sizeLabel(before) + " → " + imagesPage.sizeLabel(after) : "")
                         }
                         color: Theme.textSoft
                         font.pixelSize: 12
                         elide: Text.ElideRight
                     }
-                    Text { Layout.fillWidth: true; visible: localImages.errorText.length > 0 && !localImages.busy; text: localImages.errorText; color: Theme.danger; font.pixelSize: 11; wrapMode: Text.WordWrap }
-                    StudioProgress { Layout.fillWidth: true; visible: localImages.busy; value: localImages.progress / 100 }
+                    Text { Layout.fillWidth: true; visible: Core.localImages.errorText.length > 0 && !Core.localImages.busy; text: Core.localImages.errorText; color: Theme.danger; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    StudioProgress { Layout.fillWidth: true; visible: Core.localImages.busy; value: Core.localImages.progress / 100 }
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 6
                         EditorButton {
                             objectName: "imagesSave"
                             Layout.fillWidth: true
-                            visible: !localImages.busy
+                            visible: !Core.localImages.busy
                             primary: true
                             iconName: "save"
                             text: edits.count === 1 ? "Save image…" : "Save " + edits.count + " images…"
-                            enabled: edits.count > 0 && localImages.available
+                            enabled: edits.count > 0 && Core.localImages.available
                             onClicked: imagesPage.saveAll()
                         }
-                        EditorButton { Layout.fillWidth: true; visible: localImages.busy; text: "Stop"; danger: true; onClicked: localImages.cancel() }
+                        EditorButton { Layout.fillWidth: true; visible: Core.localImages.busy; text: "Stop"; danger: true; onClicked: Core.localImages.cancel() }
                         EditorButton {
-                            visible: !localImages.busy && localImages.results.length > 0
+                            visible: !Core.localImages.busy && Core.localImages.results.length > 0
                             iconName: "folder"
                             subtle: true
-                            onClicked: Qt.openUrlExternally(localImages.outputFolder)
+                            onClicked: Qt.openUrlExternally(Core.localImages.outputFolder)
                             ToolTip.visible: hovered
                             ToolTip.text: "Open the folder"
                         }
                         // One finished picture goes straight to the clipboard.
                         CopyButton {
-                            visible: !localImages.busy && localImages.results.length === 1 && !localImages.results[0].error
+                            visible: !Core.localImages.busy && Core.localImages.results.length === 1 && !Core.localImages.results[0].error
                             compact: true
                             subtle: true
-                            file: localImages.results.length === 1 ? localImages.results[0].output : ""
+                            file: Core.localImages.results.length === 1 ? Core.localImages.results[0].output : ""
                         }
-                        EditorButton { iconName: "trash"; subtle: true; enabled: !localImages.busy; onClicked: imagesPage.clearAll(); ToolTip.visible: hovered; ToolTip.text: "Remove all images" }
+                        EditorButton { iconName: "trash"; subtle: true; enabled: !Core.localImages.busy; onClicked: imagesPage.clearAll(); ToolTip.visible: hovered; ToolTip.text: "Remove all images" }
                     }
                 }
             }

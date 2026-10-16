@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Kadron.Backend
 
 // PDF Tools: edit, merge, extract pages and turn images into a PDF.
 ColumnLayout {
@@ -57,17 +58,17 @@ ColumnLayout {
                 elide: Text.ElideMiddle
             }
             Text {
-                text: page.pdfMode === "edit" ? (localPdf.loadingPages ? "Reading pages…" : localPdf.pageImages.length + " pages")
+                text: page.pdfMode === "edit" ? (Core.localPdf.loadingPages ? "Reading pages…" : Core.localPdf.pageImages.length + " pages")
                       : page.pdfFiles.length + (page.pdfFiles.length === 1 ? " file" : " files")
                 color: Theme.textMuted
                 font.pixelSize: 11
             }
             EditorButton { text: "Change"; subtle: true; onClicked: page.pdfPicker.open() }
-            EditorButton { iconName: "close"; subtle: true; enabled: !localPdf.busy; onClicked: page.pdfFiles = [] }
+            EditorButton { iconName: "close"; subtle: true; enabled: !Core.localPdf.busy; onClicked: page.pdfFiles = [] }
         }
     }
-    Text { visible: !localPdf.qpdfAvailable && page.pdfMode !== "images-to-pdf"; text: "Install qpdf locally or set KADRON_QPDF for this operation."; color: Theme.warning; font.pixelSize: 12 }
-    Text { visible: page.pdfMode === "edit" && localPdf.pagesError.length > 0; text: localPdf.pagesError; color: Theme.danger; font.pixelSize: 12 }
+    Text { visible: !Core.localPdf.qpdfAvailable && page.pdfMode !== "images-to-pdf"; text: "Install qpdf locally or set KADRON_QPDF for this operation."; color: Theme.warning; font.pixelSize: 12 }
+    Text { visible: page.pdfMode === "edit" && Core.localPdf.pagesError.length > 0; text: Core.localPdf.pagesError; color: Theme.danger; font.pixelSize: 12 }
 
     // Visual page editor.
     RowLayout {
@@ -88,13 +89,13 @@ ColumnLayout {
         EditorButton { text: "Reset"; subtle: true; enabled: page.pdfEdited; onClicked: page.resetPages() }
     }
     Item {
-        visible: page.pdfMode === "edit" && (page.pdfPageModel.count > 0 || localPdf.loadingPages)
+        visible: page.pdfMode === "edit" && (page.pdfPageModel.count > 0 || Core.localPdf.loadingPages)
         Layout.fillWidth: true
-        implicitHeight: localPdf.loadingPages ? 220 : pageGrid.contentHeight + 8
+        implicitHeight: Core.localPdf.loadingPages ? 220 : pageGrid.contentHeight + 8
         // Loading skeleton in the grid's shape.
         Flow {
             anchors.fill: parent
-            visible: localPdf.loadingPages
+            visible: Core.localPdf.loadingPages
             spacing: 14
             Repeater {
                 model: 5
@@ -104,7 +105,7 @@ ColumnLayout {
         GridView {
             id: pageGrid
             anchors.fill: parent
-            visible: !localPdf.loadingPages
+            visible: !Core.localPdf.loadingPages
             interactive: false
             cellWidth: 150
             cellHeight: 214
@@ -163,7 +164,7 @@ ColumnLayout {
                             readonly property bool sideways: ((slot.rotation % 180) + 180) % 180 === 90
                             width: sideways ? pageFrame.height : pageFrame.width
                             height: sideways ? pageFrame.width : pageFrame.height
-                            source: localPdf.pageImages[slot.page - 1] || ""
+                            source: Core.localPdf.pageImages[slot.page - 1] || ""
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             rotation: slot.rotation
@@ -241,13 +242,13 @@ ColumnLayout {
                 var n = page.pdfFiles.length
                 if (page.pdfMode === "images-to-pdf") return n + (n === 1 ? " image · one page each" : " images · one page each, in this order")
                 var pages = 0
-                for (var i = 0; i < n; i++) pages += (localPdf.covers[page.pdfFiles[i].toString()] || {}).pages || 0
+                for (var i = 0; i < n; i++) pages += (Core.localPdf.covers[page.pdfFiles[i].toString()] || {}).pages || 0
                 return n + (n === 1 ? " file" : " files") + (pages ? " · " + pages + " pages" : "") + (n < 2 ? " · add at least one more" : " · drag to set the order")
             }
             color: Theme.textMuted
             font.pixelSize: 12
         }
-        EditorButton { text: "Clear"; subtle: true; enabled: !localPdf.busy; onClicked: page.pdfFiles = [] }
+        EditorButton { text: "Clear"; subtle: true; enabled: !Core.localPdf.busy; onClicked: page.pdfFiles = [] }
     }
     FileBoard {
         objectName: "pdfFileBoard"
@@ -256,7 +257,7 @@ ColumnLayout {
         Layout.preferredHeight: implicitHeight
         files: page.pdfFiles
         images: page.pdfMode === "images-to-pdf"
-        covers: localPdf.covers
+        covers: Core.localPdf.covers
         onReordered: function(files) { page.pdfFiles = files }
         onRemoveRequested: function(index) { page.removePdfFile(index) }
         onAddRequested: page.pdfPicker.open()
@@ -273,21 +274,21 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.maximumWidth: 420
             placeholderText: "Click pages below, or type e.g. 1, 3-5"
-            onTextEdited: page.splitPages = localPdf.rangeToPages(text, localPdf.pageImages.length)
+            onTextEdited: page.splitPages = Core.localPdf.rangeToPages(text, Core.localPdf.pageImages.length)
         }
-        EditorButton { text: "All"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= localPdf.pageImages.length; i++) p.push(i); page.setSplitPages(p) } }
-        EditorButton { text: "Odd"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= localPdf.pageImages.length; i += 2) p.push(i); page.setSplitPages(p) } }
-        EditorButton { text: "Even"; subtle: true; onClicked: { var p = []; for (var i = 2; i <= localPdf.pageImages.length; i += 2) p.push(i); page.setSplitPages(p) } }
+        EditorButton { text: "All"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= Core.localPdf.pageImages.length; i++) p.push(i); page.setSplitPages(p) } }
+        EditorButton { text: "Odd"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= Core.localPdf.pageImages.length; i += 2) p.push(i); page.setSplitPages(p) } }
+        EditorButton { text: "Even"; subtle: true; onClicked: { var p = []; for (var i = 2; i <= Core.localPdf.pageImages.length; i += 2) p.push(i); page.setSplitPages(p) } }
         EditorButton { text: "None"; subtle: true; enabled: page.splitPages.length > 0; onClicked: page.setSplitPages([]) }
         Item { Layout.fillWidth: true }
         Text {
-            text: page.splitPages.length > 0 ? page.splitPages.length + " of " + localPdf.pageImages.length + " pages" : "Shift+click picks a run"
+            text: page.splitPages.length > 0 ? page.splitPages.length + " of " + Core.localPdf.pageImages.length + " pages" : "Shift+click picks a run"
             color: Theme.textMuted
             font.pixelSize: 12
         }
     }
     Item {
-        visible: page.pdfMode === "split" && page.pdfFiles.length > 0 && localPdf.loadingPages
+        visible: page.pdfMode === "split" && page.pdfFiles.length > 0 && Core.localPdf.loadingPages
         Layout.fillWidth: true
         implicitHeight: 200
         Row {
@@ -297,10 +298,10 @@ ColumnLayout {
     }
     PagePicker {
         objectName: "pagePicker"
-        visible: page.pdfMode === "split" && page.pdfFiles.length > 0 && !localPdf.loadingPages
+        visible: page.pdfMode === "split" && page.pdfFiles.length > 0 && !Core.localPdf.loadingPages
         Layout.fillWidth: true
         Layout.preferredHeight: implicitHeight
-        images: localPdf.pageImages
+        images: Core.localPdf.pageImages
         selected: page.splitPages
         onSelectionEdited: function(pages) { page.setSplitPages(pages) }
     }
@@ -309,8 +310,8 @@ ColumnLayout {
         text: page.pdfMode === "edit" ? "Save PDF" : page.pdfMode === "merge" ? "Merge PDFs" : page.pdfMode === "split" ? "Extract pages" : "Create PDF"
         iconName: "save"
         primary: true
-        enabled: !localPdf.busy && (page.pdfMode === "edit" ? page.pdfPageModel.count > 0 && localPdf.qpdfAvailable
-                 : page.pdfFiles.length > (page.pdfMode === "merge" ? 1 : 0) && (localPdf.qpdfAvailable || page.pdfMode === "images-to-pdf") && (page.pdfMode !== "split" || page.splitPages.length > 0))
+        enabled: !Core.localPdf.busy && (page.pdfMode === "edit" ? page.pdfPageModel.count > 0 && Core.localPdf.qpdfAvailable
+                 : page.pdfFiles.length > (page.pdfMode === "merge" ? 1 : 0) && (Core.localPdf.qpdfAvailable || page.pdfMode === "images-to-pdf") && (page.pdfMode !== "split" || page.splitPages.length > 0))
         onClicked: page.openPdfSave()
     }
 }

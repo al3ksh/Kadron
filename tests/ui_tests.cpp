@@ -1,10 +1,10 @@
+#include "AppCore.h"
 #include "LocalImageTools.h"
 #include "LocalMediaTools.h"
 #include "MediaTools.h"
 
 #include <QMetaMethod>
 #include <QProcess>
-#include <QQmlContext>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -16,6 +16,7 @@
 #include <QQmlExtensionPlugin>
 
 Q_IMPORT_QML_PLUGIN(KadronPlugin)
+Q_IMPORT_QML_PLUGIN(Kadron_BackendPlugin)
 
 class UiTests final : public QObject
 {
@@ -720,7 +721,8 @@ void UiTests::imagesWorkspace()
     notes.close();
 
     QQmlEngine engine;
-    engine.rootContext()->setContextProperty("localImages", &tools);
+    AppCore::instance()->localImages = &tools;
+    const auto release = qScopeGuard([] { AppCore::instance()->localImages = nullptr; });
     auto page = createFromModule(engine, "ImagesWorkspace");
     QVERIFY(page);
 
@@ -774,7 +776,8 @@ void UiTests::reframeWorkspace()
 {
     LocalMediaTools tools;
     QQmlEngine engine;
-    engine.rootContext()->setContextProperty("localReframe", &tools);
+    AppCore::instance()->localReframe = &tools;
+    const auto release = qScopeGuard([] { AppCore::instance()->localReframe = nullptr; });
     auto page = createFromModule(engine, "ReframeWorkspace");
     QVERIFY(page);
     const auto call = [&page](const char *method, QVariantList args) {

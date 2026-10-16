@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include "TextOverlay.h"
 
 #include <QObject>
@@ -10,9 +12,10 @@
 #include <QUrl>
 #include <QVariantMap>
 
-class LocalMediaTools final : public QObject
+class LocalMediaTools : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(bool available READ available CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString stage READ stage NOTIFY changed)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QColor>
 #include <QImage>
 #include <QObject>
@@ -12,9 +14,10 @@
 // Live QR codes. qrencode (on this device) only computes the module matrix;
 // Kadron draws it, so the preview updates as you type and exports use any
 // colors, size, PNG or SVG.
-class LocalQr final : public QObject
+class LocalQr : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(bool available READ available CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString stage READ stage NOTIFY changed)

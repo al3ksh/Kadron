@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QObject>
 #include <QVariantList>
 
@@ -9,6 +11,7 @@
 class TaskbarProgress : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
 public:
     explicit TaskbarProgress(QObject *parent = nullptr);
     ~TaskbarProgress() override;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QObject>
 #include <QStringList>
 #include <QUrl>
@@ -11,9 +13,10 @@
 // type association changes. Every action starts Kadron with
 // `--tool=<tool> "<file>"`; a running Kadron picks them up (SingleInstance).
 // On Windows 11 classic verbs sit under "Show more options".
-class ShellIntegration final : public QObject
+class ShellIntegration : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool supported READ supported CONSTANT)
 

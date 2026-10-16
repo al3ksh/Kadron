@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Kadron.Backend
 
 // Puts a finished file on the clipboard; the label reads "Copied" for a moment.
 EditorButton {
@@ -14,7 +15,7 @@ EditorButton {
     ToolTip.delay: 500
     ToolTip.text: "Copy the file · paste it anywhere with Ctrl+V"
     onClicked: {
-        if (!shellIntegration.copyFile(file)) return
+        if (!Core.shellIntegration.copyFile(file)) return
         copied = true
         reset.restart()
     }

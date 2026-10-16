@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
+import Kadron.Backend
 
 // GIF Studio: a range on the filmstrip, the size meter and the finished GIF.
 ColumnLayout {
@@ -64,7 +65,7 @@ ColumnLayout {
         }
         RangeStrip {
             Layout.fillWidth: true
-            frames: page.gifPlayer.duration > 0 && thumbnails.revision >= 0 ? thumbnails.framesFor(page.sourceUrl, page.gifPlayer.duration) : []
+            frames: page.gifPlayer.duration > 0 && Core.thumbnails.revision >= 0 ? Core.thumbnails.framesFor(page.sourceUrl, page.gifPlayer.duration) : []
             durationMs: page.gifPlayer.duration
             startMs: page.gifStartMs
             endMs: page.gifEndMs
@@ -288,17 +289,17 @@ ColumnLayout {
         iconName: "gif"
         primary: true
         Layout.topMargin: 6
-        enabled: page.sourceUrl.toString() && localTools.available && !localTools.busy
+        enabled: page.sourceUrl.toString() && Core.localTools.available && !Core.localTools.busy
         onClicked: page.beginLocal("gif")
     }
-    Text { visible: page.resultSection === "gif" && localTools.outputUrl.toString().length > 0 && !localTools.busy; text: "Result preview · " + page.sizeLabel(localTools.outputBytes); color: Theme.textMuted; font.pixelSize: 12 }
+    Text { visible: page.resultSection === "gif" && Core.localTools.outputUrl.toString().length > 0 && !Core.localTools.busy; text: "Result preview · " + page.sizeLabel(Core.localTools.outputBytes); color: Theme.textMuted; font.pixelSize: 12 }
     Rectangle {
-        visible: page.resultSection === "gif" && localTools.outputUrl.toString().length > 0 && !localTools.busy
+        visible: page.resultSection === "gif" && Core.localTools.outputUrl.toString().length > 0 && !Core.localTools.busy
         Layout.fillWidth: true
         Layout.preferredHeight: visible ? 252 : 0
         radius: 10
         color: Theme.canvas
         clip: true
-        AnimatedImage { anchors.fill: parent; source: parent.visible ? localTools.outputUrl : ""; fillMode: Image.PreserveAspectFit }
+        AnimatedImage { anchors.fill: parent; source: parent.visible ? Core.localTools.outputUrl : ""; fillMode: Image.PreserveAspectFit }
     }
 }

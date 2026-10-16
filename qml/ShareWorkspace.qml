@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Kadron.Backend
 
 // Clips (7), Drop (8) and the link shortener (9) on the user's Tools server.
 Item {
@@ -14,12 +15,12 @@ Item {
 
     readonly property bool shortener: section === 9
     readonly property string fileName: sourceUrl.toString() ? decodeURIComponent(sourceUrl.toString().split("/").pop()) : ""
-    readonly property real fileBytes: sourceUrl.toString() ? localTools.fileBytes(sourceUrl) : 0
+    readonly property real fileBytes: sourceUrl.toString() ? Core.localTools.fileBytes(sourceUrl) : 0
     // Guest limits on the Tools server.
     readonly property real limitBytes: (section === 7 ? 200 : 50) * 1048576
     readonly property bool tooBig: !shortener && fileBytes > limitBytes
-    readonly property string host: toolsClient.serverUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "")
-    readonly property bool showResult: resultSection === section && toolsClient.resultUrl.toString().length > 0 && !toolsClient.busy
+    readonly property string host: Core.toolsClient.serverUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+    readonly property bool showResult: resultSection === section && Core.toolsClient.resultUrl.toString().length > 0 && !Core.toolsClient.busy
 
     function sizeLabel(bytes) {
         return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB"
@@ -97,8 +98,8 @@ Item {
                         Layout.preferredHeight: 26
                         Layout.preferredWidth: stateRow.implicitWidth + 20
                         radius: 13
-                        color: toolsClient.connected ? Theme.accentWash : Theme.field
-                        border.color: toolsClient.connected ? Theme.accentEdge : Theme.line
+                        color: Core.toolsClient.connected ? Theme.accentWash : Theme.field
+                        border.color: Core.toolsClient.connected ? Theme.accentEdge : Theme.line
                         Row {
                             id: stateRow
                             anchors.centerIn: parent
@@ -108,17 +109,17 @@ Item {
                                 width: 7
                                 height: 7
                                 radius: 4
-                                color: toolsClient.connected ? Theme.success : toolsClient.busy ? Theme.accent : Theme.textFaint
+                                color: Core.toolsClient.connected ? Theme.success : Core.toolsClient.busy ? Theme.accent : Theme.textFaint
                                 SequentialAnimation on opacity {
-                                    running: toolsClient.connected
+                                    running: Core.toolsClient.connected
                                     loops: Animation.Infinite
                                     NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
                                     NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }
                                 }
                             }
                             Text {
-                                text: toolsClient.connected ? "Connected" : "Not connected"
-                                color: toolsClient.connected ? Theme.text : Theme.textMuted
+                                text: Core.toolsClient.connected ? "Connected" : "Not connected"
+                                color: Core.toolsClient.connected ? Theme.text : Theme.textMuted
                                 font.pixelSize: 11
                                 font.weight: Font.DemiBold
                             }
@@ -127,14 +128,14 @@ Item {
                     EditorField {
                         id: serverField
                         Layout.fillWidth: true
-                        text: toolsClient.serverUrl
+                        text: Core.toolsClient.serverUrl
                         placeholderText: "https://tools.example.com"
-                        onEditingFinished: toolsClient.serverUrl = text.trim()
+                        onEditingFinished: Core.toolsClient.serverUrl = text.trim()
                     }
                     EditorButton {
-                        text: toolsClient.connected && serverField.text.trim() === toolsClient.serverUrl ? "Check" : "Connect"
-                        enabled: !toolsClient.busy
-                        onClicked: { toolsClient.serverUrl = serverField.text.trim(); toolsClient.testConnection() }
+                        text: Core.toolsClient.connected && serverField.text.trim() === Core.toolsClient.serverUrl ? "Check" : "Connect"
+                        enabled: !Core.toolsClient.busy
+                        onClicked: { Core.toolsClient.serverUrl = serverField.text.trim(); Core.toolsClient.testConnection() }
                     }
                 }
             }
@@ -257,31 +258,31 @@ Item {
                     text: page.section === 7 ? "Upload to Clips" : page.section === 8 ? "Upload to Drop" : "Create short link"
                     iconName: page.shortener ? "link" : "publish"
                     primary: true
-                    enabled: !toolsClient.busy && toolsClient.serverUrl.length > 0 && serverField.text.trim() === toolsClient.serverUrl
+                    enabled: !Core.toolsClient.busy && Core.toolsClient.serverUrl.length > 0 && serverField.text.trim() === Core.toolsClient.serverUrl
                              && (page.shortener ? targetField.text.trim().length > 0 : page.sourceUrl.toString().length > 0 && !page.tooBig)
                     onClicked: {
                         page.resultSection = page.section
-                        if (page.section === 7) toolsClient.publishClip(page.sourceUrl)
-                        else if (page.section === 8) toolsClient.publishDrop(page.sourceUrl)
-                        else toolsClient.shorten(targetField.text.trim(), slugField.text.trim())
+                        if (page.section === 7) Core.toolsClient.publishClip(page.sourceUrl)
+                        else if (page.section === 8) Core.toolsClient.publishDrop(page.sourceUrl)
+                        else Core.toolsClient.shorten(targetField.text.trim(), slugField.text.trim())
                     }
                 }
-                EditorButton { visible: toolsClient.busy; text: "Cancel"; danger: true; onClicked: toolsClient.cancel() }
+                EditorButton { visible: Core.toolsClient.busy; text: "Cancel"; danger: true; onClicked: Core.toolsClient.cancel() }
                 Text {
-                    visible: !toolsClient.connected && !toolsClient.busy
+                    visible: !Core.toolsClient.connected && !Core.toolsClient.busy
                     text: "Connect to your server first"
                     color: Theme.textFaint
                     font.pixelSize: 11
                 }
             }
             ColumnLayout {
-                visible: toolsClient.busy
+                visible: Core.toolsClient.busy
                 Layout.fillWidth: true
                 spacing: 6
-                Text { text: toolsClient.stage + "  " + toolsClient.progress + "%"; color: Theme.textSoft; font.pixelSize: 12 }
-                StudioProgress { value: toolsClient.progress / 100; Layout.fillWidth: true }
+                Text { text: Core.toolsClient.stage + "  " + Core.toolsClient.progress + "%"; color: Theme.textSoft; font.pixelSize: 12 }
+                StudioProgress { value: Core.toolsClient.progress / 100; Layout.fillWidth: true }
             }
-            Text { visible: toolsClient.errorText.length > 0; text: toolsClient.errorText; color: Theme.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            Text { visible: Core.toolsClient.errorText.length > 0; text: Core.toolsClient.errorText; color: Theme.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
 
             // The link, ready to copy.
             Rectangle {
@@ -315,7 +316,7 @@ Item {
                             Layout.fillWidth: true
                             readOnly: true
                             selectByMouse: true
-                            text: toolsClient.resultUrl.toString()
+                            text: Core.toolsClient.resultUrl.toString()
                             color: Theme.text
                             selectionColor: Theme.accent
                             selectedTextColor: Theme.accentInk
@@ -333,7 +334,7 @@ Item {
                                 copiedReset.restart()
                             }
                         }
-                        EditorButton { iconName: "external"; text: "Open"; onClicked: Qt.openUrlExternally(toolsClient.resultUrl) }
+                        EditorButton { iconName: "external"; text: "Open"; onClicked: Qt.openUrlExternally(Core.toolsClient.resultUrl) }
                     }
                 }
                 Timer { id: copiedReset; interval: 1800; onTriggered: resultCard.copied = false }

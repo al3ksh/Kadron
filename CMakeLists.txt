@@ -9,41 +9,65 @@ set(CMAKE_AUTOMOC ON)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Multimedia Network Concurrent ShaderTools)
 qt_standard_project_setup(REQUIRES 6.8)
 
+# The C++ core as a QML module, Kadron.Backend: the app and both test suites
+# link it, and its types tell qmllint and the QML compiler what `Core` holds.
+qt_add_library(kadron_backend STATIC)
+qt_add_qml_module(kadron_backend
+    URI Kadron.Backend
+    VERSION 1.0
+    OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Kadron/Backend
+    SOURCES
+        src/EditorProject.cpp
+        src/EditorProject.h
+        src/ExportController.cpp
+        src/ExportController.h
+        src/TextOverlay.cpp
+        src/TextOverlay.h
+        src/ThumbnailStrip.cpp
+        src/ThumbnailStrip.h
+        src/MediaTools.h
+        src/ToolsClient.cpp
+        src/ToolsClient.h
+        src/LocalMediaTools.cpp
+        src/LocalMediaTools.h
+        src/LocalDownload.cpp
+        src/LocalDownload.h
+        src/LocalPdfTools.cpp
+        src/LocalPdfTools.h
+        src/LocalQr.cpp
+        src/LocalQr.h
+        src/LocalImageTools.cpp
+        src/LocalImageTools.h
+        src/WindowChrome.cpp
+        src/WindowChrome.h
+        src/ShellIntegration.cpp
+        src/ShellIntegration.h
+        src/SingleInstance.cpp
+        src/SingleInstance.h
+        src/AppUpdater.cpp
+        src/AppUpdater.h
+        src/TrayIcon.cpp
+        src/TrayIcon.h
+        src/TaskbarProgress.cpp
+        src/TaskbarProgress.h
+        src/RemoteJobsClient.cpp
+        src/RemoteJobsClient.h
+        src/AppCore.cpp
+        src/AppCore.h
+)
+target_include_directories(kadron_backend PUBLIC src)
+target_link_libraries(kadron_backend PUBLIC
+    Qt6::Quick
+    Qt6::Multimedia
+    Qt6::Network
+    Qt6::Concurrent
+)
+if(WIN32)
+    target_link_libraries(kadron_backend PUBLIC dwmapi advapi32 shell32 ole32 uuid)
+endif()
+
 qt_add_executable(kadron
     src/main.cpp
-    src/EditorProject.cpp
-    src/EditorProject.h
-    src/ExportController.cpp
-    src/ExportController.h
-    src/TextOverlay.cpp
-    src/TextOverlay.h
-    src/ThumbnailStrip.cpp
-    src/ThumbnailStrip.h
-    src/MediaTools.h
-    src/ToolsClient.cpp
-    src/ToolsClient.h
-    src/LocalMediaTools.cpp
-    src/LocalMediaTools.h
-    src/LocalDownload.cpp
-    src/LocalDownload.h
-    src/LocalPdfTools.cpp
-    src/LocalPdfTools.h
-    src/LocalQr.cpp
-    src/LocalQr.h
-    src/LocalImageTools.cpp
-    src/LocalImageTools.h
-    src/WindowChrome.cpp
-    src/WindowChrome.h
-    src/ShellIntegration.cpp
-    src/ShellIntegration.h
-    src/SingleInstance.cpp
-    src/SingleInstance.h
-    src/AppUpdater.cpp
-    src/AppUpdater.h
-    src/TrayIcon.cpp
-    src/TrayIcon.h
-    src/TaskbarProgress.cpp
-    src/TaskbarProgress.h
 )
 
 qt_add_resources(kadron "kadron_assets" PREFIX "/" FILES assets/kadron-mark.png)
@@ -63,6 +87,8 @@ qt_add_library(kadron_ui STATIC)
 qt_add_qml_module(kadron_ui
     URI Kadron
     VERSION 1.0
+    OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Kadron
+    DEPENDENCIES Kadron.Backend
     QML_FILES
         qml/Main.qml
         qml/EditorButton.qml
@@ -118,7 +144,7 @@ qt_add_qml_module(kadron_ui
         qml/ToolSlider.qml
         qml/CheckerBoard.qml
 )
-target_link_libraries(kadron_ui PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
+target_link_libraries(kadron_ui PRIVATE kadron_backend Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
 qt_add_shaders(kadron_ui "kadron_shaders"
     PREFIX "/"
     FILES shaders/intro.frag
@@ -126,15 +152,14 @@ qt_add_shaders(kadron_ui "kadron_shaders"
 
 target_link_libraries(kadron PRIVATE
     kadron_uiplugin
+    kadron_backendplugin
+    kadron_backend
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Multimedia
     Qt6::Network
     Qt6::Concurrent
 )
-if(WIN32)
-    target_link_libraries(kadron PRIVATE dwmapi advapi32 shell32 ole32 uuid)
-endif()
 
 set_target_properties(kadron PROPERTIES
     WIN32_EXECUTABLE TRUE
@@ -144,45 +169,12 @@ set_target_properties(kadron PROPERTIES
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.8 REQUIRED COMPONENTS Test)
-    qt_add_executable(kadron_core_tests
-        tests/core_tests.cpp
-        src/EditorProject.cpp
-        src/EditorProject.h
-        src/ExportController.cpp
-        src/ExportController.h
-        src/TextOverlay.cpp
-        src/TextOverlay.h
-        src/ThumbnailStrip.cpp
-        src/ThumbnailStrip.h
-        src/MediaTools.h
-        src/ToolsClient.cpp
-        src/ToolsClient.h
-        src/LocalMediaTools.cpp
-        src/LocalMediaTools.h
-        src/RemoteJobsClient.cpp
-        src/RemoteJobsClient.h
-        src/LocalDownload.cpp
-        src/LocalDownload.h
-        src/LocalPdfTools.cpp
-        src/LocalPdfTools.h
-        src/LocalQr.cpp
-        src/LocalQr.h
-        src/LocalImageTools.cpp
-        src/LocalImageTools.h
-        src/SingleInstance.cpp
-        src/SingleInstance.h
-        src/AppUpdater.cpp
-        src/AppUpdater.h
-    )
-    target_include_directories(kadron_core_tests PRIVATE src)
-    target_link_libraries(kadron_core_tests PRIVATE Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test Qt6::Network Qt6::Concurrent)
+        qt_add_executable(kadron_core_tests tests/core_tests.cpp)
+    target_link_libraries(kadron_core_tests PRIVATE kadron_backend Qt6::Test)
     add_test(NAME core COMMAND kadron_core_tests)
 
-    qt_add_executable(kadron_ui_tests tests/ui_tests.cpp src/LocalImageTools.cpp src/LocalImageTools.h
-        src/LocalMediaTools.cpp src/LocalMediaTools.h
-        src/TextOverlay.cpp src/TextOverlay.h)
-    target_include_directories(kadron_ui_tests PRIVATE src)
-    target_link_libraries(kadron_ui_tests PRIVATE kadron_uiplugin Qt6::Quick Qt6::Qml Qt6::Test Qt6::Concurrent)
+    qt_add_executable(kadron_ui_tests tests/ui_tests.cpp)
+    target_link_libraries(kadron_ui_tests PRIVATE kadron_uiplugin kadron_backendplugin kadron_backend Qt6::Test)
     target_compile_definitions(kadron_ui_tests PRIVATE KADRON_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME ui COMMAND kadron_ui_tests)
 endif()

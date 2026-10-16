@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
+import Kadron.Backend
 
 // The editor's right-hand panel for the active clip: trim, speed, volume,
 // picture, transitions, the audio track item or text under edit, and export.
@@ -22,8 +23,8 @@ ColumnLayout {
 
     // Shows the in and out points unless one of their fields is being typed in.
     function syncRangeFields() {
-        if (!inField.activeFocus) inField.text = (editorProject.inMs / 1000).toFixed(3)
-        if (!outField.activeFocus) outField.text = (editorProject.outMs / 1000).toFixed(3)
+        if (!inField.activeFocus) inField.text = (Core.editorProject.inMs / 1000).toFixed(3)
+        if (!outField.activeFocus) outField.text = (Core.editorProject.outMs / 1000).toFixed(3)
     }
 
     spacing: 10
@@ -42,9 +43,9 @@ ColumnLayout {
                 EditorField {
                     id: inField
                     Layout.fillWidth: true
-                    enabled: editorProject.durationMs > 0 && !exporter.busy
+                    enabled: Core.editorProject.durationMs > 0 && !Core.exporter.busy
                     validator: DoubleValidator { bottom: 0; decimals: 3 }
-                    onEditingFinished: editorProject.setInMs(Math.round(Number(text) * 1000))
+                    onEditingFinished: Core.editorProject.setInMs(Math.round(Number(text) * 1000))
                 }
             }
             ColumnLayout {
@@ -53,9 +54,9 @@ ColumnLayout {
                 EditorField {
                     id: outField
                     Layout.fillWidth: true
-                    enabled: editorProject.durationMs > 0 && !exporter.busy
+                    enabled: Core.editorProject.durationMs > 0 && !Core.exporter.busy
                     validator: DoubleValidator { bottom: 0; decimals: 3 }
-                    onEditingFinished: editorProject.setOutMs(Math.round(Number(text) * 1000))
+                    onEditingFinished: Core.editorProject.setOutMs(Math.round(Number(text) * 1000))
                 }
             }
         }
@@ -63,13 +64,13 @@ ColumnLayout {
         RowLayout {
             Layout.fillWidth: true
             Text { text: "Selected duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
-            Text { text: app.timecode(app.stillActive ? app.activeClip.holdMs : (editorProject.outMs - editorProject.inMs) / app.activeSpeed); color: Theme.accentSoft; font.pixelSize: 17; font.weight: Font.DemiBold }
+            Text { text: app.timecode(app.stillActive ? app.activeClip.holdMs : (Core.editorProject.outMs - Core.editorProject.inMs) / app.activeSpeed); color: Theme.accentSoft; font.pixelSize: 17; font.weight: Font.DemiBold }
         }
         EditorButton {
             Layout.fillWidth: true
             text: "Split at playhead  Ctrl+K"
-            enabled: editorProject.hasMedia && !exporter.busy && !app.stillActive && mediaPlayer.position > editorProject.inMs + 100 && mediaPlayer.position < editorProject.outMs - 100
-            onClicked: editorProject.splitAt(mediaPlayer.position)
+            enabled: Core.editorProject.hasMedia && !Core.exporter.busy && !app.stillActive && mediaPlayer.position > Core.editorProject.inMs + 100 && mediaPlayer.position < Core.editorProject.outMs - 100
+            onClicked: Core.editorProject.splitAt(mediaPlayer.position)
         }
 
         // Clip volume.
@@ -95,8 +96,8 @@ ColumnLayout {
                     objectName: "clipMuteButton"
                     iconName: app.activeClip && app.activeClip.muted ? "mute" : "volume"
                     subtle: true
-                    enabled: editorProject.hasMedia && !exporter.busy
-                    onClicked: editorProject.setClipMuted(editorProject.activeClipIndex, !app.activeClip.muted)
+                    enabled: Core.editorProject.hasMedia && !Core.exporter.busy
+                    onClicked: Core.editorProject.setClipMuted(Core.editorProject.activeClipIndex, !app.activeClip.muted)
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     ToolTip.text: app.activeClip && app.activeClip.muted ? "Unmute this clip" : "Mute this clip"
@@ -107,16 +108,16 @@ ColumnLayout {
                     from: 0
                     to: 2
                     stepSize: 0.05
-                    enabled: editorProject.hasMedia && !exporter.busy
+                    enabled: Core.editorProject.hasMedia && !Core.exporter.busy
                     value: app.activeClip ? app.activeClip.volume : 1
                     opacity: app.activeClip && app.activeClip.muted ? 0.5 : 1
                     onMoved: {
                         if (pressed) app.clipVolumeDrag = value
-                        else editorProject.setClipVolume(editorProject.activeClipIndex, value)
+                        else Core.editorProject.setClipVolume(Core.editorProject.activeClipIndex, value)
                     }
                     onPressedChanged: {
                         if (pressed || app.clipVolumeDrag < 0) return
-                        editorProject.setClipVolume(editorProject.activeClipIndex, app.clipVolumeDrag)
+                        Core.editorProject.setClipVolume(Core.editorProject.activeClipIndex, app.clipVolumeDrag)
                         app.clipVolumeDrag = -1
                     }
                 }
@@ -137,18 +138,18 @@ ColumnLayout {
                     return { label: speed + "×", value: speed, glyph: speed > 1 ? "bolt" : "", boltSize: speed >= 2 ? 15 : 11 }
                 })
                 current: app.activeSpeed
-                enabled: editorProject.hasMedia && !exporter.busy
-                onActivated: function(speed) { editorProject.setClipSpeed(editorProject.activeClipIndex, speed) }
+                enabled: Core.editorProject.hasMedia && !Core.exporter.busy
+                onActivated: function(speed) { Core.editorProject.setClipSpeed(Core.editorProject.activeClipIndex, speed) }
             }
         }
         EditorButton {
             objectName: "removeSilenceButton"
             Layout.fillWidth: true
-            text: editorProject.findingSilence ? "Listening for silence…" : "Remove silence"
+            text: Core.editorProject.findingSilence ? "Listening for silence…" : "Remove silence"
             iconName: "audio"
             subtle: true
-            enabled: editorProject.hasMedia && !exporter.busy && !editorProject.findingSilence && !(app.activeClip && app.activeClip.muted)
-            onClicked: editorProject.removeSilence(editorProject.activeClipIndex)
+            enabled: Core.editorProject.hasMedia && !Core.exporter.busy && !Core.editorProject.findingSilence && !(app.activeClip && app.activeClip.muted)
+            onClicked: Core.editorProject.removeSilence(Core.editorProject.activeClipIndex)
             ToolTip.visible: hovered
             ToolTip.delay: 500
             ToolTip.text: "Cut parts quieter than -35 dB lasting over 0.6 s. Undo brings them back."
@@ -170,7 +171,7 @@ ColumnLayout {
                     text: "Freeze frame"
                     iconName: "pause"
                     subtle: true
-                    enabled: editorProject.hasMedia && !exporter.busy && !app.stillActive
+                    enabled: Core.editorProject.hasMedia && !Core.exporter.busy && !app.stillActive
                     onClicked: app.freezeFrame()
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
@@ -180,8 +181,8 @@ ColumnLayout {
                     objectName: "rotateLeftButton"
                     iconName: "rotateLeft"
                     subtle: true
-                    enabled: editorProject.hasMedia && !exporter.busy
-                    onClicked: editorProject.setClipRotation(editorProject.activeClipIndex, app.clipLook.rotation + 270)
+                    enabled: Core.editorProject.hasMedia && !Core.exporter.busy
+                    onClicked: Core.editorProject.setClipRotation(Core.editorProject.activeClipIndex, app.clipLook.rotation + 270)
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     ToolTip.text: "Turn left"
@@ -190,8 +191,8 @@ ColumnLayout {
                     objectName: "rotateRightButton"
                     iconName: "rotateRight"
                     subtle: true
-                    enabled: editorProject.hasMedia && !exporter.busy
-                    onClicked: editorProject.setClipRotation(editorProject.activeClipIndex, app.clipLook.rotation + 90)
+                    enabled: Core.editorProject.hasMedia && !Core.exporter.busy
+                    onClicked: Core.editorProject.setClipRotation(Core.editorProject.activeClipIndex, app.clipLook.rotation + 90)
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     ToolTip.text: "Turn right"
@@ -201,7 +202,7 @@ ColumnLayout {
                     iconName: app.cropEditing ? "check" : "crop"
                     primary: app.cropEditing
                     subtle: !app.cropEditing
-                    enabled: editorProject.hasMedia && !exporter.busy
+                    enabled: Core.editorProject.hasMedia && !Core.exporter.busy
                     onClicked: app.cropEditing = !app.cropEditing
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
@@ -220,9 +221,9 @@ ColumnLayout {
                     from: 0.5
                     to: 10
                     stepSize: 0.1
-                    enabled: !exporter.busy
+                    enabled: !Core.exporter.busy
                     value: app.stillActive ? app.activeClip.holdMs / 1000 : 2
-                    onPressedChanged: if (!pressed) editorProject.setClipHold(editorProject.activeClipIndex, Math.round(value * 1000))
+                    onPressedChanged: if (!pressed) Core.editorProject.setClipHold(Core.editorProject.activeClipIndex, Math.round(value * 1000))
                 }
                 Text { text: (app.stillActive ? app.activeClip.holdMs / 1000 : 0).toFixed(1) + " s"; color: Theme.text; font.pixelSize: 12; font.features: { "tnum": 1 }; Layout.preferredWidth: 38; horizontalAlignment: Text.AlignRight }
             }
@@ -240,18 +241,18 @@ ColumnLayout {
                         from: -1
                         to: 1
                         stepSize: 0.01
-                        enabled: editorProject.hasMedia && !exporter.busy
+                        enabled: Core.editorProject.hasMedia && !Core.exporter.busy
                         value: app.clipLook[lookRow.modelData[0]]
                         onMoved: {
                             var look = { brightness: app.clipLook.brightness, contrast: app.clipLook.contrast, saturation: app.clipLook.saturation }
                             look[lookRow.modelData[0]] = value
                             if (pressed) app.lookDrag = look
-                            else editorProject.setClipColor(editorProject.activeClipIndex, look.brightness, look.contrast, look.saturation)
+                            else Core.editorProject.setClipColor(Core.editorProject.activeClipIndex, look.brightness, look.contrast, look.saturation)
                         }
                         onPressedChanged: {
                             if (pressed || !app.lookDrag) return
                             var look = app.lookDrag
-                            editorProject.setClipColor(editorProject.activeClipIndex, look.brightness, look.contrast, look.saturation)
+                            Core.editorProject.setClipColor(Core.editorProject.activeClipIndex, look.brightness, look.contrast, look.saturation)
                             app.lookDrag = null
                         }
                     }
@@ -271,12 +272,12 @@ ColumnLayout {
                 visible: app.lookActive && !app.cropEditing
                 text: "Reset picture"
                 subtle: true
-                enabled: !exporter.busy
+                enabled: !Core.exporter.busy
                 onClicked: {
-                    var index = editorProject.activeClipIndex
-                    editorProject.setClipRotation(index, 0)
-                    editorProject.setClipCrop(index, 0, 0, 1, 1)
-                    editorProject.setClipColor(index, 0, 0, 0)
+                    var index = Core.editorProject.activeClipIndex
+                    Core.editorProject.setClipRotation(index, 0)
+                    Core.editorProject.setClipCrop(index, 0, 0, 1, 1)
+                    Core.editorProject.setClipColor(index, 0, 0, 0)
                     app.cropRevision++
                 }
             }
@@ -284,7 +285,7 @@ ColumnLayout {
 
         // How clips meet.
         ColumnLayout {
-            visible: editorProject.clipCount > 1
+            visible: Core.editorProject.clipCount > 1
             Layout.fillWidth: true
             spacing: 6
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
@@ -292,15 +293,15 @@ ColumnLayout {
             ToolCombo {
                 objectName: "transitionCombo"
                 Layout.fillWidth: true
-                enabled: !exporter.busy
+                enabled: !Core.exporter.busy
                 textRole: "label"
                 valueRole: "value"
                 model: [{ value: "cut", label: "Cut" }, { value: "fade", label: "Fade through black" }, { value: "crossfade", label: "Crossfade" }]
-                currentIndex: ["cut", "fade", "crossfade"].indexOf(editorProject.transition)
-                onActivated: editorProject.setTransition(currentValue)
+                currentIndex: ["cut", "fade", "crossfade"].indexOf(Core.editorProject.transition)
+                onActivated: Core.editorProject.setTransition(currentValue)
             }
             RowLayout {
-                visible: editorProject.transition !== "cut"
+                visible: Core.editorProject.transition !== "cut"
                 Layout.fillWidth: true
                 spacing: 8
                 ToolSlider {
@@ -309,20 +310,20 @@ ColumnLayout {
                     from: 200
                     to: 2000
                     stepSize: 100
-                    enabled: !exporter.busy
-                    value: editorProject.transitionMs
+                    enabled: !Core.exporter.busy
+                    value: Core.editorProject.transitionMs
                     onMoved: {
                         if (pressed) app.transitionDrag = value
-                        else editorProject.setTransitionMs(value)
+                        else Core.editorProject.setTransitionMs(value)
                     }
                     onPressedChanged: {
                         if (pressed || app.transitionDrag < 0) return
-                        editorProject.setTransitionMs(app.transitionDrag)
+                        Core.editorProject.setTransitionMs(app.transitionDrag)
                         app.transitionDrag = -1
                     }
                 }
                 Text {
-                    text: ((app.transitionDrag >= 0 ? app.transitionDrag : editorProject.transitionMs) / 1000).toFixed(1) + " s"
+                    text: ((app.transitionDrag >= 0 ? app.transitionDrag : Core.editorProject.transitionMs) / 1000).toFixed(1) + " s"
                     color: Theme.text
                     font.pixelSize: 12
                     font.weight: Font.DemiBold
@@ -334,7 +335,7 @@ ColumnLayout {
 
         // Audio track: music and sounds placed on the sequence.
         ColumnLayout {
-            visible: editorProject.hasMedia
+            visible: Core.editorProject.hasMedia
             Layout.fillWidth: true
             spacing: 6
             Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
@@ -344,7 +345,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 text: "Add audio at playhead…"
                 iconName: "music"
-                enabled: !exporter.busy
+                enabled: !Core.exporter.busy
                 onClicked: {
                     app.audioAddMs = app.sequencePositionMs
                     inspector.chooseMusic()
@@ -368,8 +369,8 @@ ColumnLayout {
                     objectName: "removeMusicButton"
                     iconName: "close"
                     subtle: true
-                    enabled: !exporter.busy
-                    onClicked: editorProject.removeAudio(editorProject.activeAudioIndex)
+                    enabled: !Core.exporter.busy
+                    onClicked: Core.editorProject.removeAudio(Core.editorProject.activeAudioIndex)
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     ToolTip.text: "Remove from the audio track (Delete)"
@@ -394,15 +395,15 @@ ColumnLayout {
                     from: 0
                     to: 2
                     stepSize: 0.05
-                    enabled: !exporter.busy
+                    enabled: !Core.exporter.busy
                     value: app.activeAudio ? app.activeAudio.volume : 0.5
                     onMoved: {
                         if (pressed) app.audioVolumeDrag = value
-                        else editorProject.setAudioVolume(editorProject.activeAudioIndex, value)
+                        else Core.editorProject.setAudioVolume(Core.editorProject.activeAudioIndex, value)
                     }
                     onPressedChanged: {
                         if (pressed || app.audioVolumeDrag < 0) return
-                        editorProject.setAudioVolume(editorProject.activeAudioIndex, app.audioVolumeDrag)
+                        Core.editorProject.setAudioVolume(Core.editorProject.activeAudioIndex, app.audioVolumeDrag)
                         app.audioVolumeDrag = -1
                     }
                 }
@@ -426,15 +427,15 @@ ColumnLayout {
             }
             ToolCheck {
                 objectName: "musicDuckCheck"
-                visible: editorProject.audioCount > 0
+                visible: Core.editorProject.audioCount > 0
                 text: "Quieter while someone speaks"
-                enabled: !exporter.busy
-                checked: editorProject.musicDuck
-                onToggled: editorProject.setMusicDuck(checked)
+                enabled: !Core.exporter.busy
+                checked: Core.editorProject.musicDuck
+                onToggled: Core.editorProject.setMusicDuck(checked)
             }
             Text {
                 Layout.fillWidth: true
-                text: editorProject.audioCount === 0
+                text: Core.editorProject.audioCount === 0
                       ? "Drop music or sounds on the audio track under the clips, or add them here."
                       : "Drag items on the audio track to move them and their edges to trim. Sound past the end of the video fades out."
                 wrapMode: Text.WordWrap
@@ -446,7 +447,7 @@ ColumnLayout {
 
     // Text track: captions drawn over the video.
     ColumnLayout {
-        visible: editorProject.hasMedia
+        visible: Core.editorProject.hasMedia
         Layout.fillWidth: true
         spacing: 6
         Rectangle { visible: app.activeText === null; Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.line; Layout.bottomMargin: 4 }
@@ -457,7 +458,7 @@ ColumnLayout {
             Layout.fillWidth: true
             text: "Add text at playhead"
             iconName: "plus"
-            enabled: !exporter.busy && editorProject.sequenceDurationMs >= 200
+            enabled: !Core.exporter.busy && Core.editorProject.sequenceDurationMs >= 200
             onClicked: app.addTextAt(app.sequencePositionMs)
         }
         RowLayout {
@@ -470,7 +471,7 @@ ColumnLayout {
                 text: "Import SRT…"
                 iconName: "file"
                 subtle: true
-                enabled: !exporter.busy
+                enabled: !Core.exporter.busy
                 onClicked: inspector.importSubtitles()
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
@@ -482,7 +483,7 @@ ColumnLayout {
                 text: "Save SRT…"
                 iconName: "save"
                 subtle: true
-                enabled: editorProject.textItems.length > 0
+                enabled: Core.editorProject.textItems.length > 0
                 onClicked: inspector.exportSubtitles()
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
@@ -494,7 +495,7 @@ ColumnLayout {
             objectName: "captionField"
             visible: app.activeText !== null
             Layout.fillWidth: true
-            enabled: !exporter.busy
+            enabled: !Core.exporter.busy
             wrapMode: TextEdit.Wrap
             color: Theme.text
             selectionColor: Theme.accent
@@ -526,16 +527,16 @@ ColumnLayout {
             }
             onEditingFinished: {
                 if (!app.activeText) return
-                if (!editorProject.setTextContent(editorProject.activeTextIndex, text)) text = savedText
+                if (!Core.editorProject.setTextContent(Core.editorProject.activeTextIndex, text)) text = savedText
             }
         }
         TextStyleEditor {
             id: captionStyle
             visible: app.activeText !== null
             Layout.fillWidth: true
-            enabled: !exporter.busy
+            enabled: !Core.exporter.busy
             item: app.activeText
-            onChangeRequested: function(changes) { editorProject.setTextStyle(editorProject.activeTextIndex, changes) }
+            onChangeRequested: function(changes) { Core.editorProject.setTextStyle(Core.editorProject.activeTextIndex, changes) }
         }
         RowLayout {
             visible: app.activeText !== null
@@ -547,8 +548,8 @@ ColumnLayout {
                 text: "Remove text"
                 iconName: "close"
                 subtle: true
-                enabled: !exporter.busy
-                onClicked: editorProject.removeText(editorProject.activeTextIndex)
+                enabled: !Core.exporter.busy
+                onClicked: Core.editorProject.removeText(Core.editorProject.activeTextIndex)
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 ToolTip.text: "Remove the text (Delete on the timeline)"
@@ -557,14 +558,14 @@ ColumnLayout {
                 objectName: "doneTextButton"
                 Layout.fillWidth: true
                 text: "Done"
-                onClicked: editorProject.selectText(-1)
+                onClicked: Core.editorProject.selectText(-1)
             }
         }
         Text {
             Layout.fillWidth: true
             text: app.activeText
                   ? "Shown from " + app.timecode(app.activeText.startMs) + " for " + app.timecode(app.activeText.lengthMs) + ". Drag it on the picture to place it, on the text track to retime it."
-                  : editorProject.textItems.length === 0
+                  : Core.editorProject.textItems.length === 0
                     ? "Titles and captions, burnt into the export. Double-click the text track to add one."
                     : "Click a caption on the text track to edit it."
             wrapMode: Text.WordWrap
@@ -577,12 +578,12 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.topMargin: 4
         Text { text: "Sequence duration"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true }
-        Text { text: app.timecode(editorProject.sequenceDurationMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
+        Text { text: app.timecode(Core.editorProject.sequenceDurationMs); color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
     }
     EditorButton {
         objectName: "copyChaptersButton"
         Layout.fillWidth: true
-        visible: editorProject.markers.length > 0
+        visible: Core.editorProject.markers.length > 0
         text: "Copy chapters"
         iconName: "copy"
         subtle: true
@@ -593,38 +594,38 @@ ColumnLayout {
     }
     RowLayout {
         Layout.fillWidth: true
-        visible: exporter.available
+        visible: Core.exporter.available
         spacing: 8
         Text { text: "Encoder"; color: Theme.textMuted; font.pixelSize: 12 }
         ToolCombo {
             id: encoderCombo
             objectName: "encoderCombo"
             Layout.fillWidth: true
-            enabled: !exporter.busy
+            enabled: !Core.exporter.busy
             textRole: "label"
             valueRole: "value"
             model: encoderItems
             readonly property var encoderItems: {
                 var names = { nvenc: "NVIDIA NVENC (GPU)", qsv: "Intel Quick Sync (GPU)", amf: "AMD AMF (GPU)" }
-                var items = [{ value: "auto", label: !exporter.encodersChecked ? "Auto (checking GPU…)"
-                                                    : exporter.hardwareEncoders.length > 0 ? "Auto · " + names[exporter.hardwareEncoders[0]]
+                var items = [{ value: "auto", label: !Core.exporter.encodersChecked ? "Auto (checking GPU…)"
+                                                    : Core.exporter.hardwareEncoders.length > 0 ? "Auto · " + names[Core.exporter.hardwareEncoders[0]]
                                                     : "Auto · CPU (no GPU encoder)" },
                              { value: "cpu", label: "CPU (x264)" }]
-                for (var i = 0; i < exporter.hardwareEncoders.length; i++)
-                    items.push({ value: exporter.hardwareEncoders[i], label: names[exporter.hardwareEncoders[i]] })
+                for (var i = 0; i < Core.exporter.hardwareEncoders.length; i++)
+                    items.push({ value: Core.exporter.hardwareEncoders[i], label: names[Core.exporter.hardwareEncoders[i]] })
                 return items
             }
             currentIndex: {
                 for (var i = 0; i < encoderItems.length; i++)
-                    if (encoderItems[i].value === exporter.encoder) return i
+                    if (encoderItems[i].value === Core.exporter.encoder) return i
                 return 0
             }
-            onActivated: exporter.encoder = currentValue
+            onActivated: Core.exporter.encoder = currentValue
         }
     }
     Text {
         Layout.fillWidth: true
-        visible: !exporter.available
+        visible: !Core.exporter.available
         text: "FFmpeg is required for export. Set KADRON_FFMPEG or add it to PATH."
         wrapMode: Text.WordWrap
         color: Theme.warning
@@ -632,34 +633,34 @@ ColumnLayout {
     }
     Text {
         Layout.fillWidth: true
-        visible: exporter.errorText.length > 0
-        text: exporter.errorText
+        visible: Core.exporter.errorText.length > 0
+        text: Core.exporter.errorText
         wrapMode: Text.WordWrap
         color: Theme.danger
         font.pixelSize: 11
     }
     Text {
         Layout.fillWidth: true
-        visible: exporter.busy
-        text: exporter.stage + "  " + exporter.progress + "%  ·  " + exporter.encoderUsed
+        visible: Core.exporter.busy
+        text: Core.exporter.stage + "  " + Core.exporter.progress + "%  ·  " + Core.exporter.encoderUsed
         color: Theme.textSoft
         font.pixelSize: 11
     }
     StudioProgress {
-        visible: exporter.busy
+        visible: Core.exporter.busy
         Layout.fillWidth: true
-        value: exporter.progress / 100
+        value: Core.exporter.progress / 100
     }
     Text {
         Layout.fillWidth: true
-        visible: exporter.busy && app.exportQueue.length > 0
+        visible: Core.exporter.busy && app.exportQueue.length > 0
         text: app.exportQueue.length + (app.exportQueue.length === 1 ? " more export waits" : " more exports wait") + " in the queue"
         color: Theme.textFaint
         font.pixelSize: 11
     }
     EditorButton {
         Layout.fillWidth: true
-        visible: exporter.busy
+        visible: Core.exporter.busy
         text: app.exportQueue.length > 0 ? "Cancel export and queue" : "Cancel export"
         danger: true
         onClicked: app.cancelExport()
@@ -668,12 +669,12 @@ ColumnLayout {
         id: exportResultRow
         Layout.fillWidth: true
         spacing: 6
-        visible: exporter.outputUrl.toString().length > 0 && !exporter.busy
-        ResultEntrance { target: exportResultRow; file: exporter.busy ? "" : exporter.outputUrl }
+        visible: Core.exporter.outputUrl.toString().length > 0 && !Core.exporter.busy
+        ResultEntrance { target: exportResultRow; file: Core.exporter.busy ? "" : Core.exporter.outputUrl }
         EditorButton {
             Layout.fillWidth: true
             text: "Open exported file"
-            onClicked: Qt.openUrlExternally(exporter.outputUrl)
+            onClicked: Qt.openUrlExternally(Core.exporter.outputUrl)
         }
         EditorButton {
             iconName: "folder"
@@ -681,9 +682,9 @@ ColumnLayout {
             ToolTip.visible: hovered
             ToolTip.delay: 500
             ToolTip.text: "Show in folder"
-            onClicked: shellIntegration.reveal(exporter.outputUrl)
+            onClicked: Core.shellIntegration.reveal(Core.exporter.outputUrl)
         }
-        CopyButton { compact: true; file: exporter.outputUrl }
+        CopyButton { compact: true; file: Core.exporter.outputUrl }
     }
     EditorButton {
         objectName: "replaceSourceButton"

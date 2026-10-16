@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QObject>
 #include <QString>
 
@@ -9,6 +11,7 @@
 class TrayIcon : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(bool supported READ supported CONSTANT)
     Q_PROPERTY(bool visible READ visible WRITE setVisible NOTIFY visibleChanged)
     // Draw the right-click menu dark, to match the app theme.

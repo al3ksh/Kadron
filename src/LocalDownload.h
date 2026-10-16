@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include "LocalMediaTools.h"
 #include <QDate>
 #include <QNetworkAccessManager>
@@ -11,9 +13,10 @@
 #include <QUrl>
 #include <memory>
 
-class LocalDownload final : public QObject
+class LocalDownload : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(bool available READ available NOTIFY changed)
     Q_PROPERTY(QString ytDlpVersion READ ytDlpVersion NOTIFY changed)
     Q_PROPERTY(int ytDlpAgeDays READ ytDlpAgeDays NOTIFY changed)

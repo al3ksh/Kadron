@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QFutureWatcher>
 #include <QPointer>
 #include <QTemporaryDir>
@@ -12,9 +14,10 @@
 #include <QVariantMap>
 #include <atomic>
 
-class LocalPdfTools final : public QObject
+class LocalPdfTools : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(bool qpdfAvailable READ qpdfAvailable CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString stage READ stage NOTIFY changed)

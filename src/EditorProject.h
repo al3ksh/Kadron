@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include "TextOverlay.h"
 
 #include <QObject>
@@ -10,9 +12,10 @@
 #include <QVector>
 #include <QSet>
 
-class EditorProject final : public QObject
+class EditorProject : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(QUrl mediaUrl READ mediaUrl NOTIFY changed)
     Q_PROPERTY(QString mediaName READ mediaName NOTIFY changed)
     Q_PROPERTY(QUrl projectUrl READ projectUrl NOTIFY changed)

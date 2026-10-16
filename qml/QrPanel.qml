@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Kadron.Backend
 
 // QR: live preview while typing, styled and exported on this device.
 RowLayout {
@@ -15,7 +16,7 @@ RowLayout {
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignTop
         spacing: 12
-        Text { visible: !localQr.available; text: "Install qrencode locally or set KADRON_QRENCODE."; color: Theme.warning; font.pixelSize: 12 }
+        Text { visible: !Core.localQr.available; text: "Install qrencode locally or set KADRON_QRENCODE."; color: Theme.warning; font.pixelSize: 12 }
         Text { text: "Text or URL"; color: Theme.textMuted; font.pixelSize: 12 }
         EditorField {
             id: qrText
@@ -23,7 +24,7 @@ RowLayout {
             placeholderText: "https://..."
             onTextChanged: qrDelay.restart()
         }
-        Timer { id: qrDelay; interval: 150; onTriggered: localQr.update(qrText.text, page.qrLevel) }
+        Timer { id: qrDelay; interval: 150; onTriggered: Core.localQr.update(qrText.text, page.qrLevel) }
         Text { text: "Colors"; color: Theme.textMuted; font.pixelSize: 12 }
         Flow {
             Layout.fillWidth: true
@@ -73,7 +74,7 @@ RowLayout {
                     required property var modelData
                     text: modelData[0] + "  " + modelData[1]
                     primary: page.qrLevel === modelData[0]
-                    onClicked: { page.qrLevel = modelData[0]; localQr.update(qrText.text, page.qrLevel) }
+                    onClicked: { page.qrLevel = modelData[0]; Core.localQr.update(qrText.text, page.qrLevel) }
                 }
             }
         }
@@ -93,21 +94,21 @@ RowLayout {
         RowLayout {
             Layout.topMargin: 6
             spacing: 8
-            EditorButton { text: "Save PNG"; iconName: "save"; primary: true; enabled: localQr.modules > 0; onClicked: page.openQrSave("png") }
-            EditorButton { text: "Save SVG"; iconName: "save"; enabled: localQr.modules > 0; onClicked: page.openQrSave("svg") }
+            EditorButton { text: "Save PNG"; iconName: "save"; primary: true; enabled: Core.localQr.modules > 0; onClicked: page.openQrSave("png") }
+            EditorButton { text: "Save SVG"; iconName: "save"; enabled: Core.localQr.modules > 0; onClicked: page.openQrSave("svg") }
             EditorButton {
                 id: qrCopy
                 property bool copied: false
                 text: copied ? "Copied" : "Copy"
                 iconName: copied ? "check" : "copy"
-                enabled: localQr.modules > 0
+                enabled: Core.localQr.modules > 0
                 ToolTip.visible: hovered; ToolTip.delay: 500; ToolTip.text: "Copy the code as a picture · Ctrl+V to paste"
-                onClicked: if (localQr.copyImage(page.qrSize, page.qrFg, page.qrBg)) { copied = true; qrCopyReset.restart() }
+                onClicked: if (Core.localQr.copyImage(page.qrSize, page.qrFg, page.qrBg)) { copied = true; qrCopyReset.restart() }
                 Timer { id: qrCopyReset; interval: 1400; onTriggered: qrCopy.copied = false }
             }
-            EditorButton { text: "Open file"; subtle: true; visible: localQr.outputUrl.toString().length > 0; onClicked: Qt.openUrlExternally(localQr.outputUrl) }
+            EditorButton { text: "Open file"; subtle: true; visible: Core.localQr.outputUrl.toString().length > 0; onClicked: Qt.openUrlExternally(Core.localQr.outputUrl) }
         }
-        Text { visible: localQr.errorText.length > 0; text: localQr.errorText; color: Theme.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+        Text { visible: Core.localQr.errorText.length > 0; text: Core.localQr.errorText; color: Theme.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
     }
     ColumnLayout {
         Layout.alignment: Qt.AlignTop
@@ -116,15 +117,15 @@ RowLayout {
             implicitWidth: 260
             implicitHeight: 260
             radius: 14
-            color: localQr.modules > 0 ? page.qrBg : Theme.field
+            color: Core.localQr.modules > 0 ? page.qrBg : Theme.field
             border.color: Theme.line
             Behavior on color { ColorAnimation { duration: Theme.fade } }
             Image {
                 id: qrPreview
                 anchors.fill: parent
                 anchors.margins: 6
-                visible: localQr.modules > 0
-                source: localQr.modules > 0 ? "image://qr/" + localQr.revision + "?fg=" + page.qrFg.slice(1) + "&bg=" + page.qrBg.slice(1) + "&size=496" : ""
+                visible: Core.localQr.modules > 0
+                source: Core.localQr.modules > 0 ? "image://qr/" + Core.localQr.revision + "?fg=" + page.qrFg.slice(1) + "&bg=" + page.qrBg.slice(1) + "&size=496" : ""
                 sourceSize: Qt.size(496, 496)
                 smooth: false
                 cache: false
@@ -133,7 +134,7 @@ RowLayout {
             }
             Column {
                 anchors.centerIn: parent
-                visible: localQr.modules === 0
+                visible: Core.localQr.modules === 0
                 spacing: 8
                 ToolIcon { anchors.horizontalCenter: parent.horizontalCenter; name: "qr"; tint: Theme.textFaint; width: 34; height: 34 }
                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Start typing to generate"; color: Theme.textFaint; font.pixelSize: 12 }
@@ -141,7 +142,7 @@ RowLayout {
         }
         Text {
             Layout.alignment: Qt.AlignHCenter
-            text: localQr.modules > 0 ? localQr.modules + " × " + localQr.modules + " modules · exports " + page.qrSize + " px" : "Preview"
+            text: Core.localQr.modules > 0 ? Core.localQr.modules + " × " + Core.localQr.modules + " modules · exports " + page.qrSize + " px" : "Preview"
             color: Theme.textFaint
             font.pixelSize: 11
         }

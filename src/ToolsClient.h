@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QFile>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -12,9 +14,10 @@
 
 class QNetworkReply;
 
-class ToolsClient final : public QObject
+class ToolsClient : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(QString serverUrl READ serverUrl WRITE setServerUrl NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool connected READ connected NOTIFY changed)

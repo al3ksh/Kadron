@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtQml/qqmlregistration.h>
+
 #include <QHash>
 #include <QObject>
 #include <QPointer>
@@ -11,9 +13,10 @@
 // one FFmpeg pass each, queued one process at a time so the UI never blocks.
 // Results stay on disk, keyed by path, size and modification time, so reopening
 // a file shows them at once; the oldest are pruned past a size limit.
-class ThumbnailStrip final : public QObject
+class ThumbnailStrip : public QObject
 {
     Q_OBJECT
+    QML_ANONYMOUS
     Q_PROPERTY(int revision READ revision NOTIFY changed)
     Q_PROPERTY(QStringList frames READ frames NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
