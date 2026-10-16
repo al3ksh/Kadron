@@ -8,6 +8,14 @@ import QtCore
 Item {
     id: toolsPage
     property int section: 1
+    // What the section panels reach through `page`.
+    property alias audioPlayer: audioPreview
+    property alias gifPlayer: gifPreview
+    property alias dropArea: pageDrop
+    property alias sourcePicker: sourceDialog
+    property alias compressFolderPicker: compressFolderDialog
+    property alias pdfPicker: pdfDialog
+    property alias pdfPageModel: pageModel
     // Audio, Compress and GIF each keep their own file.
     property var sources: ({})
     readonly property url sourceUrl: sources[section] || ""
@@ -62,7 +70,7 @@ Item {
         var target = compressFolder + "/" + encodeURIComponent(base + "-compressed") + "." + selectedFormat
         compressStarting = true
         if (!localTools.compress(source, target, selectedFormat, compressQuality, compressToSize ? compressMB : 0,
-                                 compressWidth, compressNoAudio.checked)) compressFailed++
+                                 compressWidth, compressPanel.noAudioBox.checked)) compressFailed++
         compressStarting = false
         if (!localTools.busy) Qt.callLater(compressNext)
     }
@@ -95,7 +103,7 @@ Item {
     function setSplitPages(pages) {
         splitPages = pages
         var range = localPdf.pagesToRange(pages)
-        if (pdfPages.text !== range && !pdfPages.activeFocus) pdfPages.text = range
+        if (pdfPanel.pagesField.text !== range && !pdfPanel.pagesField.activeFocus) pdfPanel.pagesField.text = range
     }
     // Merge and Images to PDF add to the list; the other modes take one file.
     function takePdfFiles(urls) {
@@ -197,7 +205,7 @@ Item {
                 "compressWidth", "gifFps", "gifWidthPx", "gifLimitMB", "qrFg", "qrBg", "qrLevel", "qrSize", "downloadPresetIndex"]
     }
     property int downloadPresetIndex: 0
-    onCompressMBChanged: if (Number(compressTarget.text) !== compressMB) compressTarget.text = String(compressMB)
+    onCompressMBChanged: if (Number(compressPanel.targetField.text) !== compressMB) compressPanel.targetField.text = String(compressMB)
     property string resultSection: ""
     property string pendingAction: ""
     property bool isImage: /\.(jpe?g|png|webp|bmp|tiff?)$/i.test(sourceUrl.toString())
@@ -249,11 +257,11 @@ Item {
     // Downloads under the video's title, or waits in the queue behind the
     // current download. The field empties for the next link.
     readonly property url downloadsFolder: StandardPaths.writableLocation(StandardPaths.DownloadLocation)
-    readonly property string downloadLink: downloadUrl.text.trim()
+    readonly property string downloadLink: downloadPanel.urlField.text.trim()
     readonly property bool linkIsPlaylist: localDownload.playlist.url === downloadLink && !!localDownload.playlist.entries
     function gifOptions() {
-        return { gifStart: Number(downloadStart.text), gifDuration: Number(downloadDuration.text), gifFps: Number(downloadFps.text),
-                 gifWidth: Number(downloadWidth.text), gifTargetMB: Number(downloadTarget.text) }
+        return { gifStart: Number(downloadPanel.gifStartField.text), gifDuration: Number(downloadPanel.gifDurationField.text), gifFps: Number(downloadPanel.gifFpsField.text),
+                 gifWidth: Number(downloadPanel.gifWidthField.text), gifTargetMB: Number(downloadPanel.gifTargetField.text) }
     }
     function quickDownload() {
         var link = downloadLink
@@ -264,14 +272,14 @@ Item {
         }
         var info = localDownload.preview.url === link ? localDownload.preview : ({})
         resultSection = "download"
-        localDownload.enqueue(link, downloadPreset.currentValue, downloadsFolder, info.title || "", gifOptions())
-        downloadUrl.clear()
+        localDownload.enqueue(link, downloadPanel.presetBox.currentValue, downloadsFolder, info.title || "", gifOptions())
+        downloadPanel.urlField.clear()
     }
     function startDownload(target) {
         resultSection = "download"
-        localDownload.download(downloadUrl.text, downloadPreset.currentValue, target,
-                               Number(downloadStart.text), Number(downloadDuration.text),
-                               Number(downloadFps.text), Number(downloadWidth.text), Number(downloadTarget.text))
+        localDownload.download(downloadPanel.urlField.text, downloadPanel.presetBox.currentValue, target,
+                               Number(downloadPanel.gifStartField.text), Number(downloadPanel.gifDurationField.text),
+                               Number(downloadPanel.gifFpsField.text), Number(downloadPanel.gifWidthField.text), Number(downloadPanel.gifTargetField.text))
     }
     // Which playlist videos are ticked, by index; all of them to start with.
     property var playlistChecked: []
@@ -293,10 +301,10 @@ Item {
         resultSection = "download"
         for (var i = 0; i < entries.length; ++i) {
             if (playlistChecked[i])
-                localDownload.enqueue(entries[i].url, downloadPreset.currentValue, folder, entries[i].title || "", gifOptions())
+                localDownload.enqueue(entries[i].url, downloadPanel.presetBox.currentValue, folder, entries[i].title || "", gifOptions())
         }
         localDownload.clearPlaylist()
-        downloadUrl.clear()
+        downloadPanel.urlField.clear()
     }
     // Ctrl+V anywhere on the Download page fills the link field; text fields
     // keep their own paste.
@@ -307,18 +315,18 @@ Item {
         onActivated: toolsPage.pasteLink()
     }
     function pasteLink() {
-        downloadUrl.clear()
-        downloadUrl.paste()
-        downloadUrl.text = downloadUrl.text.trim()
-        downloadUrl.forceActiveFocus()
+        downloadPanel.urlField.clear()
+        downloadPanel.urlField.paste()
+        downloadPanel.urlField.text = downloadPanel.urlField.text.trim()
+        downloadPanel.urlField.forceActiveFocus()
     }
     readonly property bool downloadIsMedia: /\.(mp4|mkv|webm|mov|m4a|mp3|opus|ogg|wav|flac|aac)$/i.test(localDownload.outputUrl.toString())
     readonly property bool hasSource: sourceUrl.toString().length > 0
     readonly property bool fileSection: section >= 2 && section <= 5
     readonly property bool gifSourceIsGif: sourceUrl.toString().toLowerCase().endsWith(".gif")
     // GIF range in milliseconds, mirrored into the start/duration fields.
-    readonly property real gifStartMs: Math.max(0, Number(gifStart.text) * 1000)
-    readonly property real gifEndMs: Math.min(gifPreview.duration > 0 ? gifPreview.duration : Infinity, gifStartMs + Math.max(0.1, Number(gifDuration.text)) * 1000)
+    readonly property real gifStartMs: Math.max(0, Number(gifPanel.startField.text) * 1000)
+    readonly property real gifEndMs: Math.min(gifPreview.duration > 0 ? gifPreview.duration : Infinity, gifStartMs + Math.max(0.1, Number(gifPanel.durationField.text)) * 1000)
     property bool gifLooping: true
     // GIF settings; a limit of 0 leaves the size open.
     property int gifFps: 10
@@ -329,8 +337,8 @@ Item {
     property bool gifOnce: false
     // How long the GIF runs and how tall it comes out.
     readonly property real gifOutSec: Math.max(0, gifEndMs - gifStartMs) / 1000 / gifSpeed * (gifBounce ? 2 : 1)
-    readonly property int gifHeightPx: gifVideo.sourceRect.width > 0
-                                       ? Math.round(gifWidthPx * gifVideo.sourceRect.height / gifVideo.sourceRect.width / 2) * 2 : 0
+    readonly property int gifHeightPx: gifPanel.video.sourceRect.width > 0
+                                       ? Math.round(gifWidthPx * gifPanel.video.sourceRect.height / gifPanel.video.sourceRect.width / 2) * 2 : 0
     readonly property string gifExtras: {
         const parts = []
         if (gifSpeed !== 1) parts.push(gifSpeed + "× speed")
@@ -339,14 +347,14 @@ Item {
         return parts.join(" · ")
     }
     // Audio trim range in milliseconds; an end of 0 means the whole file.
-    readonly property real audioStartMs: Math.max(0, Number(audioStart.text) * 1000)
-    readonly property real audioEndMs: Number(audioEnd.text) > 0 ? Math.min(audioPreview.duration > 0 ? audioPreview.duration : Infinity, Number(audioEnd.text) * 1000)
+    readonly property real audioStartMs: Math.max(0, Number(audioPanel.startField.text) * 1000)
+    readonly property real audioEndMs: Number(audioPanel.endField.text) > 0 ? Math.min(audioPreview.duration > 0 ? audioPreview.duration : Infinity, Number(audioPanel.endField.text) * 1000)
                                                                : audioPreview.duration
     property bool audioLooping: false
 
     function setAudioRange(startMs, endMs) {
-        audioStart.text = (Math.max(0, startMs) / 1000).toFixed(2)
-        audioEnd.text = (Math.max(startMs + 100, endMs) / 1000).toFixed(2)
+        audioPanel.startField.text = (Math.max(0, startMs) / 1000).toFixed(2)
+        audioPanel.endField.text = (Math.max(startMs + 100, endMs) / 1000).toFixed(2)
     }
     function toggleAudioPreview() {
         if (audioPreview.playbackState === MediaPlayer.PlayingState) {
@@ -362,8 +370,8 @@ Item {
     }
 
     function setGifRange(startMs, endMs) {
-        gifStart.text = (Math.max(0, startMs) / 1000).toFixed(2)
-        gifDuration.text = (Math.max(100, endMs - startMs) / 1000).toFixed(2)
+        gifPanel.startField.text = (Math.max(0, startMs) / 1000).toFixed(2)
+        gifPanel.durationField.text = (Math.max(100, endMs - startMs) / 1000).toFixed(2)
         if (gifPreview.position < startMs || gifPreview.position > endMs) gifPreview.position = startMs
     }
     function acceptDrop(urls) {
@@ -385,15 +393,15 @@ Item {
     MediaPlayer {
         id: audioPreview
         source: toolsPage.section === 2 ? toolsPage.sourceUrl : ""
-        audioOutput: AudioOutput { volume: audioVolume.effectiveVolume }
+        audioOutput: AudioOutput { volume: audioPanel.volumeControl.effectiveVolume }
         property string loadedSource: ""
         onMediaStatusChanged: {
             // A new file starts with the whole file selected.
             if ((mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia)
                 && source.toString() && source.toString() !== loadedSource) {
                 loadedSource = source.toString()
-                audioStart.text = "0"
-                audioEnd.text = "0"
+                audioPanel.startField.text = "0"
+                audioPanel.endField.text = "0"
             }
             if (mediaStatus === MediaPlayer.EndOfMedia) {
                 position = toolsPage.audioStartMs
@@ -410,7 +418,7 @@ Item {
     MediaPlayer {
         id: gifPreview
         source: toolsPage.section === 4 && !toolsPage.gifSourceIsGif ? toolsPage.sourceUrl : ""
-        videoOutput: gifVideo
+        videoOutput: gifPanel.video
         audioOutput: AudioOutput { muted: true }
         loops: 1
         playbackRate: toolsPage.gifSpeed
@@ -452,7 +460,7 @@ Item {
         onDropped: function(drop) {
             if (toolsPage.section === 1) {
                 var link = drop.hasUrls && !drop.urls[0].toString().startsWith("file:") ? drop.urls[0].toString() : drop.text
-                if (link && !/^file:/i.test(link.trim())) downloadUrl.text = link.trim()
+                if (link && !/^file:/i.test(link.trim())) downloadPanel.urlField.text = link.trim()
             } else if (drop.hasUrls) toolsPage.acceptDrop(drop.urls)
             drop.accept()
         }
@@ -500,8 +508,8 @@ Item {
     property int qrSize: 512
     // Screenshot harness: fills the section's main text input.
     function fillText(value) {
-        if (section === 6) qrText.text = value
-        else if (section === 1) downloadUrl.text = value
+        if (section === 6) qrPanel.textField.text = value
+        else if (section === 1) downloadPanel.urlField.text = value
         else if (section === 5) pdfFiles = [value]
     }
     function openQrSave(extension) {
@@ -532,7 +540,7 @@ Item {
         return (h > 0 ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0")
     }
     function downloadExtension() {
-        var preset = downloadPreset.currentValue
+        var preset = downloadPanel.presetBox.currentValue
         return preset === "VIDEO_GIF_SOCIAL" ? "gif" : preset.startsWith("AUDIO_") ? preset.split("_")[1].toLowerCase() : "mp4"
     }
 
@@ -561,16 +569,16 @@ Item {
             if (toolsPage.pendingAction === "audio")
                 localTools.convertAudio(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
                                         toolsPage.audioKbps, toolsPage.audioLufs !== 0,
-                                        Number(audioStart.text), Number(audioEnd.text),
+                                        Number(audioPanel.startField.text), Number(audioPanel.endField.text),
                                         { fadeIn: toolsPage.audioFadeIn, fadeOut: toolsPage.audioFadeOut,
                                           lufs: toolsPage.audioLufs || -14, mono: toolsPage.audioMono })
             else if (toolsPage.pendingAction === "compress")
                 localTools.compress(toolsPage.sourceUrl, selectedFile, toolsPage.selectedFormat,
                                     toolsPage.compressQuality, toolsPage.compressToSize ? toolsPage.compressMB : 0,
-                                    toolsPage.compressWidth, compressNoAudio.checked)
+                                    toolsPage.compressWidth, compressPanel.noAudioBox.checked)
             else
-                localTools.createGif(toolsPage.sourceUrl, selectedFile, Number(gifStart.text),
-                                     Number(gifDuration.text), toolsPage.gifFps,
+                localTools.createGif(toolsPage.sourceUrl, selectedFile, Number(gifPanel.startField.text),
+                                     Number(gifPanel.durationField.text), toolsPage.gifFps,
                                      toolsPage.gifWidthPx, toolsPage.gifLimitMB,
                                      { speed: toolsPage.gifSpeed, bounce: toolsPage.gifBounce, once: toolsPage.gifOnce })
         }
@@ -848,261 +856,9 @@ Item {
                 wrapMode: Text.WordWrap
             }
 
-            ColumnLayout {
-                visible: toolsPage.section === 1
-                Layout.fillWidth: true
-                spacing: 12
-                Text { text: "Source URL"; color: Theme.textMuted; font.pixelSize: 12 }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    EditorField {
-                        id: downloadUrl
-                        objectName: "downloadUrl"
-                        Layout.fillWidth: true
-                        placeholderText: "Paste a link from YouTube, TikTok, Instagram, X… and press Enter"
-                        onTextChanged: probeDelay.restart()
-                        onAccepted: toolsPage.quickDownload()
-                    }
-                    EditorButton {
-                        text: "Paste"
-                        iconName: "link"
-                        Layout.preferredHeight: downloadUrl.implicitHeight
-                        onClicked: toolsPage.pasteLink()
-                    }
-                }
-                Timer {
-                    id: probeDelay
-                    interval: 450
-                    onTriggered: localDownload.probe(downloadUrl.text)
-                }
-                // What the link points to, looked up locally before downloading.
-                Rectangle {
-                    id: linkPreview
-                    readonly property var info: localDownload.preview.url === downloadUrl.text.trim() ? localDownload.preview : ({})
-                    readonly property bool lookingUp: localDownload.probing || probeDelay.running
-                    visible: /^https?:\/\/\S+\.\S+/.test(downloadUrl.text.trim())
-                    Layout.fillWidth: true
-                    implicitHeight: 124
-                    radius: Theme.radius
-                    color: Theme.field
-                    border.color: Theme.line
-                    opacity: visible ? 1 : 0
-                    Behavior on opacity { NumberAnimation { duration: Theme.fade } }
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 14
-                        Rectangle {
-                            Layout.preferredWidth: 184
-                            Layout.fillHeight: true
-                            radius: Theme.radiusSmall
-                            color: Theme.canvas
-                            clip: true
-                            Image {
-                                id: thumb
-                                anchors.fill: parent
-                                source: linkPreview.info.thumbnail || ""
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                opacity: status === Image.Ready ? 1 : 0
-                                Behavior on opacity { NumberAnimation { duration: Theme.reveal } }
-                            }
-                            SkeletonBlock { anchors.fill: parent; radius: 0; visible: thumb.status !== Image.Ready && (linkPreview.lookingUp || thumb.status === Image.Loading) }
-                            ToolIcon { anchors.centerIn: parent; visible: thumb.status !== Image.Ready && !linkPreview.lookingUp && thumb.status !== Image.Loading; name: "gif"; tint: Theme.textFaint; width: 26; height: 26 }
-                            Rectangle {
-                                visible: (linkPreview.info.durationMs || 0) > 0
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.margins: 6
-                                width: durationText.implicitWidth + 10
-                                height: 18
-                                radius: 4
-                                color: Theme.chipScrim
-                                Text { id: durationText; anchors.centerIn: parent; text: toolsPage.durationLabel(linkPreview.info.durationMs || 0); color: Theme.text; font.pixelSize: 10; font.weight: Font.DemiBold }
-                            }
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Text {
-                                Layout.fillWidth: true
-                                visible: text.length > 0
-                                text: linkPreview.info.title || (!linkPreview.lookingUp && linkPreview.info.error ? "Could not read this link" : "")
-                                color: linkPreview.info.error && !linkPreview.info.title ? Theme.danger : Theme.text
-                                font.pixelSize: 14
-                                font.weight: Font.DemiBold
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                visible: text.length > 0
-                                text: [linkPreview.info.playlistCount ? "Playlist · " + linkPreview.info.playlistCount + " videos" : "",
-                                       linkPreview.info.uploader, linkPreview.info.source].filter(function(part) { return part }).join(" · ")
-                                color: Theme.textMuted
-                            }
-                            // A video opened from a playlist: its list can be loaded too.
-                            EditorButton {
-                                visible: /[?&]list=/.test(toolsPage.downloadLink) && !linkPreview.info.playlistCount
-                                         && localDownload.playlist.url !== toolsPage.downloadLink
-                                text: "Load playlist"
-                                iconName: "stack"
-                                implicitHeight: 30
-                                onClicked: localDownload.probePlaylist(toolsPage.downloadLink)
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                visible: !localDownload.probing && !!linkPreview.info.error
-                                text: "yt-dlp: " + (linkPreview.info.error || "") + (localDownload.ytDlpOutdated ? " — try updating yt-dlp" : "")
-                                color: Theme.warning
-                                font.pixelSize: 11
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                            }
-                            // Title and byline skeleton while the link is looked up.
-                            SkeletonBlock { Layout.alignment: Qt.AlignLeft; visible: linkPreview.lookingUp && !linkPreview.info.title; Layout.preferredWidth: 260; Layout.preferredHeight: 14 }
-                            SkeletonBlock { Layout.alignment: Qt.AlignLeft; visible: linkPreview.lookingUp && !linkPreview.info.title; Layout.preferredWidth: 180; Layout.preferredHeight: 14 }
-                            SkeletonBlock { Layout.alignment: Qt.AlignLeft; visible: linkPreview.lookingUp && !linkPreview.info.uploader; Layout.preferredWidth: 120; Layout.preferredHeight: 10 }
-                            Item { Layout.fillWidth: true; Layout.preferredHeight: 0 }
-                        }
-                    }
-                }
-                // The videos of a playlist link, ticked for download.
-                Rectangle {
-                    id: playlistPanel
-                    readonly property var list: localDownload.playlist
-                    visible: list.url === toolsPage.downloadLink && toolsPage.downloadLink.length > 0
-                    Layout.fillWidth: true
-                    implicitHeight: playlistColumn.implicitHeight + 20
-                    radius: Theme.radius
-                    color: Theme.field
-                    border.color: Theme.line
-                    ColumnLayout {
-                        id: playlistColumn
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 6
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Text {
-                                Layout.fillWidth: true
-                                text: playlistPanel.list.loading ? "Reading the playlist…"
-                                    : playlistPanel.list.error ? playlistPanel.list.error
-                                    : (playlistPanel.list.title || "Playlist") + " · " + toolsPage.playlistSelected + " of " + (playlistPanel.list.entries || []).length + " selected"
-                                color: playlistPanel.list.error ? Theme.danger : Theme.text
-                                font.pixelSize: 13
-                                font.weight: Font.DemiBold
-                                elide: Text.ElideRight
-                            }
-                            EditorButton { visible: toolsPage.linkIsPlaylist; subtle: true; text: "All"; implicitHeight: 30; onClicked: toolsPage.setAllPlaylist(true) }
-                            EditorButton { visible: toolsPage.linkIsPlaylist; subtle: true; text: "None"; implicitHeight: 30; onClicked: toolsPage.setAllPlaylist(false) }
-                        }
-                        ListView {
-                            id: playlistList
-                            visible: toolsPage.linkIsPlaylist
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Math.min(contentHeight, 260)
-                            clip: true
-                            model: playlistPanel.list.entries || []
-                            boundsBehavior: Flickable.StopAtBounds
-                            ScrollBar.vertical: ScrollBar { policy: playlistList.contentHeight > playlistList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
-                            delegate: RowLayout {
-                                required property var modelData
-                                required property int index
-                                width: ListView.view.width
-                                spacing: 8
-                                ToolCheck {
-                                    Layout.fillWidth: true
-                                    implicitHeight: 30
-                                    text: (index + 1) + ". " + (modelData.title || modelData.url)
-                                    checked: !!toolsPage.playlistChecked[index]
-                                    onToggled: {
-                                        var next = toolsPage.playlistChecked.slice()
-                                        next[index] = checked
-                                        toolsPage.playlistChecked = next
-                                    }
-                                }
-                                Text {
-                                    visible: (modelData.durationMs || 0) > 0
-                                    text: toolsPage.durationLabel(modelData.durationMs || 0)
-                                    color: Theme.textFaint
-                                    font.pixelSize: 11
-                                    Layout.rightMargin: 6
-                                }
-                            }
-                        }
-                        EditorButton {
-                            visible: toolsPage.linkIsPlaylist
-                            primary: true
-                            text: "Download " + toolsPage.playlistSelected + (toolsPage.playlistSelected === 1 ? " video" : " videos")
-                            enabled: toolsPage.playlistSelected > 0 && localDownload.available
-                            onClicked: toolsPage.downloadPlaylist()
-                        }
-                        Text {
-                            visible: toolsPage.linkIsPlaylist
-                            text: "Saved one after another to Downloads/" + (localDownload.safeFileName(playlistPanel.list.title || "") || "Playlist")
-                            color: Theme.textFaint
-                            font.pixelSize: 11
-                        }
-                    }
-                }
-                Text { visible: !localDownload.available; text: "Install yt-dlp and FFmpeg locally, or set KADRON_YTDLP and KADRON_FFMPEG."; color: Theme.warning; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12 }
-                ToolCombo {
-                    id: downloadPreset
-                    Layout.preferredWidth: 360
-                    currentIndex: toolsPage.downloadPresetIndex
-                    onActivated: toolsPage.downloadPresetIndex = currentIndex
-                    textRole: "label"
-                    valueRole: "value"
-                    model: [
-                        {label: "MP4 · best", value: "VIDEO_MP4_BEST"},
-                        {label: "MP4 · 720p", value: "VIDEO_MP4_720P"},
-                        {label: "MP4 · smaller file", value: "VIDEO_MP4_DISCORD"},
-                        {label: "GIF · social", value: "VIDEO_GIF_SOCIAL"},
-                        {label: "MP3 · 320 kbps", value: "AUDIO_MP3_320"},
-                        {label: "MP3 · 192 kbps", value: "AUDIO_MP3_192"},
-                        {label: "FLAC", value: "AUDIO_FLAC_BEST"},
-                        {label: "WAV", value: "AUDIO_WAV_BEST"},
-                        {label: "Opus · 96 kbps", value: "AUDIO_OPUS_96"},
-                        {label: "Opus · best", value: "AUDIO_OPUS_BEST"}
-                    ]
-                }
-                GridLayout {
-                    visible: downloadPreset.currentValue === "VIDEO_GIF_SOCIAL"
-                    columns: 4
-                    columnSpacing: 12
-                    rowSpacing: 7
-                    Text { text: "Start (s)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "Duration (s)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "FPS"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Text { text: "Width (px)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    EditorField { id: downloadStart; text: "0"; validator: DoubleValidator { bottom: 0 }
-                        Layout.preferredWidth: 120 }
-                    EditorField { id: downloadDuration; text: "8"; validator: DoubleValidator { bottom: 1; top: 20 }
-                        Layout.preferredWidth: 120 }
-                    EditorField { id: downloadFps; text: "10"; validator: IntValidator { bottom: 5; top: 15 }
-                        Layout.preferredWidth: 120 }
-                    EditorField { id: downloadWidth; text: "480"; validator: IntValidator { bottom: 160; top: 720 }
-                        Layout.preferredWidth: 120 }
-                }
-                RowLayout {
-                    visible: downloadPreset.currentValue === "VIDEO_GIF_SOCIAL"
-                    Text { text: "Max file size (MB)"; color: Theme.textMuted; font.pixelSize: 12 }
-                    EditorField { id: downloadTarget; text: "8"; validator: DoubleValidator { bottom: 1; top: 25 }
-                        Layout.preferredWidth: 120 }
-                }
-                EditorButton {
-                    visible: !toolsPage.linkIsPlaylist
-                    text: localDownload.busy ? "Add to queue" : "Download"
-                    primary: true
-                    enabled: downloadUrl.text.length > 0 && localDownload.available
-                    onClicked: localDownload.busy ? toolsPage.quickDownload() : toolsPage.openDownloadSave()
-                }
+            DownloadPanel {
+                id: downloadPanel
+                page: toolsPage
             }
 
             DropZone {
@@ -1154,1212 +910,29 @@ Item {
                 }
             }
 
-            ColumnLayout {
-                visible: toolsPage.section === 2 && toolsPage.hasSource
-                Layout.fillWidth: true
-                spacing: 12
-                // Visual trimmer: the waveform with a draggable selection.
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 12
-                    EditorButton {
-                        objectName: "audioPlayButton"
-                        iconName: audioPreview.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
-                        enabled: audioPreview.duration > 0
-                        Layout.alignment: Qt.AlignBottom
-                        Layout.bottomMargin: 50
-                        onClicked: toolsPage.toggleAudioPreview()
-                    }
-                    RangeStrip {
-                        id: audioStrip
-                        objectName: "audioStrip"
-                        Layout.fillWidth: true
-                        implicitHeight: 134
-                        waveLoading: audioPreview.duration > 0 && waveform.length === 0
-                        waveform: audioPreview.duration > 0 && thumbnails.revision >= 0 ? thumbnails.waveformFor(toolsPage.sourceUrl) : ""
-                        durationMs: audioPreview.duration
-                        startMs: toolsPage.audioStartMs
-                        endMs: toolsPage.audioEndMs
-                        positionMs: audioPreview.position
-                        onRangeRequested: function(startMs, endMs) { toolsPage.setAudioRange(startMs, endMs) }
-                        onSeekRequested: function(ms) { audioPreview.position = ms }
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 14
-                    Text {
-                        text: audioPreview.duration > 0
-                              ? "Selection " + toolsPage.clockLabel(toolsPage.audioEndMs - toolsPage.audioStartMs) + " of " + toolsPage.clockLabel(audioPreview.duration)
-                              : audioPreview.mediaStatus === MediaPlayer.InvalidMedia ? "This file cannot be previewed; the range fields still apply." : "Reading the file…"
-                        color: Theme.textSoft
-                        font.pixelSize: 12
-                        font.features: { "tnum": 1 }
-                    }
-                    Text { visible: Prefs.audioMoreOptions; text: "from"; color: Theme.textFaint; font.pixelSize: 12; Layout.leftMargin: 6 }
-                    EditorField { id: audioStart; objectName: "audioStart"; visible: Prefs.audioMoreOptions; text: "0"; validator: DoubleValidator { bottom: 0 }
-                        Layout.preferredWidth: 78 }
-                    Text { visible: Prefs.audioMoreOptions; text: "to"; color: Theme.textFaint; font.pixelSize: 12 }
-                    EditorField { id: audioEnd; objectName: "audioEnd"; visible: Prefs.audioMoreOptions; text: "0"; validator: DoubleValidator { bottom: 0 }
-                        Layout.preferredWidth: 78 }
-                    Text { visible: Prefs.audioMoreOptions; text: "s"; color: Theme.textFaint; font.pixelSize: 12 }
-                    Item { Layout.fillWidth: true }
-                    VolumeControl { id: audioVolume; objectName: "audioVolume" }
-                    ToolCheck { text: "Loop"; checked: toolsPage.audioLooping; onToggled: toolsPage.audioLooping = checked }
-                    EditorButton {
-                        text: "Whole file"
-                        subtle: true
-                        enabled: audioPreview.duration > 0 && (toolsPage.audioStartMs > 0 || toolsPage.audioEndMs < audioPreview.duration)
-                        onClicked: { audioStart.text = "0"; audioEnd.text = "0" }
-                    }
-                }
-                // What goes in and roughly what comes out.
-                Rectangle {
-                    objectName: "audioMeter"
-                    Layout.fillWidth: true
-                    Layout.topMargin: 4
-                    implicitHeight: audioMeterRow.implicitHeight + 28
-                    radius: Theme.radius + 2
-                    color: Theme.field
-                    border.color: Theme.line
-                    RowLayout {
-                        id: audioMeterRow
-                        x: 18
-                        y: 14
-                        width: parent.width - 36
-                        spacing: 14
-                        Column {
-                            spacing: 2
-                            Text { text: "NOW"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
-                            Text {
-                                text: toolsPage.sourceBytes > 0 ? toolsPage.sizeLabel(toolsPage.sourceBytes) : "—"
-                                color: Theme.text
-                                font.pixelSize: 20
-                                font.weight: Font.DemiBold
-                            }
-                            Text {
-                                text: audioPreview.duration > 0 ? toolsPage.clockLabel(audioPreview.duration) : " "
-                                color: Theme.textMuted
-                                font.pixelSize: 11
-                                font.features: { "tnum": 1 }
-                            }
-                        }
-                        ToolIcon { name: "chevron"; rotation: -90; tint: Theme.textFaint; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                        Column {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Text { text: "OUT"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
-                            Text {
-                                objectName: "audioEstimate"
-                                text: toolsPage.audioEstimateBytes > 0 ? "≈ " + toolsPage.sizeLabel(toolsPage.audioEstimateBytes) : "—"
-                                color: Theme.accent
-                                font.pixelSize: 20
-                                font.weight: Font.DemiBold
-                            }
-                            Text {
-                                text: toolsPage.audioSelectionSec > 0
-                                      ? toolsPage.clockLabel(toolsPage.audioSelectionSec * 1000) + " · " + toolsPage.audioFormatName.replace("m4a", "aac").toUpperCase()
-                                        + (toolsPage.audioLossless ? " lossless" : " " + toolsPage.audioKbps + " kbps") + (toolsPage.audioMono ? " · mono" : "")
-                                      : " "
-                                color: Theme.textMuted
-                                font.pixelSize: 11
-                                font.features: { "tnum": 1 }
-                            }
-                        }
-                        // Smaller or bigger than the source, by how much.
-                        Rectangle {
-                            readonly property real change: toolsPage.sourceBytes > 0 && toolsPage.audioEstimateBytes > 0
-                                                           ? toolsPage.audioEstimateBytes / toolsPage.sourceBytes - 1 : 0
-                            visible: Math.abs(change) >= 0.05
-                            Layout.preferredWidth: audioChange.implicitWidth + 20
-                            Layout.preferredHeight: 26
-                            radius: 13
-                            color: change < 0 ? Theme.accentWash : Theme.field
-                            border.color: change < 0 ? Theme.accentEdge : Theme.lineStrong
-                            Text {
-                                id: audioChange
-                                anchors.centerIn: parent
-                                text: (parent.change < 0 ? "−" : "+") + Math.round(Math.abs(parent.change) * 100) + "%"
-                                color: parent.change < 0 ? Theme.accent : Theme.textSoft
-                                font.pixelSize: 12
-                                font.weight: Font.DemiBold
-                            }
-                        }
-                    }
-                }
-
-                GridLayout {
-                    columns: 2
-                    columnSpacing: 28
-                    Layout.fillWidth: true
-                    rowSpacing: 7
-                    Layout.topMargin: 4
-                    Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    Text { text: toolsPage.audioLossless ? "Quality" : "Quality (kbps)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "audioFormat_"
-                        options: [
-                            { label: "MP3", value: "mp3", tip: "Plays everywhere" },
-                            { label: "AAC", value: "m4a", tip: "Apple devices and phones; smaller than MP3 at the same quality" },
-                            { label: "Opus", value: "opus", tip: "Best quality for its size; web and voice" },
-                            { label: "WAV", value: "wav", tip: "Uncompressed, for further editing" },
-                            { label: "FLAC", value: "flac", tip: "Lossless and smaller than WAV" }
-                        ]
-                        current: toolsPage.audioFormatName
-                        onActivated: function(format) { toolsPage.audioFormatName = format }
-                    }
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        implicitHeight: 34
-                        SegmentedControl {
-                            visible: !toolsPage.audioLossless
-                            anchors.fill: parent
-                            namePrefix: "audioKbps_"
-                            options: [
-                                { label: "96", value: 96, tip: "Voice and podcasts" },
-                                { label: "128", value: 128, tip: "Good for music" },
-                                { label: "192", value: 192, tip: "High quality" },
-                                { label: "320", value: 320, tip: "The most MP3 can do" }
-                            ]
-                            current: toolsPage.audioKbps
-                            onActivated: function(kbps) { toolsPage.audioKbps = kbps }
-                        }
-                        Text {
-                            visible: toolsPage.audioLossless
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "Lossless · keeps every detail of the source"
-                            color: Theme.textSoft
-                            font.pixelSize: 12
-                        }
-                    }
-                }
-
-                // Everything past format and quality folds away.
-                Item {
-                    objectName: "audioMoreToggle"
-                    Layout.fillWidth: true
-                    Layout.topMargin: 2
-                    implicitHeight: 30
-                    HoverHandler { id: audioMoreHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: Prefs.audioMoreOptions = !Prefs.audioMoreOptions }
-                    Row {
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 6
-                        ToolIcon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            name: "chevron"
-                            width: 14
-                            height: 14
-                            tint: audioMoreHover.hovered ? Theme.text : Theme.textMuted
-                            rotation: Prefs.audioMoreOptions ? 0 : -90
-                            Behavior on rotation { SmoothSpring {} }
-                        }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: Prefs.audioMoreOptions ? "Fewer options" : "More options"
-                            color: audioMoreHover.hovered ? Theme.text : Theme.textMuted
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
-                        }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: Prefs.audioMoreOptions ? "" : toolsPage.audioExtras || "fades, loudness, channels, exact times"
-                            color: toolsPage.audioExtras ? Theme.accent : Theme.textFaint
-                            font.pixelSize: 12
-                        }
-                    }
-                }
-
-                Collapsible {
-                    open: Prefs.audioMoreOptions
-                    GridLayout {
-                        columns: 2
-                        columnSpacing: 28
-                        Layout.fillWidth: true
-                        rowSpacing: 7
-
-                        Text { text: "Fade in"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        Text { text: "Fade out"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        SegmentedControl {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            namePrefix: "audioFadeIn_"
-                            options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
-                            current: toolsPage.audioFadeIn
-                            onActivated: function(sec) { toolsPage.audioFadeIn = sec }
-                        }
-                        SegmentedControl {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            namePrefix: "audioFadeOut_"
-                            options: [{ label: "Off", value: 0 }, { label: "0.5 s", value: 0.5 }, { label: "1 s", value: 1 }, { label: "3 s", value: 3 }]
-                            current: toolsPage.audioFadeOut
-                            onActivated: function(sec) { toolsPage.audioFadeOut = sec }
-                        }
-
-                        Text { text: "Loudness"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        Text { text: "Channels"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        SegmentedControl {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            namePrefix: "audioLufs_"
-                            options: [
-                                { label: "As is", value: 0 },
-                                { label: "Podcast", value: -16, tip: "−16 LUFS, the spoken-word standard" },
-                                { label: "Music", value: -14, tip: "−14 LUFS, what Spotify and YouTube play at" },
-                                { label: "Loud", value: -9, tip: "−9 LUFS, for clips that must cut through" }
-                            ]
-                            current: toolsPage.audioLufs
-                            onActivated: function(lufs) { toolsPage.audioLufs = lufs }
-                        }
-                        SegmentedControl {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            namePrefix: "audioChannels_"
-                            options: [{ label: "Stereo", value: false }, { label: "Mono", value: true, tip: "One channel; fine for voice" }]
-                            current: toolsPage.audioMono
-                            onActivated: function(mono) { toolsPage.audioMono = mono }
-                        }
-                    }
-                }
-
-                EditorButton {
-                    text: "Convert audio"
-                    iconName: "audio"
-                    primary: true
-                    Layout.topMargin: 6
-                    enabled: toolsPage.sourceUrl.toString() && localTools.available && !localTools.busy
-                    onClicked: toolsPage.beginLocal("audio")
-                }
+            AudioPanel {
+                id: audioPanel
+                page: toolsPage
             }
 
-            ColumnLayout {
-                visible: toolsPage.section === 3 && toolsPage.hasSource
-                Layout.fillWidth: true
-                spacing: 10
-                // Before and after: the file as it is, and what the settings aim for.
-                Rectangle {
-                    objectName: "compressMeter"
-                    Layout.fillWidth: true
-                    Layout.maximumWidth: 560
-                    Layout.bottomMargin: 6
-                    implicitHeight: meterColumn.implicitHeight + 32
-                    radius: Theme.radius + 2
-                    color: Theme.field
-                    border.color: Theme.line
-                    ColumnLayout {
-                        id: meterColumn
-                        x: 18
-                        y: 16
-                        width: parent.width - 36
-                        spacing: 12
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 14
-                            Column {
-                                spacing: 2
-                                Text { text: "NOW"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
-                                Text {
-                                    text: toolsPage.sourceBytes > 0 ? toolsPage.sizeLabel(toolsPage.sourceBytes) : "—"
-                                    color: Theme.text
-                                    font.pixelSize: 20
-                                    font.weight: Font.DemiBold
-                                }
-                            }
-                            ToolIcon { name: "chevron"; rotation: -90; tint: Theme.textFaint; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                            Column {
-                                Layout.fillWidth: true
-                                spacing: 2
-                                Text { text: "AIM"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
-                                Text {
-                                    text: toolsPage.compressToSize ? "≤ " + toolsPage.compressMB + " MB"
-                                        : "Quality " + toolsPage.compressQuality + " · " + toolsPage.qualityName(toolsPage.compressQuality)
-                                    color: Theme.accent
-                                    font.pixelSize: 20
-                                    font.weight: Font.DemiBold
-                                }
-                            }
-                            // How much smaller the file should get.
-                            Rectangle {
-                                visible: toolsPage.compressToSize && toolsPage.compressShare < 1
-                                Layout.preferredWidth: savedLabel.implicitWidth + 20
-                                Layout.preferredHeight: 26
-                                radius: 13
-                                color: Theme.accentWash
-                                border.color: Theme.accentEdge
-                                Text {
-                                    id: savedLabel
-                                    anchors.centerIn: parent
-                                    text: "−" + Math.round((1 - toolsPage.compressShare) * 100) + "%"
-                                    color: Theme.accent
-                                    font.pixelSize: 12
-                                    font.weight: Font.DemiBold
-                                }
-                            }
-                        }
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: 6
-                            radius: 3
-                            color: Theme.hover
-                            Rectangle {
-                                width: parent.width * (toolsPage.compressToSize ? toolsPage.compressShare : toolsPage.compressQuality / 100)
-                                height: parent.height
-                                radius: 3
-                                color: Theme.accent
-                                Behavior on width { SmoothSpring {} }
-                            }
-                        }
-                        Text {
-                            visible: toolsPage.compressToSize && toolsPage.sourceBytes > 0 && toolsPage.compressShare >= 1
-                            text: "Already under " + toolsPage.compressMB + " MB, so it will stay about the same size."
-                            color: Theme.textMuted
-                            font.pixelSize: 11
-                        }
-                    }
-                }
-
-                Text { visible: !toolsPage.isImage; text: "Goal"; color: Theme.textMuted; font.pixelSize: 12 }
-                SegmentedControl {
-                    visible: !toolsPage.isImage
-                    Layout.preferredWidth: 300
-                    namePrefix: "compressGoal_"
-                    options: [{ label: "Fit a size", value: "size" }, { label: "Keep quality", value: "quality" }]
-                    current: toolsPage.compressGoal
-                    onActivated: function(goal) { toolsPage.compressGoal = goal }
-                }
-                RowLayout {
-                    visible: toolsPage.compressGoal === "size" && !toolsPage.isImage
-                    spacing: 10
-                    SegmentedControl {
-                        Layout.preferredWidth: 340
-                        namePrefix: "compressSize_"
-                        options: [
-                            { label: "8 MB", value: 8, tip: "Discord without Nitro" },
-                            { label: "25 MB", value: 25, tip: "Most email attachments" },
-                            { label: "50 MB", value: 50, tip: "Discord Nitro Basic" },
-                            { label: "100 MB", value: 100 }
-                        ]
-                        current: toolsPage.compressMB
-                        onActivated: function(mb) { toolsPage.compressMB = mb; compressTarget.text = mb }
-                    }
-                    EditorField {
-                        id: compressTarget
-                        objectName: "compressTarget"
-                        text: "8"
-                        validator: DoubleValidator { bottom: 0.5 }
-                        Layout.preferredWidth: 72
-                        onTextEdited: if (Number(text) > 0) toolsPage.compressMB = Number(text)
-                    }
-                    Text { text: "MB"; color: Theme.textMuted; font.pixelSize: 12 }
-                }
-                RowLayout {
-                    visible: toolsPage.compressGoal === "quality" || toolsPage.isImage
-                    spacing: 14
-                    ToolSlider {
-                        objectName: "compressQuality"
-                        Layout.preferredWidth: 300
-                        from: 1
-                        to: 100
-                        stepSize: 1
-                        value: toolsPage.compressQuality
-                        onMoved: toolsPage.compressQuality = Math.round(value)
-                    }
-                    Text {
-                        text: toolsPage.compressQuality + " · " + toolsPage.qualityName(toolsPage.compressQuality)
-                        color: Theme.textSoft
-                        font.pixelSize: 12
-                    }
-                }
-
-                Text { text: "Format"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
-                SegmentedControl {
-                    Layout.preferredWidth: toolsPage.compressFormats.length * 76
-                    namePrefix: "compressFormat_"
-                    options: toolsPage.compressFormats.map(function(name) { return { label: name, value: name } })
-                    current: toolsPage.compressFormatName
-                    onActivated: function(name) { toolsPage.compressPick = name }
-                }
-
-                Text { text: "Resolution"; color: Theme.textMuted; font.pixelSize: 12; Layout.topMargin: 6 }
-                SegmentedControl {
-                    Layout.preferredWidth: 340
-                    namePrefix: "compressWidth_"
-                    options: toolsPage.isImage
-                        ? [{ label: "Original", value: 0 }, { label: "2560 px", value: 2560 }, { label: "1920 px", value: 1920 }, { label: "1280 px", value: 1280 }]
-                        : [{ label: "Original", value: 0 }, { label: "1080p", value: 1920 }, { label: "720p", value: 1280 }, { label: "480p", value: 854 }]
-                    current: toolsPage.compressWidth
-                    onActivated: function(width) { toolsPage.compressWidth = width }
-                }
-
-                ToolCheck { id: compressNoAudio; visible: !toolsPage.isImage; text: "Remove audio"; Layout.topMargin: 4 }
-                EditorButton {
-                    objectName: "compressButton"
-                    text: toolsPage.compressBatch.length > 1 ? "Compress " + toolsPage.compressBatch.length + " files…" : "Compress"
-                    iconName: "compress"
-                    primary: true
-                    enabled: toolsPage.sourceUrl.toString() && localTools.available && !localTools.busy && !toolsPage.compressRunning
-                    onClicked: {
-                        if (toolsPage.compressBatch.length < 2) { toolsPage.beginLocal("compress"); return }
-                        var first = toolsPage.compressBatch[0].toString()
-                        compressFolderDialog.currentFolder = first.substring(0, first.lastIndexOf("/"))
-                        compressFolderDialog.open()
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    visible: toolsPage.compressBatch.length < 2 && !toolsPage.compressRunning
-                    text: "Tip: drop or pick several files to compress them all with these settings."
-                    color: Theme.textFaint
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
-                }
+            CompressPanel {
+                id: compressPanel
+                page: toolsPage
             }
 
-            ColumnLayout {
-                visible: toolsPage.section === 4 && toolsPage.hasSource
-                Layout.fillWidth: true
-                spacing: 12
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 280
-                    radius: 10
-                    color: Theme.canvas
-                    clip: true
-                    VideoOutput { id: gifVideo; anchors.fill: parent; visible: gifPreview.hasVideo; fillMode: VideoOutput.PreserveAspectFit }
-                    AnimatedImage { anchors.fill: parent; visible: toolsPage.gifSourceIsGif; source: visible ? toolsPage.sourceUrl : ""; fillMode: Image.PreserveAspectFit }
-                    Rectangle {
-                        visible: gifPreview.hasVideo
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.margins: 10
-                        width: loopLabel.implicitWidth + 30
-                        height: 24
-                        radius: 12
-                        color: Theme.chipScrim
-                        ToolIcon { x: 8; anchors.verticalCenter: parent.verticalCenter; width: 13; height: 13; name: "loop"; tint: toolsPage.gifLooping ? Theme.accent : Theme.textMuted }
-                        Text {
-                            id: loopLabel
-                            x: 25
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: (toolsPage.gifLooping ? "Looping " : "Paused · ") + ((toolsPage.gifEndMs - toolsPage.gifStartMs) / 1000).toFixed(2) + " s"
-                            color: Theme.textSoft
-                            font.pixelSize: 11
-                            font.weight: Font.DemiBold
-                        }
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 12
-                    EditorButton {
-                        iconName: gifPreview.playbackState === MediaPlayer.PlayingState ? "pause" : "play"
-                        enabled: gifPreview.hasVideo
-                        Layout.alignment: Qt.AlignBottom
-                        Layout.bottomMargin: 29
-                        onClicked: {
-                            if (gifPreview.playbackState === MediaPlayer.PlayingState) {
-                                toolsPage.gifLooping = false
-                                gifPreview.pause()
-                            } else {
-                                toolsPage.gifLooping = true
-                                if (gifPreview.position < toolsPage.gifStartMs || gifPreview.position >= toolsPage.gifEndMs) gifPreview.position = toolsPage.gifStartMs
-                                gifPreview.play()
-                            }
-                        }
-                    }
-                    RangeStrip {
-                        Layout.fillWidth: true
-                        frames: gifPreview.duration > 0 && thumbnails.revision >= 0 ? thumbnails.framesFor(toolsPage.sourceUrl, gifPreview.duration) : []
-                        durationMs: gifPreview.duration
-                        startMs: toolsPage.gifStartMs
-                        endMs: toolsPage.gifEndMs
-                        positionMs: gifPreview.position
-                        onRangeRequested: function(startMs, endMs) { toolsPage.setGifRange(startMs, endMs) }
-                        onSeekRequested: function(ms) { gifPreview.position = ms }
-                    }
-                }
-                // The clip going in and the GIF coming out.
-                Rectangle {
-                    objectName: "gifMeter"
-                    Layout.fillWidth: true
-                    implicitHeight: gifMeterRow.implicitHeight + 28
-                    radius: Theme.radius + 2
-                    color: Theme.field
-                    border.color: Theme.line
-                    RowLayout {
-                        id: gifMeterRow
-                        x: 18
-                        y: 14
-                        width: parent.width - 36
-                        spacing: 14
-                        Column {
-                            spacing: 2
-                            Text { text: "CLIP"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
-                            Text {
-                                text: ((toolsPage.gifEndMs - toolsPage.gifStartMs) / 1000).toFixed(2) + " s"
-                                color: Theme.text
-                                font.pixelSize: 20
-                                font.weight: Font.DemiBold
-                                font.features: { "tnum": 1 }
-                            }
-                            Text {
-                                text: "from " + toolsPage.clockLabel(toolsPage.gifStartMs)
-                                color: Theme.textMuted
-                                font.pixelSize: 11
-                                font.features: { "tnum": 1 }
-                            }
-                        }
-                        ToolIcon { name: "chevron"; rotation: -90; tint: Theme.textFaint; Layout.preferredWidth: 16; Layout.preferredHeight: 16 }
-                        Column {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            Text { text: "GIF"; color: Theme.textFaint; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 1.2 }
-                            Text {
-                                objectName: "gifOutSize"
-                                text: toolsPage.gifWidthPx + (toolsPage.gifHeightPx > 0 ? " × " + toolsPage.gifHeightPx : " px wide")
-                                color: Theme.accent
-                                font.pixelSize: 20
-                                font.weight: Font.DemiBold
-                                font.features: { "tnum": 1 }
-                            }
-                            Text {
-                                text: toolsPage.gifOutSec.toFixed(2) + " s · " + Math.round(toolsPage.gifOutSec * toolsPage.gifFps) + " frames"
-                                      + (toolsPage.gifExtras ? " · " + toolsPage.gifExtras : "")
-                                color: Theme.textMuted
-                                font.pixelSize: 11
-                                font.features: { "tnum": 1 }
-                            }
-                        }
-                        Rectangle {
-                            Layout.preferredWidth: gifLimitText.implicitWidth + 20
-                            Layout.preferredHeight: 26
-                            radius: 13
-                            color: toolsPage.gifLimitMB > 0 ? Theme.accentWash : Theme.field
-                            border.color: toolsPage.gifLimitMB > 0 ? Theme.accentEdge : Theme.lineStrong
-                            Text {
-                                id: gifLimitText
-                                anchors.centerIn: parent
-                                text: toolsPage.gifLimitMB > 0 ? "≤ " + toolsPage.gifLimitMB + " MB" : "No size limit"
-                                color: toolsPage.gifLimitMB > 0 ? Theme.accent : Theme.textSoft
-                                font.pixelSize: 12
-                                font.weight: Font.DemiBold
-                            }
-                        }
-                    }
-                }
-
-                GridLayout {
-                    columns: 2
-                    columnSpacing: 28
-                    rowSpacing: 7
-                    Layout.fillWidth: true
-                    Layout.topMargin: 4
-                    Text { text: "Size"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    Text { text: "Smoothness"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "gifWidth_"
-                        options: [
-                            { label: "320", value: 320, tip: "Chats and reactions" },
-                            { label: "480", value: 480, tip: "The usual GIF size" },
-                            { label: "720", value: 720, tip: "Sharp, but heavier" },
-                            { label: "1080", value: 1080, tip: "Full HD width; big files" }
-                        ]
-                        current: toolsPage.gifWidthPx
-                        onActivated: function(width) { toolsPage.gifWidthPx = width }
-                    }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "gifFps_"
-                        options: [
-                            { label: "10 fps", value: 10, tip: "Light, the classic GIF look" },
-                            { label: "15 fps", value: 15, tip: "Smoother motion" },
-                            { label: "24 fps", value: 24, tip: "Film-smooth; about twice the size of 10 fps" }
-                        ]
-                        current: toolsPage.gifFps
-                        onActivated: function(fps) { toolsPage.gifFps = fps }
-                    }
-                    Text { text: "Size limit"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    Item { Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        namePrefix: "gifLimit_"
-                        options: [
-                            { label: "None", value: 0 },
-                            { label: "2 MB", value: 2, tip: "Small enough for most chats" },
-                            { label: "5 MB", value: 5 },
-                            { label: "10 MB", value: 10, tip: "Discord's upload limit" }
-                        ]
-                        current: toolsPage.gifLimitMB
-                        onActivated: function(mb) { toolsPage.gifLimitMB = mb }
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        text: toolsPage.gifLimitMB > 0 ? "Shrinks size and frame rate until it fits." : ""
-                        color: Theme.textFaint
-                        font.pixelSize: 12
-                        wrapMode: Text.WordWrap
-                    }
-                }
-
-                // Speed, playback and exact times fold away.
-                Item {
-                    objectName: "gifMoreToggle"
-                    Layout.fillWidth: true
-                    Layout.topMargin: 2
-                    implicitHeight: 30
-                    HoverHandler { id: gifMoreHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: Prefs.gifMoreOptions = !Prefs.gifMoreOptions }
-                    Row {
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 6
-                        ToolIcon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            name: "chevron"
-                            width: 14
-                            height: 14
-                            tint: gifMoreHover.hovered ? Theme.text : Theme.textMuted
-                            rotation: Prefs.gifMoreOptions ? 0 : -90
-                            Behavior on rotation { SmoothSpring {} }
-                        }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: Prefs.gifMoreOptions ? "Fewer options" : "More options"
-                            color: gifMoreHover.hovered ? Theme.text : Theme.textMuted
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
-                        }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: Prefs.gifMoreOptions ? "" : toolsPage.gifExtras || "speed, bounce, exact times"
-                            color: toolsPage.gifExtras ? Theme.accent : Theme.textFaint
-                            font.pixelSize: 12
-                        }
-                    }
-                }
-
-                Collapsible {
-                    open: Prefs.gifMoreOptions
-                    GridLayout {
-                        columns: 2
-                        columnSpacing: 28
-                        rowSpacing: 7
-                        Layout.fillWidth: true
-                        Text { text: "Speed"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        Text { text: "Playback"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        SegmentedControl {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            namePrefix: "gifSpeed_"
-                            options: [
-                                { label: "0.5×", value: 0.5, tip: "Slow motion" },
-                                { label: "1×", value: 1 },
-                                { label: "1.5×", value: 1.5 },
-                                { label: "2×", value: 2, glyph: "bolt", boltSize: 12 }
-                            ]
-                            current: toolsPage.gifSpeed
-                            onActivated: function(speed) { toolsPage.gifSpeed = speed }
-                        }
-                        SegmentedControl {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            namePrefix: "gifPlayback_"
-                            options: [
-                                { label: "Loop", value: "loop", tip: "Plays forward, over and over" },
-                                { label: "Bounce", value: "bounce", tip: "Forward, then backward, like a boomerang" },
-                                { label: "Once", value: "once", tip: "Plays one time and stops on the last frame" }
-                            ]
-                            current: toolsPage.gifOnce ? "once" : toolsPage.gifBounce ? "bounce" : "loop"
-                            onActivated: function(mode) {
-                                toolsPage.gifBounce = mode === "bounce"
-                                toolsPage.gifOnce = mode === "once"
-                            }
-                        }
-                        Text { text: "Start (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        Text { text: "Length (s)"; color: Theme.textMuted; font.pixelSize: 12; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        EditorField { id: gifStart; objectName: "gifStart"; text: "0"; validator: DoubleValidator { bottom: 0 }
-                            Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                        EditorField { id: gifDuration; objectName: "gifDuration"; text: "8"; validator: DoubleValidator { bottom: 0.1 }
-                            Layout.fillWidth: true; Layout.preferredWidth: 1 }
-                    }
-                }
-
-                EditorButton {
-                    text: "Create GIF"
-                    iconName: "gif"
-                    primary: true
-                    Layout.topMargin: 6
-                    enabled: toolsPage.sourceUrl.toString() && localTools.available && !localTools.busy
-                    onClicked: toolsPage.beginLocal("gif")
-                }
-                Text { visible: toolsPage.resultSection === "gif" && localTools.outputUrl.toString().length > 0 && !localTools.busy; text: "Result preview · " + toolsPage.sizeLabel(localTools.outputBytes); color: Theme.textMuted; font.pixelSize: 12 }
-                Rectangle {
-                    visible: toolsPage.resultSection === "gif" && localTools.outputUrl.toString().length > 0 && !localTools.busy
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? 252 : 0
-                    radius: 10
-                    color: Theme.canvas
-                    clip: true
-                    AnimatedImage { anchors.fill: parent; source: parent.visible ? localTools.outputUrl : ""; fillMode: Image.PreserveAspectFit }
-                }
+            GifPanel {
+                id: gifPanel
+                page: toolsPage
             }
 
-            ColumnLayout {
-                visible: toolsPage.section === 5
-                Layout.fillWidth: true
-                spacing: 12
-                // Modes mirror the web PDF editor.
-                Row {
-                    spacing: 6
-                    Repeater {
-                        model: [["edit", "Edit pages", "pdf"], ["merge", "Merge", "plus"], ["split", "Extract pages", "split"], ["images-to-pdf", "Images to PDF", "file"]]
-                        delegate: EditorButton {
-                            required property var modelData
-                            text: modelData[1]
-                            iconName: modelData[2]
-                            primary: toolsPage.pdfMode === modelData[0]
-                            subtle: toolsPage.pdfMode !== modelData[0]
-                            onClicked: toolsPage.setPdfMode(modelData[0])
-                        }
-                    }
-                }
-                DropZone {
-                    visible: toolsPage.pdfFiles.length === 0
-                    Layout.fillWidth: true
-                    implicitHeight: 220
-                    active: pageDrop.containsDrag
-                    iconName: toolsPage.pdfMode === "images-to-pdf" ? "drop" : "pdf"
-                    heading: toolsPage.pdfMode === "images-to-pdf" ? "Drop images to combine" : toolsPage.pdfMode === "merge" ? "Drop the PDFs to merge" : "Drop a PDF"
-                    formats: toolsPage.pdfMode === "images-to-pdf" ? "JPG · PNG · WEBP · BMP · TIFF" : toolsPage.pdfMode === "edit" ? "PDF · reorder, rotate and remove pages visually" : "PDF"
-                    onBrowseRequested: pdfDialog.open()
-                }
-                Rectangle {
-                    visible: toolsPage.pdfFiles.length > 0 && !toolsPage.pdfUsesBoard
-                    Layout.fillWidth: true
-                    implicitHeight: 54
-                    radius: Theme.radius
-                    color: pageDrop.containsDrag ? Theme.accentWash : Theme.field
-                    border.color: pageDrop.containsDrag ? Theme.accent : Theme.line
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 8
-                        spacing: 10
-                        ToolIcon { name: "pdf"; tint: Theme.accent }
-                        Text {
-                            Layout.fillWidth: true
-                            text: pageDrop.containsDrag ? "Drop to replace" : toolsPage.pdfFiles.map(function(file) { return decodeURIComponent(toolsPage.filename(file)) }).join(", ")
-                            color: Theme.text
-                            font.pixelSize: 13
-                            elide: Text.ElideMiddle
-                        }
-                        Text {
-                            text: toolsPage.pdfMode === "edit" ? (localPdf.loadingPages ? "Reading pages…" : localPdf.pageImages.length + " pages")
-                                  : toolsPage.pdfFiles.length + (toolsPage.pdfFiles.length === 1 ? " file" : " files")
-                            color: Theme.textMuted
-                            font.pixelSize: 11
-                        }
-                        EditorButton { text: "Change"; subtle: true; onClicked: pdfDialog.open() }
-                        EditorButton { iconName: "close"; subtle: true; enabled: !localPdf.busy; onClicked: toolsPage.pdfFiles = [] }
-                    }
-                }
-                Text { visible: !localPdf.qpdfAvailable && toolsPage.pdfMode !== "images-to-pdf"; text: "Install qpdf locally or set KADRON_QPDF for this operation."; color: Theme.warning; font.pixelSize: 12 }
-                Text { visible: toolsPage.pdfMode === "edit" && localPdf.pagesError.length > 0; text: localPdf.pagesError; color: Theme.danger; font.pixelSize: 12 }
-
-                // Visual page editor.
-                RowLayout {
-                    visible: toolsPage.pdfMode === "edit" && pageModel.count > 0
-                    Layout.fillWidth: true
-                    spacing: 6
-                    Text {
-                        Layout.fillWidth: true
-                        text: pageModel.count + " pages" + (toolsPage.pdfSelected > 0 ? " · " + toolsPage.pdfSelected + " selected" : " · click to select, drag to reorder, double-click to preview")
-                        color: Theme.textMuted
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
-                    }
-                    EditorButton { text: toolsPage.pdfSelected === pageModel.count ? "Select none" : "Select all"; subtle: true; onClicked: toolsPage.selectAllPages(toolsPage.pdfSelected !== pageModel.count) }
-                    EditorButton { iconName: "rotateLeft"; subtle: true; enabled: toolsPage.pdfSelected > 0; onClicked: toolsPage.rotateSelected(-90); ToolTip.visible: hovered; ToolTip.text: "Rotate selected left" }
-                    EditorButton { iconName: "rotateRight"; subtle: true; enabled: toolsPage.pdfSelected > 0; onClicked: toolsPage.rotateSelected(90); ToolTip.visible: hovered; ToolTip.text: "Rotate selected right" }
-                    EditorButton { iconName: "trash"; subtle: true; danger: true; enabled: toolsPage.pdfSelected > 0 && toolsPage.pdfSelected < pageModel.count; onClicked: toolsPage.deleteSelected(); ToolTip.visible: hovered; ToolTip.text: "Remove selected pages" }
-                    EditorButton { text: "Reset"; subtle: true; enabled: toolsPage.pdfEdited; onClicked: toolsPage.resetPages() }
-                }
-                Item {
-                    visible: toolsPage.pdfMode === "edit" && (pageModel.count > 0 || localPdf.loadingPages)
-                    Layout.fillWidth: true
-                    implicitHeight: localPdf.loadingPages ? 220 : pageGrid.contentHeight + 8
-                    // Loading skeleton in the grid's shape.
-                    Flow {
-                        anchors.fill: parent
-                        visible: localPdf.loadingPages
-                        spacing: 14
-                        Repeater {
-                            model: 5
-                            delegate: SkeletonBlock { width: 136; height: 194; radius: 10 }
-                        }
-                    }
-                    GridView {
-                        id: pageGrid
-                        anchors.fill: parent
-                        visible: !localPdf.loadingPages
-                        interactive: false
-                        cellWidth: 150
-                        cellHeight: 214
-                        model: pageModel
-                        displaced: Transition { SmoothSpring { properties: "x,y" } }
-                        delegate: DropArea {
-                            id: slot
-                            required property int index
-                            required property int page
-                            required property int rotation
-                            required property bool selected
-                            width: pageGrid.cellWidth
-                            height: pageGrid.cellHeight
-                            keys: ["kadron-page-card"]
-                            onEntered: function(drag) {
-                                if (drag.source && drag.source.visualIndex !== slot.index) {
-                                    pageModel.move(drag.source.visualIndex, slot.index, 1)
-                                    toolsPage.pdfEdited = true
-                                }
-                            }
-                            Rectangle {
-                                id: pageCard
-                                readonly property int visualIndex: slot.index
-                                width: 136
-                                height: 200
-                                anchors.horizontalCenter: dragging ? undefined : parent.horizontalCenter
-                                anchors.top: dragging ? undefined : parent.top
-                                readonly property bool dragging: cardMouse.drag.active
-                                radius: 10
-                                color: slot.selected ? Theme.accentWash : cardMouse.containsMouse ? Theme.card : Theme.field
-                                border.width: slot.selected ? 2 : 1
-                                border.color: slot.selected ? Theme.accent : Theme.line
-                                scale: dragging ? 1.05 : 1
-                                z: dragging ? 10 : 1
-                                Behavior on scale { SnapSpring {} }
-                                Behavior on color { ColorAnimation { duration: Theme.fadeFast } }
-                                Drag.active: dragging
-                                Drag.source: pageCard
-                                Drag.keys: ["kadron-page-card"]
-                                Drag.hotSpot.x: width / 2
-                                Drag.hotSpot.y: height / 2
-                                states: State {
-                                    when: pageCard.dragging
-                                    ParentChange { target: pageCard; parent: pageGrid }
-                                }
-                                Item {
-                                    id: pageFrame
-                                    x: 10
-                                    y: 10
-                                    width: parent.width - 20
-                                    height: parent.height - 40
-                                    clip: true
-                                    Image {
-                                        id: pageImage
-                                        anchors.centerIn: parent
-                                        readonly property bool sideways: ((slot.rotation % 180) + 180) % 180 === 90
-                                        width: sideways ? pageFrame.height : pageFrame.width
-                                        height: sideways ? pageFrame.width : pageFrame.height
-                                        source: localPdf.pageImages[slot.page - 1] || ""
-                                        fillMode: Image.PreserveAspectFit
-                                        asynchronous: true
-                                        rotation: slot.rotation
-                                        Behavior on rotation { SnapSpring { epsilon: 0.2 } }
-                                    }
-                                }
-                                Text {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: 8
-                                    text: (slot.index + 1) + (slot.page !== slot.index + 1 ? "  ·  p. " + slot.page : "")
-                                    color: slot.selected ? Theme.accentSoft : Theme.textMuted
-                                    font.pixelSize: 11
-                                    font.weight: Font.DemiBold
-                                }
-                                // Unlike cardMouse, stays hovered while the pointer is on the page buttons.
-                                HoverHandler { id: cardHover }
-                                MouseArea {
-                                    id: cardMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    drag.target: pageCard
-                                    cursorShape: pageCard.dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
-                                    onClicked: pageModel.setProperty(slot.index, "selected", !slot.selected)
-                                    onDoubleClicked: toolsPage.openPagePreview(slot.index)
-                                    onReleased: pageCard.Drag.drop()
-                                }
-                                // Per-page actions on hover.
-                                Row {
-                                    anchors.top: parent.top
-                                    anchors.right: parent.right
-                                    anchors.margins: 6
-                                    spacing: 2
-                                    opacity: cardHover.hovered && !pageCard.dragging ? 1 : 0
-                                    Behavior on opacity { NumberAnimation { duration: Theme.fadeFast } }
-                                    Repeater {
-                                        model: [["rotateLeft", -90, "Rotate left"], ["rotateRight", 90, "Rotate right"], ["zoom", 0, "View larger"], ["trash", 0, "Remove page"]]
-                                        delegate: Rectangle {
-                                            required property var modelData
-                                            width: 26
-                                            height: 26
-                                            radius: 7
-                                            color: actionMouse.containsMouse ? (modelData[0] === "trash" ? Theme.dangerStrong : Theme.pressed) : Theme.chipScrim
-                                            ToolTip.visible: actionMouse.containsMouse
-                                            ToolTip.delay: 400
-                                            ToolTip.text: modelData[2]
-                                            ToolIcon { anchors.centerIn: parent; width: 15; height: 15; name: parent.modelData[0]; tint: parent.modelData[0] === "trash" && !actionMouse.containsMouse ? Theme.danger : "#f1f4ef" }
-                                            MouseArea {
-                                                id: actionMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    if (parent.modelData[0] === "trash") toolsPage.removePage(slot.index)
-                                                    else if (parent.modelData[0] === "zoom") toolsPage.openPagePreview(slot.index)
-                                                    else toolsPage.rotatePage(slot.index, parent.modelData[1])
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Merge / Images to PDF: ordered cards with an Add tile.
-                RowLayout {
-                    visible: toolsPage.pdfUsesBoard && toolsPage.pdfFiles.length > 0
-                    Layout.fillWidth: true
-                    spacing: 6
-                    Text {
-                        Layout.fillWidth: true
-                        text: {
-                            var n = toolsPage.pdfFiles.length
-                            if (toolsPage.pdfMode === "images-to-pdf") return n + (n === 1 ? " image · one page each" : " images · one page each, in this order")
-                            var pages = 0
-                            for (var i = 0; i < n; i++) pages += (localPdf.covers[toolsPage.pdfFiles[i].toString()] || {}).pages || 0
-                            return n + (n === 1 ? " file" : " files") + (pages ? " · " + pages + " pages" : "") + (n < 2 ? " · add at least one more" : " · drag to set the order")
-                        }
-                        color: Theme.textMuted
-                        font.pixelSize: 12
-                    }
-                    EditorButton { text: "Clear"; subtle: true; enabled: !localPdf.busy; onClicked: toolsPage.pdfFiles = [] }
-                }
-                FileBoard {
-                    objectName: "pdfFileBoard"
-                    visible: toolsPage.pdfUsesBoard && toolsPage.pdfFiles.length > 0
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: implicitHeight
-                    files: toolsPage.pdfFiles
-                    images: toolsPage.pdfMode === "images-to-pdf"
-                    covers: localPdf.covers
-                    onReordered: function(files) { toolsPage.pdfFiles = files }
-                    onRemoveRequested: function(index) { toolsPage.removePdfFile(index) }
-                    onAddRequested: pdfDialog.open()
-                }
-
-                // Extract pages: pick on the thumbnails or type a range.
-                RowLayout {
-                    visible: toolsPage.pdfMode === "split" && toolsPage.pdfFiles.length > 0
-                    Layout.fillWidth: true
-                    spacing: 6
-                    EditorField {
-                        id: pdfPages
-                        objectName: "pdfPages"
-                        Layout.fillWidth: true
-                        Layout.maximumWidth: 420
-                        placeholderText: "Click pages below, or type e.g. 1, 3-5"
-                        onTextEdited: toolsPage.splitPages = localPdf.rangeToPages(text, localPdf.pageImages.length)
-                    }
-                    EditorButton { text: "All"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= localPdf.pageImages.length; i++) p.push(i); toolsPage.setSplitPages(p) } }
-                    EditorButton { text: "Odd"; subtle: true; onClicked: { var p = []; for (var i = 1; i <= localPdf.pageImages.length; i += 2) p.push(i); toolsPage.setSplitPages(p) } }
-                    EditorButton { text: "Even"; subtle: true; onClicked: { var p = []; for (var i = 2; i <= localPdf.pageImages.length; i += 2) p.push(i); toolsPage.setSplitPages(p) } }
-                    EditorButton { text: "None"; subtle: true; enabled: toolsPage.splitPages.length > 0; onClicked: toolsPage.setSplitPages([]) }
-                    Item { Layout.fillWidth: true }
-                    Text {
-                        text: toolsPage.splitPages.length > 0 ? toolsPage.splitPages.length + " of " + localPdf.pageImages.length + " pages" : "Shift+click picks a run"
-                        color: Theme.textMuted
-                        font.pixelSize: 12
-                    }
-                }
-                Item {
-                    visible: toolsPage.pdfMode === "split" && toolsPage.pdfFiles.length > 0 && localPdf.loadingPages
-                    Layout.fillWidth: true
-                    implicitHeight: 200
-                    Row {
-                        spacing: 10
-                        Repeater { model: 5; SkeletonBlock { width: 134; height: 194; radius: 10 } }
-                    }
-                }
-                PagePicker {
-                    objectName: "pagePicker"
-                    visible: toolsPage.pdfMode === "split" && toolsPage.pdfFiles.length > 0 && !localPdf.loadingPages
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: implicitHeight
-                    images: localPdf.pageImages
-                    selected: toolsPage.splitPages
-                    onSelectionEdited: function(pages) { toolsPage.setSplitPages(pages) }
-                }
-                Text { text: "Documents stay on this device."; color: Theme.textFaint; font.pixelSize: 11 }
-                EditorButton {
-                    text: toolsPage.pdfMode === "edit" ? "Save PDF" : toolsPage.pdfMode === "merge" ? "Merge PDFs" : toolsPage.pdfMode === "split" ? "Extract pages" : "Create PDF"
-                    iconName: "save"
-                    primary: true
-                    enabled: !localPdf.busy && (toolsPage.pdfMode === "edit" ? pageModel.count > 0 && localPdf.qpdfAvailable
-                             : toolsPage.pdfFiles.length > (toolsPage.pdfMode === "merge" ? 1 : 0) && (localPdf.qpdfAvailable || toolsPage.pdfMode === "images-to-pdf") && (toolsPage.pdfMode !== "split" || toolsPage.splitPages.length > 0))
-                    onClicked: toolsPage.openPdfSave()
-                }
+            PdfPanel {
+                id: pdfPanel
+                page: toolsPage
             }
 
-            // QR: live preview while typing, styled and exported on this device.
-            RowLayout {
-                visible: toolsPage.section === 6
-                Layout.fillWidth: true
-                spacing: 24
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    spacing: 12
-                    Text { visible: !localQr.available; text: "Install qrencode locally or set KADRON_QRENCODE."; color: Theme.warning; font.pixelSize: 12 }
-                    Text { text: "Text or URL"; color: Theme.textMuted; font.pixelSize: 12 }
-                    EditorField {
-                        id: qrText
-                        Layout.fillWidth: true
-                        placeholderText: "https://..."
-                        onTextChanged: qrDelay.restart()
-                    }
-                    Timer { id: qrDelay; interval: 150; onTriggered: localQr.update(qrText.text, toolsPage.qrLevel) }
-                    Text { text: "Colors"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Repeater {
-                            model: [["#000000", "#ffffff"], ["#ffffff", "#000000"], ["#1a5fb4", "#ffffff"], ["#ffffff", "#1a5fb4"], ["#17200e", "#c9f27a"], ["#c0392b", "#fef9e7"], ["#1e272e", "#f5f6fa"]]
-                            delegate: Rectangle {
-                                required property var modelData
-                                readonly property bool chosen: toolsPage.qrFg === modelData[0] && toolsPage.qrBg === modelData[1]
-                                width: 36
-                                height: 36
-                                radius: 9
-                                color: modelData[1]
-                                border.width: chosen ? 2 : 1
-                                border.color: chosen ? Theme.accent : Theme.lineStrong
-                                scale: swatchMouse.pressed ? 0.92 : 1
-                                Behavior on scale { SnapSpring {} }
-                                Rectangle { anchors.centerIn: parent; width: 16; height: 16; radius: 3; color: parent.modelData[0] }
-                                MouseArea { id: swatchMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { toolsPage.qrFg = parent.modelData[0]; toolsPage.qrBg = parent.modelData[1] } }
-                            }
-                        }
-                    }
-                    RowLayout {
-                        spacing: 10
-                        Text { text: "Foreground"; color: Theme.textMuted; font.pixelSize: 12 }
-                        EditorField {
-                            Layout.preferredWidth: 100
-                            text: toolsPage.qrFg
-                            validator: RegularExpressionValidator { regularExpression: /#[0-9a-fA-F]{6}/ }
-                            onEditingFinished: toolsPage.qrFg = text.toLowerCase()
-                        }
-                        EditorButton { iconName: "loop"; subtle: true; onClicked: { var fg = toolsPage.qrFg; toolsPage.qrFg = toolsPage.qrBg; toolsPage.qrBg = fg } ToolTip.visible: hovered; ToolTip.text: "Swap colors" }
-                        Text { text: "Background"; color: Theme.textMuted; font.pixelSize: 12 }
-                        EditorField {
-                            Layout.preferredWidth: 100
-                            text: toolsPage.qrBg
-                            validator: RegularExpressionValidator { regularExpression: /#[0-9a-fA-F]{6}/ }
-                            onEditingFinished: toolsPage.qrBg = text.toLowerCase()
-                        }
-                    }
-                    Text { text: "Error correction"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Row {
-                        spacing: 6
-                        Repeater {
-                            model: [["L", "7%"], ["M", "15%"], ["Q", "25%"], ["H", "30%"]]
-                            delegate: EditorButton {
-                                required property var modelData
-                                text: modelData[0] + "  " + modelData[1]
-                                primary: toolsPage.qrLevel === modelData[0]
-                                onClicked: { toolsPage.qrLevel = modelData[0]; localQr.update(qrText.text, toolsPage.qrLevel) }
-                            }
-                        }
-                    }
-                    Text { text: "Export size"; color: Theme.textMuted; font.pixelSize: 12 }
-                    Row {
-                        spacing: 6
-                        Repeater {
-                            model: [256, 512, 1024, 2048]
-                            delegate: EditorButton {
-                                required property int modelData
-                                text: modelData + " px"
-                                primary: toolsPage.qrSize === modelData
-                                onClicked: toolsPage.qrSize = modelData
-                            }
-                        }
-                    }
-                    RowLayout {
-                        Layout.topMargin: 6
-                        spacing: 8
-                        EditorButton { text: "Save PNG"; iconName: "save"; primary: true; enabled: localQr.modules > 0; onClicked: toolsPage.openQrSave("png") }
-                        EditorButton { text: "Save SVG"; iconName: "save"; enabled: localQr.modules > 0; onClicked: toolsPage.openQrSave("svg") }
-                        EditorButton {
-                            id: qrCopy
-                            property bool copied: false
-                            text: copied ? "Copied" : "Copy"
-                            iconName: copied ? "check" : "copy"
-                            enabled: localQr.modules > 0
-                            ToolTip.visible: hovered; ToolTip.delay: 500; ToolTip.text: "Copy the code as a picture · Ctrl+V to paste"
-                            onClicked: if (localQr.copyImage(toolsPage.qrSize, toolsPage.qrFg, toolsPage.qrBg)) { copied = true; qrCopyReset.restart() }
-                            Timer { id: qrCopyReset; interval: 1400; onTriggered: qrCopy.copied = false }
-                        }
-                        EditorButton { text: "Open file"; subtle: true; visible: localQr.outputUrl.toString().length > 0; onClicked: Qt.openUrlExternally(localQr.outputUrl) }
-                    }
-                    Text { visible: localQr.errorText.length > 0; text: localQr.errorText; color: Theme.danger; font.pixelSize: 12; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                }
-                ColumnLayout {
-                    Layout.alignment: Qt.AlignTop
-                    spacing: 8
-                    Rectangle {
-                        implicitWidth: 260
-                        implicitHeight: 260
-                        radius: 14
-                        color: localQr.modules > 0 ? toolsPage.qrBg : Theme.field
-                        border.color: Theme.line
-                        Behavior on color { ColorAnimation { duration: Theme.fade } }
-                        Image {
-                            id: qrPreview
-                            anchors.fill: parent
-                            anchors.margins: 6
-                            visible: localQr.modules > 0
-                            source: localQr.modules > 0 ? "image://qr/" + localQr.revision + "?fg=" + toolsPage.qrFg.slice(1) + "&bg=" + toolsPage.qrBg.slice(1) + "&size=496" : ""
-                            sourceSize: Qt.size(496, 496)
-                            smooth: false
-                            cache: false
-                            scale: status === Image.Ready ? 1 : 0.96
-                            Behavior on scale { SnapSpring {} }
-                        }
-                        Column {
-                            anchors.centerIn: parent
-                            visible: localQr.modules === 0
-                            spacing: 8
-                            ToolIcon { anchors.horizontalCenter: parent.horizontalCenter; name: "qr"; tint: Theme.textFaint; width: 34; height: 34 }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Start typing to generate"; color: Theme.textFaint; font.pixelSize: 12 }
-                        }
-                    }
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: localQr.modules > 0 ? localQr.modules + " × " + localQr.modules + " modules · exports " + toolsPage.qrSize + " px" : "Preview"
-                        color: Theme.textFaint
-                        font.pixelSize: 11
-                    }
-                }
+            QrPanel {
+                id: qrPanel
+                page: toolsPage
             }
 
             Rectangle {
@@ -2545,7 +1118,7 @@ Item {
                                 EditorButton { iconName: "download"; subtle: true; implicitWidth: 30; implicitHeight: 30; visible: !!historyRow.modelData.url
                                                onClicked: {
                                                    toolsPage.resultSection = "download"
-                                                   localDownload.enqueue(historyRow.modelData.url, downloadPreset.currentValue, toolsPage.downloadsFolder,
+                                                   localDownload.enqueue(historyRow.modelData.url, downloadPanel.presetBox.currentValue, toolsPage.downloadsFolder,
                                                                          historyRow.modelData.title, toolsPage.gifOptions())
                                                }
                                                ToolTip.visible: hovered; ToolTip.text: "Download again" }

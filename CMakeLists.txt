@@ -76,6 +76,12 @@ qt_add_qml_module(kadron_ui
         qml/Timeline.qml
         qml/ClipInspector.qml
         qml/ToolsWorkspace.qml
+        qml/DownloadPanel.qml
+        qml/AudioPanel.qml
+        qml/CompressPanel.qml
+        qml/GifPanel.qml
+        qml/PdfPanel.qml
+        qml/QrPanel.qml
         qml/ShareWorkspace.qml
         qml/ToolCombo.qml
         qml/ToolCheck.qml
