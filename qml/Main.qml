@@ -267,7 +267,7 @@ ApplicationWindow {
     function typeText(index) {
         if (root.previewPlaying) root.togglePlayback()
         Core.editorProject.selectText(index)
-        Qt.callLater(function() { captionLayer.edit(index) })
+        Qt.callLater(function() { previewPane.editCaption(index) })
     }
     function togglePlayback() {
         if (stillActive) {
@@ -1249,7 +1249,7 @@ ApplicationWindow {
     // fallback for audio-only media.
     Timer { id: seekSettle; interval: 90; onTriggered: root.settleSeek() }
     Connections {
-        target: videoOutput.videoSink
+        target: previewPane.videoOutput.videoSink
         function onVideoFrameChanged() { if (root.seekInFlight) root.settleSeek() }
     }
 
@@ -1258,7 +1258,7 @@ ApplicationWindow {
         objectName: "editorPlayer"
         source: root.releasingMedia ? "" : Core.editorProject.mediaUrl
         audioOutput: AudioOutput { volume: editorVolume.effectiveVolume * root.clipGain * (Core.editorProject.transition === "fade" ? 1 - root.transitionDim : 1) }
-        videoOutput: videoOutput
+        videoOutput: previewPane.videoOutput
         onPlaybackStateChanged: {
             if (playbackState !== MediaPlayer.PlayingState) root.trimPlayStopMs = -1
             root.applySpeed()
@@ -1468,211 +1468,14 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                 }
-                Rectangle {
+                PreviewPane {
                     id: previewPane
+                    app: root
+                    mediaPlayer: player
                     parent: root.previewFullscreen ? fullscreenHost : previewSlot
                     anchors.fill: parent
-                    color: root.previewFullscreen ? "black" : Theme.canvas
-                    DropArea {
-                        id: previewDropArea
-                        anchors.fill: parent
-                        z: 2
-                        onDropped: function(drop) {
-                            if (drop.urls.length > 0) root.requestOpen(drop.urls[0], false)
-                        }
-                    }
-                    VideoOutput {
-                        id: videoOutput
-                        anchors.fill: parent
-                        anchors.margins: 20
-                        visible: player.hasVideo
-                        fillMode: VideoOutput.PreserveAspectFit
-                        TapHandler { onDoubleTapped: root.previewFullscreen = !root.previewFullscreen }
-                    }
-                    // A clip with a turn, crop or colour change is previewed through
-                    // this: the shown part of the frame, scaled to fit and turned.
-                    Item {
-                        id: lookFrame
-                        readonly property rect content: videoOutput.contentRect
-                        readonly property var crop: root.lookSourceCrop
-                        readonly property bool turned: root.clipLook.rotation % 180 !== 0
-                        readonly property real partWidth: Math.max(1, crop.w * content.width)
-                        readonly property real partHeight: Math.max(1, crop.h * content.height)
-                        readonly property real shownWidth: turned ? partHeight : partWidth
-                        readonly property real shownHeight: turned ? partWidth : partHeight
-                        readonly property real fit: Math.min(videoOutput.width / shownWidth, videoOutput.height / shownHeight)
-                        // Where the picture sits in the pane; captions and the crop frame follow it.
-                        readonly property rect frame: root.lookActive
-                            ? Qt.rect(videoOutput.x + (videoOutput.width - shownWidth * fit) / 2, videoOutput.y + (videoOutput.height - shownHeight * fit) / 2, shownWidth * fit, shownHeight * fit)
-                            : Qt.rect(videoOutput.x + content.x, videoOutput.y + content.y, content.width, content.height)
-                        anchors.fill: parent
-                        visible: root.lookActive
-                        ShaderEffectSource {
-                            id: lookSource
-                            sourceItem: videoOutput
-                            hideSource: root.lookActive
-                            live: true
-                            visible: false
-                            sourceRect: Qt.rect(lookFrame.content.x + lookFrame.crop.u * lookFrame.content.width, lookFrame.content.y + lookFrame.crop.v * lookFrame.content.height,
-                                                lookFrame.partWidth, lookFrame.partHeight)
-                        }
-                        MultiEffect {
-                            objectName: "lookPreview"
-                            source: lookSource
-                            width: lookFrame.partWidth * lookFrame.fit
-                            height: lookFrame.partHeight * lookFrame.fit
-                            x: lookFrame.frame.x + (lookFrame.frame.width - width) / 2
-                            y: lookFrame.frame.y + (lookFrame.frame.height - height) / 2
-                            rotation: root.clipLook.rotation
-                            brightness: root.clipLook.brightness * 0.25
-                            contrast: root.clipLook.contrast * 0.6
-                            saturation: root.clipLook.saturation
-                        }
-                    }
-                    Rectangle {
-                        objectName: "transitionDim"
-                        visible: player.hasVideo && root.transitionDim > 0
-                        x: lookFrame.frame.x
-                        y: lookFrame.frame.y
-                        width: lookFrame.frame.width
-                        height: lookFrame.frame.height
-                        color: "black"
-                        opacity: root.transitionDim
-                    }
-                    // Captions, laid out like the export draws them; drag one to place it.
-                    TextOverlayLayer {
-                        id: captionLayer
-                        objectName: "captionLayer"
-                        visible: player.hasVideo && !root.cropEditing
-                        x: lookFrame.frame.x
-                        y: lookFrame.frame.y
-                        width: lookFrame.frame.width
-                        height: lookFrame.frame.height
-                        texts: Core.editorProject.textItems
-                        timeMs: root.sequencePositionMs
-                        selectedIndex: Core.editorProject.activeTextIndex
-                        draftSize: clipInspector.captionDraftSize
-                        editable: !Core.exporter.busy
-                        onPicked: function(index) { Core.editorProject.selectText(index) }
-                        onMoved: function(index, x, y) { Core.editorProject.setTextStyle(index, { x: x, y: y }) }
-                        onEdited: function(index, text) { Core.editorProject.setTextContent(index, text) }
-                    }
-                    // Crop frame over the whole turned picture while cropping.
-                    CropOverlay {
-                        objectName: "clipCropOverlay"
-                        visible: root.cropEditing && player.hasVideo
-                        x: lookFrame.frame.x
-                        y: lookFrame.frame.y
-                        width: lookFrame.frame.width
-                        height: lookFrame.frame.height
-                        item: root.activeClip ? { cropX: root.clipLook.x, cropY: root.clipLook.y, cropW: root.clipLook.w, cropH: root.clipLook.h } : null
-                        viewSize: Qt.size(Math.max(1, lookFrame.frame.width), Math.max(1, lookFrame.frame.height))
-                        revision: root.cropRevision
-                        onCommitted: function(crop) {
-                            Core.editorProject.setClipCrop(Core.editorProject.activeClipIndex, crop.cropX, crop.cropY, crop.cropW, crop.cropH)
-                            root.cropRevision++
-                        }
-                    }
-                    Column {
-                        anchors.centerIn: parent
-                        spacing: 13
-                        visible: !Core.editorProject.hasMedia || !player.hasVideo
-                        Text {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            text: !Core.editorProject.hasMedia ? "Your next edit starts here" : player.hasVideo ? Core.editorProject.mediaName : "Audio clip"
-                            color: Theme.text
-                            font.pixelSize: 18
-                            font.weight: Font.DemiBold
-                        }
-                        Text {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: Core.editorProject.hasMedia && !player.hasVideo
-                            text: Core.editorProject.mediaName
-                            color: Theme.textMuted
-                            font.pixelSize: 12
-                        }
-                        EditorButton {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: !Core.editorProject.hasMedia
-                            text: "Import media"
-                            primary: true
-                            onClicked: mediaDialog.open()
-                        }
-                        // Recent projects and media, one click to pick up where you left off.
-                        Column {
-                            objectName: "recentList"
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: !Core.editorProject.hasMedia && root.recentFiles.length > 0
-                            width: 340
-                            spacing: 2
-                            topPadding: 14
-                            Text {
-                                text: "RECENT"
-                                color: Theme.textFaint
-                                font.pixelSize: 10
-                                font.weight: Font.DemiBold
-                                font.letterSpacing: 1.2
-                                leftPadding: 10
-                                bottomPadding: 4
-                            }
-                            Repeater {
-                                model: root.recentFiles.slice(0, 5)
-                                delegate: Rectangle {
-                                    id: recentRow
-                                    required property var modelData
-                                    required property int index
-                                    readonly property string path: decodeURIComponent(modelData.url.replace(/^file:\/\/\//, ""))
-                                    objectName: "recentFile" + index
-                                    width: parent.width
-                                    height: 34
-                                    radius: Theme.radiusSmall
-                                    color: recentMouse.containsMouse ? Theme.hover : Theme.hoverClear
-                                    ToolIcon {
-                                        x: 10
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        name: recentRow.modelData.project ? "edit" : "file"
-                                        tint: recentMouse.containsMouse ? Theme.accent : Theme.textMuted
-                                    }
-                                    Text {
-                                        x: 38
-                                        width: parent.width - 48
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: recentRow.path.replace(/^.*\//, "")
-                                        color: recentMouse.containsMouse ? Theme.text : Theme.textSoft
-                                        font.pixelSize: 12
-                                        elide: Text.ElideMiddle
-                                    }
-                                    MouseArea {
-                                        id: recentMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.requestOpen(recentRow.modelData.url, recentRow.modelData.project)
-                                    }
-                                    ToolTip.visible: recentMouse.containsMouse
-                                    ToolTip.delay: 700
-                                    ToolTip.text: recentRow.path
-                                }
-                            }
-                        }
-                    }
-                    Text {
-                        anchors.left: parent.left
-                        anchors.bottom: parent.bottom
-                        anchors.margins: 16
-                        text: root.playerError
-                        color: Theme.danger
-                        font.pixelSize: 12
-                        visible: root.playerError.length > 0
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        z: 1
-                        visible: previewDropArea.containsDrag
-                        color: "transparent"
-                        border.color: Theme.accent
-                        border.width: 2
-                    }
+                    captionDraftSize: clipInspector.captionDraftSize
+                    onImportMedia: mediaDialog.open()
                 }
                 Rectangle {
                     Layout.fillWidth: true

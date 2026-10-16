@@ -105,6 +105,7 @@ qt_add_qml_module(kadron_ui
         qml/PublishPanel.qml
         qml/Sidebar.qml
         qml/TimelinePanel.qml
+        qml/PreviewPane.qml
         qml/ToolsWorkspace.qml
         qml/DownloadPanel.qml
         qml/AudioPanel.qml
