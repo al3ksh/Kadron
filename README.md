@@ -126,7 +126,11 @@ src/      C++ core: project model, export, local tools, server clients
 qml/      Interface (the Kadron QML module); Theme.qml holds every color, size and motion constant
 tests/    Core tests (real FFmpeg/qpdf runs, local HTTP fixtures) and UI interaction tests
 assets/   Logo and Windows icon
+shaders/  The startup intro's fragment shader
+design/   The intro's HTML mock-up and its renderer
+docs/     README screenshots
 packaging/windows/  Installer script (NSIS) and the packaging build
+.github/  CI: builds and runs both test suites on every push
 ```
 
 The interface rules are in [DESIGN.md](DESIGN.md), and scope and constraints are in [PRODUCT.md](PRODUCT.md).

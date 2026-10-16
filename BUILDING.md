@@ -13,9 +13,11 @@ C:\msys64\ucrt64\bin\ctest.exe --test-dir build --output-on-failure
 
 Launch `build/kadron.exe` with the MSYS2 UCRT64 runtime DLL directory on `PATH`. A local media file or `.kadr` project may be passed as the first argument.
 
-Kadron saves `.kadr` projects in version 2 with ordered clips and opens version 1 projects. Multi-clip export requires both FFmpeg and FFprobe; temporary segments are created beside the destination and removed after success or cancellation.
+Kadron saves `.kadr` projects as versioned JSON (version 5, or 6 once the project has text) and opens every earlier version. Multi-clip export requires both FFmpeg and FFprobe; temporary segments are created beside the destination and removed after success or cancellation.
 
 Windows is the only platform verified.
+
+`.github/workflows/ci.yml` does the same on GitHub Actions (MSYS2 UCRT64 on `windows-latest`) for every push to `main`, every tag and every pull request. The runner has no GPU, so the hardware encoder test only checks that none are reported.
 
 ## Windows installer
 
