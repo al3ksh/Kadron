@@ -74,6 +74,7 @@ qt_add_qml_module(kadron_ui
         qml/RememberedOptions.qml
         qml/EditorField.qml
         qml/Timeline.qml
+        qml/ClipInspector.qml
         qml/ToolsWorkspace.qml
         qml/ShareWorkspace.qml
         qml/ToolCombo.qml
