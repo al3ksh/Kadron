@@ -62,6 +62,14 @@ int main(int argc, char *argv[])
 {
     if (qEnvironmentVariableIsSet("KADRON_LOG_FILE"))
         qInstallMessageHandler(fileMessageHandler);
+    // Qt Multimedia probes every FFmpeg hardware device (CUDA, Vulkan, QSV...) the
+    // first time a MediaPlayer loads, which blocks the main window load for ~1.5 s
+    // and leaves the intro waiting. Windows only ever lands on D3D11/DXVA2, so
+    // probe just those unless the user asked for something else.
+    if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
+        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "d3d11va,dxva2");
+    if (!qEnvironmentVariableIsSet("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"))
+        qputenv("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES", "d3d11va");
     QGuiApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("Kadron"));
     app.setOrganizationDomain(QStringLiteral("aleksh.xyz"));
